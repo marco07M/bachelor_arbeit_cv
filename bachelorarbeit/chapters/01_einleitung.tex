@@ -1,0 +1,57 @@
+% !TeX root = ../thesis.tex
+% Kapitel 1: Entwurf, zuletzt am 08.10.2026 überarbeitet; noch nicht final abgestimmt.
+\chapter{Einleitung}
+\label{chap:einleitung}
+
+\section{Problemstellung und Motivation}
+
+Im betrachteten Unternehmensprozess wird die Teilnahme an Schulungen anhand handschriftlich ausgefüllter Teilnehmerlisten dokumentiert. Die darin enthaltenen Angaben werden bislang durch eine Person ausgelesen und in ein betriebliches Schulungssystem übertragen. Zu den für die Untersuchung vorgesehenen Informationen gehören Vorname, Nachname, Personalnummer, Abteilung und Angaben zum Vorhandensein einer Unterschrift. Die manuelle Übertragung bildet den Ausgangspunkt für die Frage, in welchem Umfang \ac{ki} die Erfassung unterstützen kann und welcher Aufwand für eine verlässliche Weiterverarbeitung verbleibt.
+
+Die für die Untersuchung vorgesehenen historischen Dokumente liegen als Dateien im \ac{pdf} vor. Diese können neben handschriftlich ausgefüllten Teilnehmerlisten auch Titelseiten, leere Seiten, nicht ausgefüllte oder maschinell ausgefüllte Listen sowie weitere Inhalte enthalten. Hinzu kommen unterschiedliche Listenvarianten und abweichende Seitenorientierungen. Vor der eigentlichen Extraktion müssen deshalb die relevanten Seiten identifiziert und in eine geeignete Orientierung gebracht werden. Diese Eigenschaften der Datengrundlage verdeutlichen, dass die Verarbeitung bereits vor der Erkennung einzelner Feldwerte mehrere aufeinander aufbauende Aufgaben umfasst.
+
+Für die Erkennung handschriftlicher Inhalte ist zudem die Beschaffenheit des Bildmaterials relevant. Lee et al.~\cite{Lee2021GNHK} untersuchen mit dem \acs{gnhk}-Datensatz die Lokalisierung und Erkennung englischer Handschriften in fotografierten Dokumenten aus unterschiedlichen realen Umgebungen. Die Arbeit verdeutlicht die Bedeutung von Untersuchungsbedingungen, die über standardisierte Textausschnitte hinausgehen. Für die vorliegende Untersuchung folgt daraus, dass die Dokumenteigenschaften des betrieblichen Anwendungsfalls bei der Zusammenstellung und Auswertung der Testdaten berücksichtigt werden müssen.
+
+Die angestrebte Automatisierung geht über die Überführung eines Schriftbilds in eine Zeichenfolge hinaus. Erkannte Angaben müssen den vorgesehenen Feldern und den richtigen Teilnehmenden zugeordnet werden. Ein korrekt gelesener Name ist für die weitere Verarbeitung nur dann nutzbar, wenn auch seine Zuordnung zur zugehörigen Personalnummer und zu den weiteren Angaben stimmt. Skalický et al.~\cite{Skalicky2022Benchmarks} unterscheiden entsprechend zwischen der Extraktion einzelner Schlüsselinformationen und der Erkennung zusammengehöriger Einträge innerhalb eines Dokuments. Sie heben außerdem die Bedeutung der Lokalisierung extrahierter Angaben für Anwendungen mit menschlicher Validierung hervor. Diese Unterscheidungen sind auf die Bewertung mehrzeiliger Teilnehmerlisten übertragbar.
+
+Zur Bearbeitung solcher Aufgaben stehen unterschiedliche \acs{ki}-basierte Ansätze zur Verfügung. \ac{trocr} zeigt einen auf vortrainierten Transformern beruhenden Ansatz zur Texterkennung, der unter anderem auf handschriftlichen Textzeilen evaluiert wird~\cite{Li2023TrOCR}. Donut verfolgt dagegen die direkte Verarbeitung von Dokumentbildern für Aufgaben des Dokumentenverständnisses, ohne dass vorher \ac{ocr} angewandt wird. Die Autoren diskutieren dabei unter anderem die Weitergabe von \acs{ocr}-Fehlern an nachgelagerte Verarbeitungsschritte sowie den Aufwand mehrstufiger Pipelines~\cite{Kim2022Donut}. Diese Arbeiten illustrieren unterschiedliche Verarbeitungsarchitekturen, deren Eignung für den vorliegenden Anwendungsfall empirisch zu prüfen ist.
+
+Auch die Fähigkeiten großer multimodaler Modelle begründen keine voraussetzungslose Zuverlässigkeit bei der Dokumentenextraktion. OCRBench v2 dokumentiert bei den untersuchten Modellen Grenzen in textbezogenen Bildaufgaben, darunter Handschriftextraktion, Textlokalisierung und Layoutverständnis~\cite{Fu2025OCRBenchV2}. Daraus lässt sich keine konkrete Fehlerquote für die hier betrachteten Teilnehmerlisten ableiten. Die Ergebnisse begründen jedoch die Notwendigkeit, ausgewählte Verfahren anhand einer zum Anwendungsfall passenden Datengrundlage zu überprüfen, anstatt allgemeine Modellfähigkeiten mit betrieblicher Eignung gleichzusetzen.
+
+Neben der Extraktionsqualität ist zu untersuchen, welcher Nutzen im bestehenden Arbeitsablauf erreichbar ist. Eine vergleichende Studie zur Digitalisierung gedruckter Berichte aus dem Bereich \ac{erp} verbindet beispielsweise die Bewertung multimodaler Modelle mit einer Untersuchung manueller Datenerfassung hinsichtlich Genauigkeit, Zeit und Kosten~\cite{Lertyosbordin2026ERP}. Ihre Ergebnisse sind aufgrund der abweichenden Dokumente und Prozessbedingungen nicht unmittelbar auf handschriftliche Teilnehmerlisten übertragbar. Für die vorliegende Arbeit werden deshalb eigene Prozessdaten benötigt. Mögliche Einsparungen müssen unter Berücksichtigung der automatisierten Verarbeitung, der menschlichen Kontrolle und Korrektur sowie der weiterhin notwendigen Übernahme in das Schulungssystem beurteilt werden.
+
+\section{Zielsetzung der Arbeit}
+
+Ziel dieser Arbeit ist die vergleichende Untersuchung ausgewählter \acs{ki}-basierter Ansätze zur automatisierten Informationsextraktion aus handschriftlich ausgefüllten Teilnehmerlisten. Im Mittelpunkt stehen die korrekte und vollständige Erfassung von Vorname, Nachname, Personalnummer und Abteilung sowie die Feststellung, ob im vorgesehenen Feld eine Unterschrift vorhanden ist. Die Angaben sollen strukturiert ausgegeben und den jeweiligen Teilnehmenden innerhalb der Liste zugeordnet werden. Die Bewertung des Unterschriftsfelds beschränkt sich ausschließlich auf das Vorhandensein einer Unterschrift.
+
+Hierzu wird ein prototypisches Evaluationsframework in Python entwickelt. Dieses führt die ausgewählten Verfahren auf einer gemeinsamen Datengrundlage aus, speichert die Extraktionsergebnisse und vergleicht sie mit manuell erstellten Referenzdaten. Die Untersuchung soll Unterschiede in der Extraktionsqualität sowie typische Fehlermuster sichtbar machen. Ergänzend werden Laufzeiten, Verarbeitungskosten und technische Anforderungen erfasst. Die erforderliche Auswahl und Aufbereitung relevanter \acs{pdf}-Seiten wird als vorgelagerter Verarbeitungsschritt berücksichtigt; der Schwerpunkt der Untersuchung liegt auf der Informationsextraktion und ihrer Evaluation.
+
+Ein weiteres Ziel ist die wirtschaftliche Einordnung gegenüber der bisherigen manuellen Bearbeitung. Dazu sollen der Zeit- und Kostenaufwand beider Vorgehensweisen bis zu einem vergleichbaren Bearbeitungsstand gegenübergestellt werden. Beim automatisierten Vorgehen werden neben den Verarbeitungskosten auch der verbleibende menschliche Aufwand für Vorbereitung, Kontrolle und Korrektur berücksichtigt. Einmalige Entwicklungs- und Integrationsaufwände werden, soweit belastbar abschätzbar, gesondert ausgewiesen. Falls erforderliche Prozessdaten nicht vollständig erhoben werden können, erfolgt eine entsprechend gekennzeichnete Szenariobetrachtung auf Grundlage transparenter Annahmen.
+
+Der Prototyp soll die extrahierten Angaben für eine menschliche Kontrolle und Korrektur bereitstellen. Eine produktive Anbindung an das betriebliche Schulungssystem gehört nicht zum verpflichtenden Implementierungsumfang. Die Möglichkeiten und Voraussetzungen einer solchen Anbindung werden bei der praktischen Einordnung betrachtet. Einsparungen durch einen bislang nicht umgesetzten automatisierten Import werden ausschließlich als bedingtes Szenario berücksichtigt. Die Arbeit soll auf dieser Grundlage eine nachvollziehbare Entscheidung über die Eignung der untersuchten Ansätze unterstützen. Ihre Aussagen beziehen sich auf die ausgewählten Modelle, die untersuchten Dokumente und die festgelegten Versuchsbedingungen.
+
+\section{Forschungsfrage}
+
+Aus der beschriebenen Problemstellung und Zielsetzung ergibt sich folgende zentrale Forschungsfrage:
+
+\begin{quote}
+  \researchquestion
+\end{quote}
+
+Zur systematischen Beantwortung wird die Forschungsfrage durch vier Unterfragen konkretisiert:
+
+\begin{enumerate}
+  \item Wie korrekt und vollständig werden die geforderten Informationen extrahiert und den jeweiligen Teilnehmenden zugeordnet, und welche Fehlermuster treten auf?
+  \item Welcher Zeit- und Rechenaufwand entsteht bei der Verarbeitung durch die untersuchten Ansätze?
+  \item Welche Kosten entstehen einschließlich manueller Kontrolle und Korrektur, und unter welchen Bedingungen ergeben sich Einsparungen gegenüber der bisherigen manuellen Bearbeitung?
+  \item Welche Anforderungen und Einschränkungen ergeben sich hinsichtlich Dokumentvarianten, Datenschutz, technischer Integration und manueller Nachbearbeitung?
+\end{enumerate}
+
+Die Unterfragen verbinden die technische Leistungsbewertung mit den Bedingungen des betrieblichen Einsatzes. Die Wirtschaftlichkeitsbetrachtung konkretisiert dabei die Dimensionen Effizienz und praktische Einsatzfähigkeit. Angestrebt wird eine differenzierte Bewertung der Stärken, Schwächen und Zielkonflikte der untersuchten Ansätze. Ob ein Ansatz für den Anwendungsfall geeignet ist, soll anhand der erhobenen Ergebnisse und der betrieblichen Anforderungen beurteilt werden.
+
+\section{Aufbau der Arbeit}
+
+Kapitel~\ref{chap:grundlagen} erläutert die theoretischen Grundlagen der automatisierten Dokumentenverarbeitung und Informationsextraktion. Es behandelt \acs{ocr} und \ac{htr}, \acs{ki}-basierte Erkennungsansätze, Vision-Language-Modelle (\acs{vlm}) sowie hybride Verfahren. Darauf aufbauend werden Grundlagen der Bewertung und der relevante Forschungsstand dargestellt, um den Untersuchungsbedarf der Arbeit einzuordnen.
+
+Kapitel~\ref{chap:methodik} beschreibt das methodische Vorgehen. Dazu gehören das Untersuchungsdesign, der Anwendungsfall und die Datengrundlage, die Erstellung der Ground Truth sowie die begründete Auswahl der Ansätze und Modelle. Außerdem werden Datenvorverarbeitung, Ausgabeformate, Evaluationsmetriken und die wirtschaftliche Bewertungsgrundlage festgelegt. Der Versuchsablauf und die Maßnahmen zur Reproduzierbarkeit schließen das Kapitel ab. Kapitel~\ref{chap:evaluationsframework} erläutert anschließend die Architektur des Evaluationsframeworks, die Implementierung der ausgewählten Ansätze sowie die automatisierte Durchführung und Auswertung der Versuche.
+
+Kapitel~\ref{chap:ergebnisse} stellt die Ergebnisse zur Extraktionsqualität, zu Fehlermustern, Effizienz, Kosten und praktischer Einsatzfähigkeit dar und führt sie zu einer vergleichenden Gesamtbewertung zusammen. Kapitel~\ref{chap:diskussion} interpretiert die Befunde, ordnet sie in den Forschungsstand ein und beantwortet die Forschungsfrage. Dabei werden Zielkonflikte, betriebliche Einsatzbedingungen und Limitationen diskutiert. Kapitel~\ref{chap:fazit} fasst die zentralen Erkenntnisse zusammen, formuliert Schlussfolgerungen für den praktischen Einsatz und benennt weiterführende Untersuchungsmöglichkeiten.

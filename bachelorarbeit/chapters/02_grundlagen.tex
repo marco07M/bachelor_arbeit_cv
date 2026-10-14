@@ -1,0 +1,71 @@
+% !TeX root = ../thesis.tex
+% Abschnitte 2.1, 2.2, 2.4 und 2.5 ausgearbeitet; übrige Abschnitte bleiben im Entwurf.
+\chapter{Theoretische Grundlagen und Stand der Forschung}
+\label{chap:grundlagen}
+Dieses Kapitel erläutert die Verarbeitung von Dokumentbildern, die Erkennung gedruckter und handschriftlicher Texte sowie Verfahren zur Gewinnung strukturierter Informationen. Die Begriffe und Verarbeitungsschritte bilden die Grundlage für den späteren Vergleich der Ansätze zur Extraktion aus Teilnehmerlisten.
+
+\section{Automatisierte Dokumentenverarbeitung und Informationsextraktion}
+Unter \ac{dia} werden Verfahren zur Erkennung und Auswertung visueller Bestandteile digitalisierter Dokumente zusammengefasst~\cite{OGorman1997DIA}. Bei den hier betrachteten \acs{pdf}-Dateien beginnt die Verarbeitung mit der Auswahl und Ausrichtung relevanter Seiten. Anschließend werden Bereiche lokalisiert, Texte erkannt und die Angaben den vorgesehenen Feldern zugeordnet. Diese Schritte können getrennt oder gemeinsam durch ein Modell umgesetzt werden.
+
+Ein Teilbereich ist die \ac{dla}. O'Gorman und Kasturi unterscheiden dabei eine geometrische Ebene, auf der beispielsweise Textzeilen und Blöcke abgegrenzt werden, und eine funktionale Ebene, auf der die Bereiche eine Bedeutung erhalten~\cite{OGorman1997DIA}. Bei Teilnehmerlisten betrifft dies die Erkennung von Zeilen und Spalten sowie die Zuordnung zu Feldern wie Vorname, Personalnummer oder Unterschrift. Eine richtig transkribierte Zeichenfolge im falschen Feld ist deshalb kein korrektes Extraktionsergebnis. Für die Fehleranalyse ist diese Unterscheidung hilfreich, auch wenn ein Verfahren beide Aufgaben in einem Schritt bearbeitet.
+
+Die Informationsextraktion überführt erkannte Inhalte in ein vorgegebenes Zielschema. Das Ergebnis soll für jede erfasste Teilnehmerzeile Vorname, Nachname, Personalnummer, Abteilung und das Vorhandensein einer Unterschrift enthalten. Dafür müssen zusammengehörige Angaben derselben Zeile zugeordnet werden. Skalický et al. unterscheiden die Extraktion einzelner Schlüsselinformationen von der Erkennung zusammengehöriger Einträge innerhalb eines Dokuments~\cite{Skalicky2022Benchmarks}. Fehlende und nicht lesbare Werte sind dabei gesondert zu kennzeichnen. In der späteren Bewertung werden Transkriptionsfehler, falsche Zeilen- oder Feldzuordnungen und unbegründete Ergänzungen getrennt betrachtet.
+
+Bekannte Formularpositionen können die Lokalisierung bei vorlagenbasierten Verfahren vereinfachen. Bei festen Koordinaten müssen jedoch Verschiebungen, Skalierung und Drehung berücksichtigt werden. Layoutorientierte Modelle wie LayoutLM zeigen einen anderen Ansatz, indem sie Text und räumliche Position gemeinsam für Aufgaben des Dokumentenverständnisses modellieren~\cite{Xu2020LayoutLM}. Ob solche Ansätze für die vorliegenden handschriftlichen Listen geeignet sind, ist Gegenstand der Untersuchung.
+\section{\texorpdfstring{\acs{ocr}}{OCR} und \texorpdfstring{\acs{htr}}{HTR}}
+\acl{ocr} (\acs{ocr}) bezeichnet die Überführung von Textbildern in maschinenlesbaren Text. Der Begriff umfasst auch die Erkennung handschriftlicher Eingaben; \acs{trocr} wird beispielsweise als \acs{ocr}-Verfahren vorgestellt und auf gedruckten sowie handschriftlichen Textbildern untersucht~\cite{Li2023TrOCR}. \acl{htr} (\acs{htr}) bezeichnet in dieser Arbeit die speziell auf Handschrift bezogene Erkennungsaufgabe. Diese Arbeitsdefinition unterstützt die spätere Auswertung, ohne beide Begriffe als grundsätzlich getrennte Verfahrensklassen zu behandeln.
+
+Handschriftliche Einträge können zwischen Schreibenden und innerhalb eines Dokuments in Form, Größe und Verbindung der Zeichen variieren. Besonders bei verbundener Schrift ist die Segmentierung in einzelne Zeichen schwierig; Erkennungsverfahren können daher auf Wort- oder Zeilenbildern ansetzen~\cite{Ploetz2009MarkovSurvey}. \ac{ctc} ermöglicht es Sequenzmodellen, Ausgabefolgen ohne vorgegebene Ausrichtung jedes Zeichens zum Eingabesignal zu lernen~\cite{Graves2006CTC}. Die Originalarbeit belegt damit keine konkrete Erkennungsleistung auf den hier untersuchten Teilnehmerlisten.
+
+Je nach Dokument und Modell können vor der Erkennung Bildbereiche ausgerichtet, entrauscht, binarisiert oder segmentiert werden. Bei einer globalen Binarisierung gilt ein Schwellenwert für das gesamte Bild; Otsus Verfahren ermittelt ihn aus dem Grauwert-Histogramm~\cite{Otsu1979Threshold}. Lokale Verfahren wie das von Sauvola und Pietikäinen beschriebene berücksichtigen die Umgebung einzelner Bildbereiche und können dadurch auf wechselnde Bildbedingungen reagieren~\cite{Sauvola2000Binarization}. Ob eine Binarisierung hilfreich ist, muss für die eingesetzten Modelle geprüft werden.
+
+Zur Korrektur einer Seitenschräglage beschreiben O'Gorman und Kasturi unter anderem Projektionsprofile und die Hough-Transformation~\cite{OGorman1997DIA}. Anschließend können Textzeilen oder Formularbereiche segmentiert werden. Bei handschriftlich ausgefüllten Teilnehmerlisten ist zu prüfen, wie sich berührte oder überschrittene Zellgrenzen auf diese Schritte auswirken. Auch nach einer korrekten Transkription müssen erkannte Angaben noch der richtigen Zeile und dem richtigen Feld zugeordnet werden.
+
+Mehrstufige Systeme können Fehler früher Verarbeitungsschritte an spätere Schritte weitergeben. Daneben gibt es Ansätze, die Aufgaben zusammenfassen: \acs{trocr} konzentriert sich auf die Erkennung eines Textbilds~\cite{Li2023TrOCR}, während Donut ein Dokumentbild ohne vorgeschaltetes externes \acs{ocr}-System direkt in eine aufgabenspezifische Ausgabe überführt~\cite{Kim2022Donut}. Die Verfahren lösen damit unterschiedliche Teilaufgaben; ihre Leistung für die vorliegenden Listen muss unter vergleichbaren Bedingungen ermittelt werden.
+\section{\texorpdfstring{\acs{ki}}{KI}- und Deep-Learning-Verfahren zur Handschrifterkennung}
+Spezialisierte Erkennungsmodelle erhalten typischerweise ein Bild eines Textbereichs und geben eine Zeichen- oder Tokenfolge zurück. Eine solche Architektur kann die Transkription verbessern, übernimmt aber die Feldzuordnung nur dann, wenn diese ausdrücklich Teil der Eingabe oder eines zusätzlichen Verarbeitungsschritts ist. Für den Vergleich in dieser Arbeit ist deshalb die gesamte benötigte Pipeline zu betrachten und nicht allein das Erkennungsmodell.
+
+\acs{trocr} ist ein Beispiel für einen Transformer-basierten Ansatz zur Texterkennung: Ein Bild-Transformer kodiert das Textbild, während ein Text-Transformer die Ausgabe erzeugt. Die Originalarbeit untersucht unter anderem handschriftliche Textbilder und beschreibt ein Vorgehen mit Vortraining und anschließendem Fine-Tuning~\cite{Li2023TrOCR}. Daraus folgt noch keine Eignung des Modells für die vorliegenden Teilnehmerlisten; insbesondere die Eingabeform, Sprache, Feldzuordnung und verfügbare Rechenumgebung müssen vor einer Auswahl geprüft werden.
+\section{Vision-Language-Modelle}
+Vision-Language-Modelle (\acs{vlm}) verarbeiten Bild- und Textinformationen gemeinsam. Für die Dokumentenextraktion ist besonders relevant, ob ein Modell gesuchte Angaben aus einem Dokumentbild oder Bildausschnitt in eine vorgegebene Struktur übertragen kann. Die Bezeichnung umfasst unterschiedliche Architekturen: Dokumentenspezifische Modelle wie Donut erzeugen aufgabenspezifische Ausgaben aus Dokumentbildern, während allgemeine, instruktionsgesteuerte Modelle Bildinformationen mit einem Sprachmodell verknüpfen~\cite{Kim2022Donut,Liu2023VisualInstruction}. Diese Gruppen sind nicht mit einem einheitlichen Leistungs- oder Ressourcenprofil gleichzusetzen.
+
+\subsection{OCR-freies Dokumentenverständnis am Beispiel Donut}
+Donut verzichtet bei der Anwendung auf ein vorgeschaltetes, separates \acs{ocr}-System. Ein visueller Transformer kodiert das Eingabebild; ein Textdecoder erzeugt daraus eine Folge von Ausgabetokens. Die Originalarbeit verwendet einen Swin-Transformer als visuellen Encoder und einen vortrainierten multilingualen Textdecoder. Aufgabenspezifische Prompt-Tokens steuern die Ausgabe, die anschließend in ein strukturiertes Format wie \ac{json} überführt werden kann~\cite{Kim2022Donut}. OCR-frei bedeutet in diesem Zusammenhang, dass kein eigenständiges OCR-Modul vorgeschaltet wird; das Modell muss den für die Aufgabe relevanten Text weiterhin aus dem Bild erschließen.
+
+Die autoregressive Ausgabe lässt sich bei einem vorgegebenen Aufgabenprompt $q$ als bedingte Folge von Tokens beschreiben:
+\begin{equation}
+  P(Y\mid I,q)=\prod_{t=1}^{T}P(y_t\mid y_{<t},I,q).
+  \label{eq:donut-tokenfolge}
+\end{equation}
+Dabei ist $I$ das Dokumentbild, $Y=(y_1,\ldots,y_T)$ die erzeugte Tokenfolge und $y_{<t}$ die vor dem Schritt $t$ erzeugte Teilfolge. Die Gleichung beschreibt die sequenzielle Generierung und legt weder die Feldqualität noch die Zuverlässigkeit der Ausgabe auf handschriftlichen Teilnehmerlisten fest~\cite{Kim2022Donut}.
+
+\subsection{Allgemeine multimodale Modelle und Grenzen}
+Allgemeine multimodale Modelle können durch visuelle Instruktionsabstimmung darauf trainiert werden, Bild- und Textanweisungen gemeinsam zu verarbeiten. \ac{llava} verbindet beispielsweise einen visuellen Encoder mit einem \ac{llm} und wird mit Bild-Text-Instruktionen angepasst~\cite{Liu2023VisualInstruction}. Dieser Nachweis allgemeiner visueller Instruktionsverarbeitung belegt für sich genommen noch keine zuverlässige Extraktion aus den vorliegenden Formularen.
+
+OCRBench v2 zeigt bei den dort untersuchten multimodalen Modellen Grenzen unter anderem bei der Textlokalisierung, der Extraktion handschriftlicher Inhalte und dem Layoutverständnis~\cite{Fu2025OCRBenchV2}. Für Teilnehmerlisten sind deshalb neben der Zeichenfolge insbesondere die Zuordnung zu Zeilen und Feldern sowie fehlende, unlesbare oder unbegründet ergänzte Werte zu prüfen. Das Risiko plausibel wirkender, aber bildseitig nicht belegter Angaben wird in der Fehleranalyse untersucht; eine konkrete Häufigkeit lässt sich aus den veröffentlichten Benchmarks für diesen Anwendungsfall nicht ableiten. Ebenso sind Laufzeit, Speicherbedarf und Kosten für die tatsächlich ausgewählten Modelle unter den später festgelegten Bedingungen zu erfassen. Ergebnisse einer Kostenstudie zu gedruckten Berichten aus dem \acs{erp}-Bereich lassen sich nicht unmittelbar auf handschriftliche Listen übertragen~\cite{Lertyosbordin2026ERP}.
+\section{Hybride Verfahren}
+Hybride Verfahren verbinden mehrere spezialisierte Verarbeitungsschritte. Eine mögliche Pipeline für die vorliegende Aufgabe lokalisiert zunächst relevante Zeilen oder Felder, transkribiert die ausgeschnittenen Textbereiche und ordnet die Ergebnisse anschließend den gesuchten Attributen zu. Im Unterschied zu einem direkt generierenden Dokumentmodell bleiben Bildlokalisierung, Texterkennung und Strukturierung als einzelne Schritte erkennbar~\cite{Kim2022Donut}.
+
+\subsection{Aufbau einer mehrstufigen Extraktionspipeline}
+Die Lokalisierung liefert Bildausschnitte und gegebenenfalls Koordinaten der erkannten Bereiche. Ein darauf angewandtes \acs{ocr}- oder \acs{htr}-Modell erzeugt die Transkription. \acs{trocr} ist ein Beispiel für die Erkennung eines vorgegebenen Textbilds; die Ermittlung der Feldkoordinaten gehört nicht zu dieser Transkriptionsaufgabe und müsste separat erfolgen~\cite{Li2023TrOCR}. Für eine spätere Kontrolle sind Dokumentkennung, Bildbereich und erkannter Text gemeinsam zu speichern.
+
+Im anschließenden Schritt können Regeln oder ein \acs{llm} die erkannten Textfragmente, ihre Positionen und gegebenenfalls Feldbezeichner in das Zielschema überführen. Bei Teilnehmerlisten betrifft dies besonders die Zuordnung mehrerer Werte zu derselben Person und die Unterscheidung zwischen fehlenden und unlesbaren Einträgen. Eine Sprachmodellkomponente ist dabei eine mögliche Ausgestaltung, keine notwendige Eigenschaft jeder hybriden Pipeline. Ihre Ausgabe muss anhand der Originalbilder und der Referenzdaten bewertet werden.
+
+\subsection{Fehlerfortpflanzung, Nachprüfbarkeit und Aufwand}
+Ein Fehler in der Lokalisierung oder Transkription kann nachfolgende Schritte beeinflussen. Kim et al. beschreiben diese Fehlerfortpflanzung für dokumentbezogene Extraktionspipelines~\cite{Kim2022Donut}. Van Strien et al. zeigen darüber hinaus für andere nachgelagerte Textverarbeitungsaufgaben, dass \acs{ocr}-Fehler deren Ergebnisse beeinträchtigen können~\cite{vanStrien2020OCRQuality}. Diese Befunde begründen eine getrennte Fehleranalyse, liefern aber keine Fehlerquote für die hier untersuchten Listen. Ohne Zugriff auf den betreffenden Bildbereich kann eine nachgelagerte Sprachmodellkomponente eine falsch erkannte Personalnummer nicht verlässlich aus dem Text allein rekonstruieren.
+
+Gespeicherte Koordinaten ermöglichen es, extrahierte Angaben bei der menschlichen Prüfung zum Ursprungsbild zurückzuführen. Dieser Vorteil entsteht nur, wenn Lokalisierung und Feldzuordnung korrekt sind und die Verknüpfung in der Ergebnisstruktur erhalten bleibt; er ist nicht jeder hybriden Architektur automatisch gegeben~\cite{Skalicky2022Benchmarks}. Die getrennten Komponenten lassen sich einzeln prüfen und gegebenenfalls austauschen, verursachen aber auch eigenen Integrations- und Laufzeitaufwand. Ob die Pipeline gegenüber einem direkt generierenden Modell genauer, schneller oder kostengünstiger ist, wird anhand derselben Dokumente und eines vergleichbaren Bearbeitungsstands untersucht.
+\section{Bewertung von Informationsextraktionssystemen}
+\begin{inhalte}
+  \item Extraktionsqualität
+  \item Fehlermaße
+  \item Laufzeit und Rechenaufwand
+  \item Kosten
+  \item Praktische Einsatzfähigkeit
+\end{inhalte}
+\section{Stand der Forschung und Forschungslücke}
+\begin{inhalte}
+  \item Bisherige Vergleiche von \acs{ocr}-, \acs{htr}- und multimodalen Modellen
+  \item Offene Fragestellungen bei handschriftlichen strukturierten Dokumenten
+  \item Einordnung der eigenen Untersuchung
+\end{inhalte}

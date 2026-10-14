@@ -1,0 +1,66 @@
+% !TeX root = ../thesis.tex
+% Vorläufige Gliederung mit geplanten Inhalten.
+\chapter{Methodik}
+\label{chap:methodik}
+\section{Untersuchungsdesign}
+\begin{inhalte}
+  \item Vergleich der untersuchten Ansätze unter kontrollierten Testbedingungen
+  \item Reproduzierbare Versuchsdurchführung
+\end{inhalte}
+\section{Anwendungsfall und Datengrundlage}
+Die Datengrundlage bilden historische, handschriftlich ausgefüllte Teilnehmerlisten aus Trainings und Schulungen eines Unternehmens. Der endgültige Umfang und die Zusammensetzung des Bestands stehen vor der Sichtung und Vorverarbeitung noch nicht fest. Für die Stichprobenbeschreibung werden später insbesondere die Zahl der Dokumente und Teilnehmerzeilen, die Dokumentvarianten, die Bildqualität und die Häufigkeit fehlender oder nicht lesbarer Einträge erfasst. Erst auf dieser Grundlage können Auswahl und Aussagebereich der Untersuchung abschließend begründet werden.
+
+Als Zielfelder sind Vorname, Nachname, Personalnummer und Abteilung vorgesehen. Beim Unterschriftsfeld wird ausschließlich erfasst, ob eine Unterschrift vorhanden ist. Eine inhaltliche Analyse der Unterschrift oder Identitätsprüfung ist nicht Gegenstand der Untersuchung. Ob die Personalnummer als eindeutige Kennung für die Aufteilung wiederkehrender Personen genutzt werden kann, wird bei der Datensichtung geprüft.
+
+Die Listen enthalten personenbezogene Angaben. Eine Übermittlung von Dokumenten oder Ausschnitten an externe \acs{api}-basierte Modelldienste kommt nur nach Freigabe oder nach geprüfter Anonymisierung in Betracht. Bis zur Klärung dieser Voraussetzung bleibt die Verarbeitung der Originaldaten lokal. Dieser Rahmen beeinflusst die spätere Modellauswahl und ist im Versuchsprotokoll zu dokumentieren.
+\section{Erstellung der Ground Truth}
+Die Ground Truth wird unabhängig von den Ausgaben der untersuchten Modelle erstellt oder manuell überprüft. Als Annotationseinheit dient zunächst die Teilnehmerzeile mit den zugehörigen Zielfeldern. Die Dokumentkennung und eine stabile Zeilenkennung ermöglichen die spätere Zuordnung zwischen Bild, Referenz und Modellausgabe. Vor Beginn der Annotation wird ein Codebuch mit Beispielen für alle Feldtypen festgelegt.
+
+Das Codebuch unterscheidet einen tatsächlich fehlenden Eintrag von einem vorhandenen, aber nicht zuverlässig lesbaren Eintrag. Für unklare Fälle wird die Entscheidung dokumentiert und möglichst durch eine zweite Sichtung überprüft. Die originale Ablesung bleibt erhalten; eine gegebenenfalls vereinheitlichte Schreibweise wird separat gespeichert. Bei Namen, Abteilungen und Personalnummern müssen insbesondere Groß- und Kleinschreibung, Leerzeichen, Sonderzeichen und führende Nullen vor der Auswertung geregelt werden. Diese Regeln dürfen nach Sichtung der finalen Modellergebnisse nicht mehr geändert werden.
+
+Für die Auswertung werden nur Felder verwendet, deren Referenzwert nach dem festgelegten Protokoll bestimmbar ist. Die Zahl ausgeschlossener oder als unleserlich markierter Felder wird berichtet. Für das Unterschriftsfeld wird die Anwesenheit einer Unterschrift binär annotiert. Die Qualitätskontrolle der Referenzdaten wird nach Sichtung des Bestands festgelegt und begründet.
+\section{Auswahl der untersuchten Ansätze und Modelle}
+Für den Vergleich werden wenige technisch unterschiedliche, im Projektumfang ausführbare Ansätze ausgewählt. Als Klassen kommen spezialisierte \acs{ocr}-/\acs{htr}-Modelle, dokumentenspezifische Modelle, allgemeine Vision-Language-Modelle und gegebenenfalls eine hybride Pipeline infrage. Die in Kapitel~\ref{chap:grundlagen} genannten Modelle sind Literaturbeispiele und noch keine endgültige Versuchsauswahl.
+
+Die Auswahl wird vor der finalen Evaluation protokolliert. Zu prüfen sind die Eignung für handschriftliche Eingaben und die benötigte Eingabeeinheit, die Möglichkeit einer vollständigen Feldextraktion, die Verfügbarkeit einer dokumentierten Modellversion, der Aufwand der lokalen Ausführung beziehungsweise die Zulässigkeit einer Nutzung einer \acs{api} sowie die verfügbare Hardware. Eine zusätzliche hybride Pipeline wird nur aufgenommen, wenn sie gegenüber den Einzelverfahren eine klar prüfbare Fragestellung liefert und der Vergleich mit denselben Dokumenten möglich bleibt.
+\section{Datenvorverarbeitung}
+\begin{inhalte}
+  \item Auswahl relevanter Seiten aus den \acs{pdf}-Dateien
+  \item Vereinheitlichung der Seitenorientierung
+  \item Bildvorverarbeitung
+  \item Gegebenenfalls Segmentierung beziehungsweise Feldextraktion
+\end{inhalte}
+\section{Einheitliche Extraktions- und Ausgabeformate}
+\begin{inhalte}
+  \item Einheitliche Eingabe- und Ausgabeformate
+  \item Gewünschte strukturierte Ausgabe
+\end{inhalte}
+\section{Evaluationsmetriken}
+\subsection{Extraktionsqualität}
+\begin{inhalte}
+  \item Exact Match
+  \item \ac{cer}
+  \item Word Error Rate
+  \item Gegebenenfalls Precision, Recall und F1
+\end{inhalte}
+\subsection{Effizienz}
+\begin{inhalte}
+  \item Laufzeit
+  \item Rechenaufwand
+\end{inhalte}
+\subsection{Kosten}
+\begin{inhalte}
+  \item Inferenz- beziehungsweise \acs{api}-Kosten
+  \item Zeit- und Kostenaufwand der manuellen Erfassung sowie der Vorbereitung, Kontrolle und Korrektur automatisierter Ergebnisse bis zu einem vergleichbaren Bearbeitungsstand
+  \item Einmaliger Entwicklungs- und Integrationsaufwand getrennt von laufenden Kosten
+  \item Bei fehlenden Prozessdaten: gekennzeichnete Szenarien mit transparenten Annahmen
+\end{inhalte}
+\subsection{Praktische Einsatzfähigkeit}
+\begin{inhalte}
+  \item Datenschutz, technische Integration und manueller Nachbearbeitungsaufwand
+  \item Voraussetzungen einer möglichen Anbindung an das Schulungssystem
+\end{inhalte}
+\section{Versuchsablauf und Reproduzierbarkeit}
+Nach der Bestandsaufnahme werden Entwicklungs- und Testdokumente vor der Anpassung von Prompts, Parametern oder Nachverarbeitungsregeln getrennt. Dokumente aus dem finalen Testteil werden für diese Anpassungen nicht verwendet. Die konkrete Aufteilung wird anhand des tatsächlichen Bestands festgelegt und vor den Testläufen dokumentiert. Falls dieselben Personen oder sehr ähnliche Listen mehrfach vorkommen, muss die Aufteilung mögliche Überschneidungen berücksichtigen.
+
+Für jeden Lauf werden Dokumentkennung, Modell- und Versionsangaben, Eingabevorbereitung, Prompt beziehungsweise Parameter, unbearbeitete Modellausgabe, normalisierte Ausgabe, Laufzeit und gegebenenfalls Kosten gespeichert. Erst danach erfolgt der Abgleich mit der Ground Truth. Fehler werden getrennt nach Transkription, Feldzuordnung, Auslassung und unbegründeter Ergänzung analysiert. Für nicht deterministische Verfahren wird vor der finalen Evaluation festgelegt, ob Wiederholungsläufe erforderlich sind; ihre Ergebnisse dürfen nicht stillschweigend zu einem einzigen Lauf zusammengefasst werden.

@@ -1,0 +1,31 @@
+# Software: lokale Werkzeuge, Umgebungen und vertrauliche Daten
+/software/.venv/
+/software/.venv-before-layout/
+/software/.tools/
+/software/.cache/
+/software/models/
+/software/data/
+/software/runs/
+/software/prepared/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.log
+
+# Bachelorarbeit: Toolchain und generierte Dateien; Quellen/Logo-PDF bleiben versionierbar
+/bachelorarbeit/.tools/
+/bachelorarbeit/build/
+/bachelorarbeit/thesis.pdf
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.toc
+*.synctex.gz
+*.run.xml
+*.bcf

@@ -1,0 +1,229 @@
+{
+  "$defs": {
+    "Box": {
+      "additionalProperties": false,
+      "properties": {
+        "x0": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X0",
+          "type": "number"
+        },
+        "y0": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y0",
+          "type": "number"
+        },
+        "x1": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "Participant": {
+      "additionalProperties": false,
+      "properties": {
+        "row_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Ref"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "first_name": {
+          "$ref": "#/$defs/TextField"
+        },
+        "last_name": {
+          "$ref": "#/$defs/TextField"
+        },
+        "personnel_number": {
+          "$ref": "#/$defs/TextField"
+        },
+        "department": {
+          "$ref": "#/$defs/TextField"
+        },
+        "signature_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Present"
+        },
+        "signature_state": {
+          "default": "uncertain",
+          "enum": [
+            "read",
+            "empty",
+            "illegible",
+            "uncertain",
+            "failed"
+          ],
+          "title": "Signature State",
+          "type": "string"
+        },
+        "signature_bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "review_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "first_name",
+        "last_name",
+        "personnel_number",
+        "department"
+      ],
+      "title": "Participant",
+      "type": "object"
+    },
+    "TextField": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "state": {
+          "default": "uncertain",
+          "enum": [
+            "read",
+            "empty",
+            "illegible",
+            "uncertain",
+            "failed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "TextField",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "page_number": {
+      "minimum": 1,
+      "title": "Page Number",
+      "type": "integer"
+    },
+    "split": {
+      "enum": [
+        "development",
+        "test"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "dependency_group": {
+      "title": "Dependency Group",
+      "type": "string"
+    },
+    "content_type": {
+      "enum": [
+        "typed",
+        "handwritten",
+        "mixed",
+        "other"
+      ],
+      "title": "Content Type",
+      "type": "string"
+    },
+    "relevant": {
+      "title": "Relevant",
+      "type": "boolean"
+    },
+    "participants": {
+      "items": {
+        "$ref": "#/$defs/Participant"
+      },
+      "title": "Participants",
+      "type": "array"
+    }
+  },
+  "required": [
+    "document_id",
+    "page_number",
+    "split",
+    "dependency_group",
+    "content_type",
+    "relevant",
+    "participants"
+  ],
+  "title": "GroundTruthPage",
+  "type": "object"
+}

@@ -1,0 +1,8 @@
+{
+  "distribution": "TinyTeX (TeX Live)",
+  "version": "v2026.10",
+  "windows_archive": "https://github.com/rstudio/tinytex-releases/releases/download/v2026.10/TinyTeX-v2026.10.zip",
+  "archive_sha256": "dc1d6e63b21af62130ede1dcc4113bffdc184544690a23e3f489d75340f4ff61",
+  "repository": "https://tlnet.yihui.org",
+  "packages": ["acronym", "bigfoot", "relsize", "ieeetran", "babel-german", "hyphen-german", "csquotes", "lm", "microtype", "koma-script", "booktabs", "tools", "xcolor", "hyperref", "amsmath", "amsfonts", "latexmk"]
+}

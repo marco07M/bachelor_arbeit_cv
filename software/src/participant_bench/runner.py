@@ -1,0 +1,481 @@
+import copy
+import gc
+import importlib.metadata
+import json
+import threading
+import time
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+import psutil
+import yaml
+from PIL import Image
+
+from .doctor import environment
+from .evaluation import evaluate_groups
+from .io import digest, file_hash, read_json, read_jsonl, write_csv, write_json, write_jsonl
+from .models import METHOD_INSTRUCTIONS, PROMPT_VERSION, SYSTEM, LocalModel, Unavailable, local_model_identity
+from .ocr import OCR
+from .pdf import prepare, run_identity, validate_manifest
+from .report import cost_scenario, report
+from .rules import attach_signatures, extract_rules
+from .schema import GroundTruthPage, ModelResponse, PageResult
+
+
+class MemoryMonitor:
+    def __init__(self):
+        self.peak = 0
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self.sample, daemon=True)
+
+    def sample(self):
+        process = psutil.Process()
+        while not self.stop_event.is_set():
+            try:
+                processes = [process] + process.children(recursive=True)
+                self.peak = max(self.peak, sum(p.memory_info().rss for p in processes if p.is_running()))
+            except psutil.Error:
+                pass
+            self.stop_event.wait(0.1)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop_event.set()
+        self.thread.join()
+
+
+def aggregate_status(pages):
+    counts = Counter(p.status for p in pages)
+    if not pages:
+        return "partial"
+    if counts["unavailable"] == len(pages):
+        return "unavailable"
+    if counts["failed"] == len(pages):
+        return "failed"
+    if counts["success"] == len(pages):
+        return "success"
+    return "partial"
+
+
+def load_truth(path, manifest, split, scope):
+    pages = [GroundTruthPage.model_validate_json(json.dumps(row)) for row in read_jsonl(path)]
+    keys = [(p.document_id, p.page_number) for p in pages]
+    if len(keys) != len(set(keys)):
+        raise ValueError("Duplicate Ground Truth document/page")
+    known_docs = {p["document_id"] for p in manifest["pages"]} | {
+        i["sha256"] for i in manifest["inputs"] if i["kind"] == "pdf"
+    }
+    if any(p.document_id not in known_docs for p in pages):
+        raise ValueError("Ground Truth document not present in input inventory")
+    manifest_pages = {(p["document_id"], p["page_number"]): p for p in manifest["pages"]}
+    readable_docs = {p["document_id"] for p in manifest["pages"]}
+    for page in pages:
+        key = (page.document_id, page.page_number)
+        if page.document_id in readable_docs and key not in manifest_pages:
+            raise ValueError("Ground Truth references nonexistent PDF page")
+        annotation = manifest_pages.get(key, {})
+        if annotation.get("split") is not None and annotation["split"] != page.split:
+            raise ValueError("Ground Truth split disagrees with frozen page manifest")
+    groups = {}
+    docs = {}
+    for page in pages:
+        groups.setdefault(page.dependency_group, set()).add(page.split)
+        docs.setdefault(page.document_id, set()).add(page.split)
+    if any(len(s) > 1 for s in list(groups.values()) + list(docs.values())):
+        raise ValueError("Document/dependency group crosses development/test boundary")
+    selected = {(p["document_id"], p["page_number"]) for p in manifest["pages"] if p["include"]}
+    return [
+        p
+        for p in pages
+        if (split == "all" or p.split == split)
+        and (scope != "curated" or (p.document_id, p.page_number) in selected)
+    ]
+
+
+def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None):
+    started = time.perf_counter()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    output = Path(resume) if resume else Path(config.output_dir) / stamp
+    if not resume:
+        output.mkdir(parents=True, exist_ok=False)
+    elif not (output / "identity.json").is_file():
+        raise ValueError("Resume folder has no saved identity")
+    ocr, ocr_error = None, None
+    try:
+        ocr = OCR(config)
+    except (OSError, RuntimeError) as exc:
+        ocr_error = str(exc)
+    if resume and manifest_path is None:
+        manifest_path = Path(read_json(output / "identity.json")["source_manifest"])
+    if manifest_path:
+        manifest = validate_manifest(manifest_path, folder, config)
+    else:
+        manifest = prepare(folder, config, output / "prepared", ocr)
+        manifest_path = output / "prepared/manifest.json"
+    if scope == "curated" and not manifest.get("curated"):
+        raise ValueError("Curated evaluation requires manually reviewed manifest with curated=true")
+    if split != "all" and any(p.get("split") not in ("development", "test") for p in manifest["pages"]):
+        raise ValueError("--split requires development/test annotations on every manifest page")
+    identities = {}
+    for method in config.methods:
+        if method in config.models:
+            try:
+                identities[method] = local_model_identity(config.models[method])
+            except Unavailable as exc:
+                identities[method] = {"unavailable": str(exc)}
+    code = {str(p.name): file_hash(p) for p in Path(__file__).parent.glob("*.py")}
+    identity = digest(
+        {
+            "input_config": run_identity(config, manifest, identities),
+            "code": code,
+            "prompt": PROMPT_VERSION,
+            "lock": file_hash(Path("uv.lock")),
+            "ocr": ocr.identity if ocr else ocr_error,
+            "scope": scope,
+            "split": split,
+            "ground_truth": file_hash(truth_path) if truth_path else None,
+            "packages": {d.metadata["Name"]: d.version for d in importlib.metadata.distributions()},
+        }
+    )
+    if resume and read_json(output / "identity.json")["fingerprint"] != identity:
+        raise ValueError("Resume rejected: inputs, config, code, environment, model, OCR or truth changed")
+    run_id = output.name
+    write_json(
+        output / "identity.json",
+        {
+            "fingerprint": identity,
+            "source_manifest": str(manifest_path.resolve()),
+            "models": identities,
+            "prompt_version": PROMPT_VERSION,
+            "scope": scope,
+            "split": split,
+        },
+    )
+    (output / "config.yaml").write_text(
+        yaml.safe_dump(config.model_dump(), allow_unicode=True), encoding="utf-8"
+    )
+    write_json(output / "environment.json", environment(config))
+    manifest_snapshot = copy.deepcopy(manifest)
+    manifest_snapshot["source_manifest"] = str(manifest_path.resolve())
+    for page in manifest_snapshot["pages"]:
+        if page["status"] == "ready":
+            page["image"] = str((manifest_path.parent / page["image"]).resolve())
+    write_json(output / "manifest.json", manifest_snapshot)
+    write_json(
+        output / "prompts.json",
+        {
+            "version": PROMPT_VERSION,
+            "system": SYSTEM,
+            "method_instructions": METHOD_INSTRUCTIONS,
+            "response_schema": ModelResponse.model_json_schema(),
+        },
+    )
+    page_dir = output / "pages"
+    page_dir.mkdir(exist_ok=True)
+    # Apply only explicit manual correction to the already metadata/OSD-oriented image.
+    prepared_pages = []
+    image_preparation_start = time.perf_counter()
+    for original in manifest["pages"]:
+        page = dict(original)
+        if split != "all" and page["split"] != split:
+            page["include"] = False
+        if page["status"] == "ready":
+            source = manifest_path.parent / page["image"]
+            with Image.open(source) as image:
+                transformed = image.rotate(-page.get("curation_rotation_clockwise", 0), expand=True)
+                target = page_dir / f"{page['page_id']}.png"
+                transformed.save(target)
+                transformed.close()
+            page["run_image"] = str(target)
+            page["run_image_sha256"] = file_hash(target)
+        prepared_pages.append(page)
+    write_json(output / "effective_pages.json", prepared_pages)
+    image_preparation_seconds = time.perf_counter() - image_preparation_start
+    truths = load_truth(truth_path, manifest, split, scope) if truth_path else None
+    results, summaries, errors, metrics = {}, {}, list(manifest["errors"]), {}
+    if resume and (output / "errors.jsonl").is_file():
+        errors.extend(read_jsonl(output / "errors.jsonl"))
+    for method in config.methods:
+        print(f"Running {method}", flush=True)
+        method_dir = output / method
+        method_dir.mkdir(exist_ok=True)
+        checkpoint_path = method_dir / "checkpoint.jsonl"
+        history_path = method_dir / "attempts.jsonl"
+        history = (
+            [PageResult.model_validate_json(json.dumps(r)) for r in read_jsonl(history_path)]
+            if resume and history_path.is_file()
+            else []
+        )
+        cached = {}
+        if resume and checkpoint_path.is_file():
+            cached = {
+                p.page_id: p
+                for p in [PageResult.model_validate_json(json.dumps(r)) for r in read_jsonl(checkpoint_path)]
+                if p.status == "success"
+            }
+        page_results, raw_records = [], []
+        unavailable = ocr_error if method in ("ocr_rules", "ocr_llm") else None
+        model, resource = None, {"load_failed": False}
+        prior_resource = (
+            read_json(method_dir / "resources.json")
+            if resume and (method_dir / "resources.json").is_file()
+            else {}
+        )
+        method_start = time.perf_counter()
+        with MemoryMonitor() as memory:
+            try:
+                needs_model = method != "ocr_rules" and any(
+                    p["include"] and p["status"] == "ready" and p["page_id"] not in cached
+                    for p in prepared_pages
+                )
+                if needs_model and not unavailable:
+                    if method not in config.models:
+                        unavailable = "No model configuration for method"
+                    else:
+                        load_attempt_start = time.perf_counter()
+                        try:
+                            model = LocalModel(method, config)
+                        except Unavailable as exc:
+                            unavailable = str(exc)
+                        except Exception as exc:
+                            unavailable = f"Model load failed: {type(exc).__name__}: {exc}"
+                            resource["load_failed"] = True
+                        resource["load_attempt_wall_seconds"] = time.perf_counter() - load_attempt_start
+                for page in prepared_pages:
+                    if not page["include"]:
+                        continue
+                    if page["page_id"] in cached:
+                        page_results.append(cached[page["page_id"]])
+                        continue
+                    result = PageResult(
+                        run_id=run_id,
+                        document_id=page["document_id"],
+                        page_number=page["page_number"],
+                        page_id=page["page_id"],
+                        method_id=method,
+                        status="failed",
+                    )
+                    raw = {"page_id": page["page_id"], "method_id": method}
+                    page_start = time.perf_counter()
+                    try:
+                        if page["status"] != "ready":
+                            raise ValueError("Page rendering failed: " + " | ".join(page["reasons"]))
+                        if unavailable:
+                            result.status = "failed" if resource.get("load_failed") else "unavailable"
+                            result.error = unavailable
+                        else:
+                            with Image.open(page["run_image"]) as loaded:
+                                image = loaded.convert("RGB")
+                            try:
+                                if method in ("ocr_rules", "ocr_llm"):
+                                    lookup_start = time.perf_counter()
+                                    data = ocr.recognize(image, page["run_image_sha256"])
+                                    result.timings["ocr_lookup_wall_seconds"] = (
+                                        time.perf_counter() - lookup_start
+                                    )
+                                    result.timings["ocr_charged_seconds"] = data["elapsed_seconds"]
+                                    result.timings["ocr_cache_hit"] = float(data["cache_hit"])
+                                    raw["ocr"] = data
+                                if method == "ocr_rules":
+                                    participants, notes, timings = extract_rules(image, data, config)
+                                    result.participants, result.review_notes = participants, notes
+                                    result.timings.update(timings)
+                                    result.parse_status = "valid"
+                                    result.status = "partial" if notes and not participants else "success"
+                                else:
+                                    participants, responses, status, elapsed = model.extract(
+                                        image, data if method == "ocr_llm" else None
+                                    )
+                                    raw["responses"] = responses
+                                    result.calls = len(responses)
+                                    result.participants, result.status = participants, status
+                                    result.parse_status = (
+                                        "invalid"
+                                        if any(r["parse_status"] != "valid" for r in responses)
+                                        else "valid"
+                                    )
+                                    if not any(r["parse_status"] == "invalid" for r in responses):
+                                        result.parse_status = (
+                                            "valid"
+                                            if any(r["parse_status"] == "valid" for r in responses)
+                                            else "not_attempted"
+                                        )
+                                    result.timings["model_extraction_seconds"] = elapsed
+                                    for response in responses:
+                                        if response.get("error"):
+                                            errors.append(
+                                                {
+                                                    "method": method,
+                                                    "page_id": page["page_id"],
+                                                    "reason": response["error"],
+                                                }
+                                            )
+                                    if method == "ocr_llm":
+                                        result.timings["signature_seconds"] = attach_signatures(
+                                            participants, image, data, config
+                                        )
+                                    else:
+                                        result.review_notes.append(
+                                            "Signature presence jointly judged by VLM; "
+                                            "runtime included in model_extraction_seconds"
+                                        )
+                            finally:
+                                image.close()
+                    except Exception as exc:
+                        result.error = f"{type(exc).__name__}: {exc}"
+                        result.status = "failed"
+                    result.timings["page_wall_seconds"] = time.perf_counter() - page_start
+                    measured_stages = sum(
+                        value
+                        for key, value in result.timings.items()
+                        if key
+                        in (
+                            "ocr_lookup_wall_seconds",
+                            "structure_seconds",
+                            "signature_seconds",
+                            "model_extraction_seconds",
+                        )
+                    )
+                    result.timings["page_overhead_seconds"] = max(
+                        0.0, result.timings["page_wall_seconds"] - measured_stages
+                    )
+                    result = PageResult.model_validate_json(result.model_dump_json())
+                    raw.update(parse_status=result.parse_status, status=result.status, error=result.error)
+                    write_json(method_dir / f"raw-{page['page_id']}.json", raw)
+                    attempt_number = 1 + sum(r.page_id == page["page_id"] for r in history)
+                    write_json(method_dir / "attempts" / f"raw-{page['page_id']}-{attempt_number}.json", raw)
+                    history.append(result)
+                    write_jsonl(history_path, [r.model_dump() for r in history])
+                    page_results.append(result)
+                    write_jsonl(checkpoint_path, [r.model_dump() for r in page_results])
+                    if result.error:
+                        errors.append({"method": method, "page_id": page["page_id"], "reason": result.error})
+                if model:
+                    resource.update(model.resources())
+            finally:
+                if model:
+                    model.close()
+                gc.collect()
+        for key in ("load_seconds", "warmup_seconds", "warmup_calls", "load_attempt_wall_seconds"):
+            resource[key] = resource.get(key, 0) + prior_resource.get(key, 0)
+        for key in ("peak_gpu_allocated_bytes", "peak_gpu_reserved_bytes"):
+            values = [v for v in (resource.get(key), prior_resource.get(key)) if v is not None]
+            resource[key] = max(values) if values else None
+        resource = {**prior_resource, **resource}
+        resource["calls"] = sum(r.calls for r in history)
+        if resource.get("load_failed"):
+            resource["load_seconds"] = max(resource["load_seconds"], resource["load_attempt_wall_seconds"])
+        for page in page_results:
+            raw_path = method_dir / f"raw-{page.page_id}.json"
+            if raw_path.exists():
+                raw_records.append(read_json(raw_path))
+        write_jsonl(method_dir / "raw.jsonl", raw_records)
+        write_jsonl(method_dir / "extractions.jsonl", [r.model_dump() for r in page_results])
+        timing_rows = [dict(page_id=r.page_id, status=r.status, **r.timings) for r in page_results]
+        write_csv(method_dir / "timings.csv", timing_rows)
+        write_json(
+            method_dir / "resources.json",
+            dict(
+                resource,
+                peak_ram_rss_bytes=memory.peak,
+                ram_scope="sampled 100ms process + children RSS, shared pages may be counted twice",
+            ),
+        )
+        extraction_charge = sum(
+            sum(
+                v
+                for k, v in r.timings.items()
+                if k
+                in (
+                    "structure_seconds",
+                    "signature_seconds",
+                    "model_extraction_seconds",
+                    "page_overhead_seconds",
+                )
+            )
+            for r in history
+        )
+        seen_ocr_pages = set()
+        for attempt in history:
+            if attempt.page_id not in seen_ocr_pages:
+                extraction_charge += attempt.timings.get("ocr_charged_seconds", 0.0)
+                seen_ocr_pages.add(attempt.page_id)
+            else:
+                extraction_charge += attempt.timings.get("ocr_lookup_wall_seconds", 0.0)
+        preparation_charge = (
+            manifest["preparation_seconds"] if scope == "end-to-end" else 0.0
+        ) + image_preparation_seconds
+        # Classification and extraction may share OCR: subtract its actual included-page lookup wall time.
+        if method in ("ocr_rules", "ocr_llm") and scope == "end-to-end":
+            active_ids = {p.page_id for p in page_results}
+            preparation_charge -= sum(
+                p.get("classification_ocr_wall_seconds", 0.0)
+                for p in manifest["pages"]
+                if p["page_id"] in active_ids
+            )
+        full_charge = preparation_charge + extraction_charge + resource.get("load_attempt_wall_seconds", 0.0)
+        valid_pages = sum(r.parse_status == "valid" for r in page_results)
+        output_participants = [p for r in page_results for p in r.participants]
+        unknown_fields = sum(
+            getattr(p, field).state not in ("read", "empty")
+            for p in output_participants
+            for field in ("first_name", "last_name", "personnel_number", "department")
+        )
+        summaries[method] = {
+            "status": aggregate_status(page_results),
+            "selected_pages": len(page_results),
+            "valid_pages": valid_pages,
+            "schema_failure_pages": sum(r.parse_status == "invalid" for r in page_results),
+            "failed_pages": sum(r.status == "failed" for r in page_results),
+            "unavailable_pages": sum(r.status == "unavailable" for r in page_results),
+            "actual_method_wall_seconds": time.perf_counter() - method_start,
+            "preprocessing_charged_seconds": preparation_charge,
+            "extraction_charged_seconds": extraction_charge,
+            "load_seconds": resource.get("load_seconds", 0.0),
+            "warmup_seconds": resource.get("warmup_seconds", 0.0),
+            "full_pipeline_charged_seconds": full_charge,
+            "valid_pages_per_second": valid_pages / full_charge if full_charge and valid_pages else None,
+            "peak_ram_rss_bytes": memory.peak,
+            "peak_gpu_allocated_bytes": resource.get("peak_gpu_allocated_bytes"),
+            "load_attempt_wall_seconds": resource["load_attempt_wall_seconds"],
+            "output_text_fields": 4 * len(output_participants),
+            "output_unknown_text_fields": unknown_fields,
+            "output_signature_fields": len(output_participants),
+            "output_unknown_signatures": sum(p.signature_present is None for p in output_participants),
+            "generation_calls": sum(r.calls for r in history),
+            "warmup_calls": resource.get("warmup_calls", 0),
+            "retries": len(history) - len({r.page_id for r in history}),
+            "resume_reused_pages": sum(r.page_id in cached for r in page_results),
+        }
+        results[method] = page_results
+        if truths is not None:
+            metrics[method], details = evaluate_groups(page_results, truths)
+            write_csv(method_dir / "evaluation_details.csv", details)
+    write_json(output / "summary.json", summaries)
+    write_jsonl(output / "errors.jsonl", errors)
+    write_csv(
+        output / "review_pages.csv",
+        [
+            dict(page_id=p["page_id"], page_number=p["page_number"], reasons=" | ".join(p["reasons"]))
+            for p in manifest["pages"]
+            if p["review_required"]
+        ],
+    )
+    report(output, summaries, results, metrics, manifest, cost_scenario(config))
+    write_json(
+        output / "run_timing.json",
+        {
+            "actual_run_wall_seconds": time.perf_counter() - started,
+            "scope": scope,
+            "resume": bool(resume),
+            "quality_measured": truths is not None,
+            "truth_pages_in_scope": len(truths) if truths is not None else None,
+        },
+    )
+    print(f"Report: {(output / 'report.html').resolve()}", flush=True)
+    return output, summaries

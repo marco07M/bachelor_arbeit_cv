@@ -1,0 +1,66 @@
+% !TeX root = ../thesis.tex
+% Kodierung, Sprache und Schrift
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english,ngerman]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{csquotes}
+\usepackage{acronym}
+% Der Titel wird vor dem Abkürzungsverzeichnis gesetzt.
+\newacro{ki}[KI]{Künstliche Intelligenz}
+
+% Mathematik, Tabellen und Abbildungen
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\graphicspath{{figures/}}
+
+% Hilfspakete
+\usepackage{ifthen}
+\usepackage[automark,headsepline]{scrlayer-scrpage}
+\clearpairofpagestyles
+\ihead{\headmark}
+% Sternform setzt die Seitenzahl auch auf Kapitel- und Verzeichnisanfangsseiten.
+\cfoot*{\pagemark}
+\pagestyle{scrheadings}
+
+% Hyperlinks möglichst zuletzt laden.
+\usepackage{hyperref}
+\hypersetup{
+  hidelinks,
+  pdftitle={\thesistitleDE},
+  pdfauthor={\student},
+  pdfsubject={\thesistype},
+  pdfcreator={LaTeX}
+}
+\urlstyle{same}
+
+% Satzspiegel und Gliederungstiefe
+\KOMAoptions{DIV=12,BCOR=8mm}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+% Geplante Inhalte der vorläufigen Gliederung.
+\newenvironment{inhalte}{%
+  \begin{list}{\textbullet}{%
+    \setlength{\leftmargin}{1.45em}%
+    \setlength{\labelwidth}{.7em}%
+    \setlength{\labelsep}{.5em}%
+    \setlength{\topsep}{.15em}%
+    \setlength{\itemsep}{0pt}%
+    \setlength{\parsep}{0pt}%
+    \setlength{\partopsep}{0pt}%
+  }%
+}{\end{list}}
+
+% Sichtbare Platzhalter für die Schreibphase.
+\newcommand{\TODO}[1]{%
+  \ifshowtodos
+    \par\smallskip
+    \noindent{\color{red!70!black}\textbf{TODO:} #1}
+    \par\smallskip
+  \fi
+}

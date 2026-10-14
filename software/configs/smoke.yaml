@@ -1,0 +1,7 @@
+extends: local.yaml
+methods: [ocr_rules]
+pdf:
+  dpi: 220
+  recursive: false
+  auto_orient: true
+  osd_min_confidence: 5

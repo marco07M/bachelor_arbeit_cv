@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-14",
+  "source": "Downloads/studienarbeiten/studienarbeiten/thesis",
+  "unchanged_sources_sha256": {
+    "appendices/anhang.tex": "1cad5d18c83c4ea78cdf25069a335da564e0b7f0199863ff4da34282291beba8",
+    "assets/THD_Logo.pdf": "72df98e0e1f2b62e9617f0589ca4026e9a0dbd42a2358c2d1838e58e4ce72f2f",
+    "chapters/01_einleitung.tex": "a99b15b9f322709fc033fe7912e312310e66284cd8ca4e51779bcb330b8efad2",
+    "chapters/02_grundlagen.tex": "da5fe6af65670be97c03b06bcbe4713e620a84713b5519a40483a03ab1c1aab8",
+    "chapters/03_methodik.tex": "f4c6be67831b27d95851ea09a9a4a81c3e4b462519dbb7dff3bf1769335155bc",
+    "chapters/04_umsetzung.tex": "85f94fabf014da8b080b749660c9170a9652220e4a8a422909f6fe2746155c78",
+    "chapters/05_ergebnisse.tex": "1f605213dd1b3ae9b15a0383c41f23fa6b90fbf34338103aec6723bd566424ff",
+    "chapters/06_diskussion.tex": "c8aa9bcda17e7838628277d71822e0f18fd58fab9a4528f688b5e28e6a34b3cd",
+    "chapters/07_fazit.tex": "6a45e6963b44e35225325ffe158d558621c8b96056f57f712ed10c61bbbee01d",
+    "config/metadata.tex": "967e36273dd05b48c28d0407933736767f9d128fd390d0628b3886575a4d59fc",
+    "config/preamble.tex": "ab4cc3d5736476eafbca088fd6fd602df159f87322feb3de1edca7da80d69d20",
+    "frontmatter/abkuerzungsverzeichnis.tex": "e5b994f6fd679f7d53a6ebd8bb8d8943d4b0eadb7f6ec6f9f782059449cdb3de",
+    "frontmatter/abstract.tex": "b2a7515df57a0e75f30946082f3fae97ab27dc036a1c9af84fecc0ef7033edff",
+    "frontmatter/kurzfassung.tex": "a4fddb04f0b4f31f7b1d3c9db72475a5a7985cb13710ab1b60505dc999d4fa52",
+    "frontmatter/title.tex": "eba2398e6535c7c457a8d2a757e3045e85a407c6eb176d2a465914a194fa29ef",
+    "references.bib": "c818dbf1582c1ae217081dbefc6c046b1408f6c0e1f53fc79d104019994d5d53",
+    "thesis.tex": "fa4b5c033d7391023faf02f186144db7057766a514a74ec41682c98212589723",
+    "verified_sources.bib": "f09e4d7478f2565d1794c6f0f1b15ee5ac7163aa6ff00613ad9bba03038a6dd3"
+  },
+  "infrastructure_changed": [
+    "build.ps1",
+    ".latexmkrc"
+  ]
+}

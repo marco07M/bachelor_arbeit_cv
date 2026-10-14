@@ -1,0 +1,33 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/software/.venv",
+  "python.testing.cwd": "${workspaceFolder}/software",
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"],
+  "latex-workshop.latex.autoBuild.run": "onSave",
+  "latex-workshop.latex.recipe.default": "first",
+  "latex-workshop.latex.outDir": "%DIR%/build",
+  "latex-workshop.latex.auxDir": "%OUTDIR%",
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.intellisense.citation.maxfilesizeMB": 20,
+  "latex-workshop.latex.search.rootFiles.include": ["bachelorarbeit/thesis.tex"],
+  "latex-workshop.latex.search.rootFiles.exclude": ["**/.tools/**", "**/build/**", "software/**"],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "bachelorarbeit-build",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "%WORKSPACE_FOLDER%/bachelorarbeit/build.ps1"]
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {"name": "Bachelorarbeit: pdfLaTeX + BibTeX", "tools": ["bachelorarbeit-build"]}
+  ],
+  "files.exclude": {"**/__pycache__": true},
+  "files.watcherExclude": {
+    "**/.tools/**": true,
+    "**/.cache/**": true,
+    "**/.venv/**": true,
+    "**/.venv-before-layout/**": true,
+    "**/models/**": true,
+    "**/build/**": true
+  }
+}

@@ -1,0 +1,59 @@
+% !TeX root = ../thesis.tex
+\begin{titlepage}
+  \centering
+
+  \IfFileExists{assets/THD_Logo.pdf}{%
+    \includegraphics[width=5.2cm]{assets/THD_Logo.pdf}\par
+    \vspace{1.2cm}
+  }{}
+
+  {\Large Technische Hochschule Deggendorf\par}
+  \vspace{0.25cm}
+  {\large Fakultät \faculty\par}
+  {\large Studiengang \studies\par}
+
+  \vfill
+
+  {\Huge\bfseries \thesismaintitleDE\par}
+  \vspace{0.7cm}
+  {\Large \thesissubtitleDE\par}
+  \ifthenelse{\equal{\thesistitleEN}{}}{}{%
+    \vspace{0.8cm}
+    {\Large \thesistitleEN\par}
+  }
+
+  \vfill
+
+  {\Large \thesistype\par}
+  \vspace{0.4cm}
+  zur Erlangung des akademischen Grades
+  \vspace{0.25cm}
+
+  {\large\itshape \degree\par}
+
+  \vfill
+
+  \begin{minipage}[t]{0.46\textwidth}
+    \raggedright
+    Vorgelegt von: \student\\
+
+    Matrikelnummer: \matrnr
+    \ifthenelse{\equal{\stammnr}{}}{}{\\Stammnummer: \stammnr}
+
+    \vspace{\baselineskip}
+    Abgabedatum: \submissiondate
+  \end{minipage}
+  \hfill
+  \begin{minipage}[t]{0.46\textwidth}
+    \raggedright
+    Erstprüfer/in: \supervisor
+
+    \ifthenelse{\equal{\secsupervisor}{}}{}{%
+      \vspace{\baselineskip}
+
+      Zweitprüfer/in:\\
+      \secsupervisor
+    }
+  \end{minipage}
+\end{titlepage}
+\cleardoublepage

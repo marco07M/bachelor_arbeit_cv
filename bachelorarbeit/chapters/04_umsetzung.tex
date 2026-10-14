@@ -1,0 +1,27 @@
+% !TeX root = ../thesis.tex
+% Vorläufige Gliederung mit geplanten Inhalten.
+\chapter{Technische Umsetzung des Evaluationsframeworks}
+\label{chap:evaluationsframework}
+\section{Aufbau und Systemarchitektur}
+\begin{inhalte}
+  \item Modularer Aufbau
+  \item Einheitliche Modell- beziehungsweise Pipeline-Schnittstellen
+  \item Reproduzierbare Verarbeitung
+  \item Einlesen der Dokumente und Bildaufbereitung
+  \item Gegebenenfalls Feld- oder Bereichserkennung
+\end{inhalte}
+\section{Implementierung der untersuchten Ansätze}
+\begin{inhalte}
+  \item Integration spezialisierter \acs{ocr}-/\acs{htr}- beziehungsweise Machine-Learning-Ansätze
+  \item Integration von Vision-Language-Modellen: Prompting, Bildverarbeitung, strukturierte Extraktion und Ausgabe im Format \ac{json}
+  \item Kombination mehrerer Modelle beziehungsweise Verarbeitungsschritte
+  \item Beispielsweise \acs{ocr}/\acs{htr} mit anschließender Strukturierung oder Korrektur durch ein \ac{llm}
+  \item Standardisierte Ergebnisstruktur
+\end{inhalte}
+\section{Automatisierte Durchführung und Evaluation}
+\begin{inhalte}
+  \item Automatisierter Ground-Truth-Vergleich
+  \item Speicherung von Modellantworten und Metriken
+  \item Erfassung von Laufzeit und Kosten
+  \item Gegebenenfalls Kennzeichnung unsicherer Extraktionen anhand einfacher Konsistenz- oder Confidence-Verfahren
+\end{inhalte}

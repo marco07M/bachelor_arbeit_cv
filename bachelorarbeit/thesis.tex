@@ -1,0 +1,56 @@
+% Hauptdatei der Bachelorarbeit
+% Kompilieren mit: latexmk -pdf thesis.tex
+\documentclass[
+  a4paper,
+  11pt,
+  oneside,            % Keine Ausgleichsseiten für einen zweiseitigen Druck.
+  openany,
+  parskip=half,
+  headings=normal,
+  numbers=noenddot,
+  bibliography=totoc,
+  listof=totoc,
+  captions=tableheading,
+  cleardoublepage=empty
+]{scrbook}
+
+% Aktueller Titel: Automatisierte Informationsextraktion aus handschriftlich ausgefüllten Teilnehmerlisten: Analyse KI-basierter Ansätze hinsichtlich Qualität, Effizienz und praktischer Einsatzfähigkeit
+% Englischer Titel: Automated Information Extraction from Handwritten Participant Lists: Analysis of AI-Based Approaches in Terms of Quality, Efficiency, and Practical Applicability
+% Titelbestandteile werden für das Titelblatt in config/metadata.tex gepflegt.
+\newcommand{\researchquestion}{Wie unterscheiden sich verschiedene \acs{ki}-basierte Ansätze zur automatisierten Informationsextraktion aus handschriftlich ausgefüllten Teilnehmerlisten hinsichtlich Extraktionsqualität, Effizienz und praktischer Einsatzfähigkeit?}
+
+\input{config/metadata}
+\input{config/preamble}
+
+\begin{document}
+
+\frontmatter
+\input{frontmatter/title}
+\input{frontmatter/kurzfassung}
+\input{frontmatter/abstract}
+
+\tableofcontents
+% Aktivieren, sobald Abbildungen bzw. Tabellen vorhanden sind.
+% \listoffigures
+% \listoftables
+\input{frontmatter/abkuerzungsverzeichnis}
+
+\mainmatter
+\input{chapters/01_einleitung}
+\input{chapters/02_grundlagen}
+\input{chapters/03_methodik}
+\input{chapters/04_umsetzung}
+\input{chapters/05_ergebnisse}
+\input{chapters/06_diskussion}
+\input{chapters/07_fazit}
+
+% references.bib wird automatisch durch Zotero + Better BibTeX gepflegt.
+% verified_sources.bib enthält bereits geprüfte Primärquellen des Entwurfs.
+% Nur tatsächlich zitierte Quellen werden ausgegeben.
+\bibliographystyle{IEEEtran}
+\bibliography{references,verified_sources}
+
+\appendix
+\input{appendices/anhang}
+
+\end{document}
