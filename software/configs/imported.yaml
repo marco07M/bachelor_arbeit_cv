@@ -1,0 +1,7 @@
+# Ordnerstruktur aus der Dokumentenvorverarbeitung vollständig durchsuchen.
+extends: local.yaml
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: true
+  osd_min_confidence: 5

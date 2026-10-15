@@ -17,6 +17,50 @@ wird keine Extraktionsqualität behauptet.** Die Ausgaben dienen menschlicher
 Kontrolle und Korrektur. Reale Formulare müssen noch auf Development-Daten
 angepasst und unabhängig auf Testdaten evaluiert werden.
 
+## Zwei getrennte Schritte
+
+| Bereich | Aufgabe | Einstieg |
+| --- | --- | --- |
+| [`vorverarbeitung/`](vorverarbeitung/README.md) | Eingabeordner rekursiv durchsuchen, nur PDFs kopieren und nach Dokumentnummer umbenennen | `vorverarbeitung/vorbereiten.py` |
+| [`verarbeitung/`](verarbeitung/README.md) | Seiten aufbereiten, Teilnehmerlisten extrahieren und evaluieren | `participant-bench`, Quellcode unter `verarbeitung/src/participant_bench/` |
+
+Später die Dokumentordner unter **`../dateien/`** im Repository-Hauptordner
+ablegen. Beispiel: `../dateien/München/12473.123456_12.23.1456_Muc.pdf` wird
+zu `vorverarbeitung/ausgabe/pdfs/123456.pdf`. Alle gültigen PDFs landen direkt
+in diesem Zielordner. Führende Nullen und Originaldateien bleiben erhalten.
+Die ID muss genau **sechs Ziffern** enthalten. PDFs mit einer kürzeren, längeren,
+fehlenden oder ungültigen ID werden mit Originalnamen direkt nach
+`vorverarbeitung/ausgabe/nicht_erfuellt/` kopiert.
+Auch ein Leerzeichen beendet die ID: `12473.123456 12.23.1456_Muc.pdf`
+wird ebenfalls zu `123456.pdf`.
+Auch `12473_123456_…`, `01.12473.123456_…` und `12473. 123456_…`
+werden als ID `123456` erkannt.
+Bei `101158 - 174563 - 09.09.2026 MUC.pdf` wird die zweite Zahl verwendet:
+Die Ausgabe heißt `174563.pdf`.
+
+Die Vorverarbeitung benötigt nur Python ab Version 3.12, keine OCR oder Modelle:
+
+```powershell
+.venv/Scripts/python.exe vorverarbeitung/vorbereiten.py --dry-run
+.venv/Scripts/python.exe vorverarbeitung/vorbereiten.py
+```
+
+`--dry-run` prüft die geplanten Kopien ohne Schreibzugriffe. Echte Läufe erzeugen
+JSON-/CSV-Protokolle unter `vorverarbeitung/ausgabe/protokolle/`. Identische
+Ziele werden übersprungen, abweichende Ziele niemals überschrieben. Aussortierte
+PDFs werden mit dem Grund protokolliert. Konflikte und technische Fehler werden
+durch Exitcode 1 angezeigt.
+
+Anschließend die gesammelten PDFs verarbeiten (nach der Installation):
+
+```powershell
+uv run --offline --locked --extra models participant-bench run --input vorverarbeitung/ausgabe/pdfs --config configs/imported.yaml --offline
+```
+
+Die bisherigen Befehle und eigenen Eingaben unter `data/raw` funktionieren
+weiterhin. Nach der Quellcode-Umstellung einmal `uv sync --locked --extra models`
+ausführen, damit die Paketinstallation den neuen Verarbeitungsordner verwendet.
+
 ## Installation mit uv
 
 Im Projektverzeichnis, Windows PowerShell, einmalig mit Internetzugang:
@@ -311,7 +355,7 @@ uv run --offline --locked --extra models participant-bench prepare --input data/
 uv run --offline --locked --extra models python scripts/curate_synthetic.py
 uv run --offline --locked --extra models participant-bench run --input data/synthetic/raw --manifest prepared/synthetic/curated.json --scope curated --ground-truth data/synthetic/ground_truth.jsonl --config configs/smoke.yaml --offline
 uv run --offline --locked --extra models pytest -q
-uv run --offline --locked --extra models ruff check src tests scripts
+uv run --offline --locked --extra models ruff check vorverarbeitung verarbeitung/src tests scripts
 ```
 
 Synthetik enthält maschinenschriftliche Tabellen, leere Seite, Deckblatt, leere

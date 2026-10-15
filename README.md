@@ -28,7 +28,19 @@ verwendet werden. Die projektlokale Toolchain wird bevorzugt, wenn sie eingerich
 
 ## Software verwenden
 
-Alle Softwarebefehle werden im Ordner `software/` ausgeführt:
+Die Software ist in [Dokumentenvorverarbeitung](software/vorverarbeitung/README.md)
+und [eigentliche Verarbeitung](software/verarbeitung/README.md) unterteilt.
+Eigene Dokumentordner später unter [`dateien/`](dateien/README.md) ablegen.
+Die Vorverarbeitung sammelt PDFs aus allen Unterordnern in einem gemeinsamen
+Zielordner und benennt z.B.
+`12473.123456_12.23.1456_Muc.pdf` in `123456.pdf` um. Aus dem Hauptordner:
+
+```powershell
+software/.venv/Scripts/python.exe software/vorverarbeitung/vorbereiten.py --dry-run
+software/.venv/Scripts/python.exe software/vorverarbeitung/vorbereiten.py
+```
+
+Für Installation und eigentliche Verarbeitung in den Ordner `software/` wechseln:
 
 ```powershell
 cd software

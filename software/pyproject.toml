@@ -20,6 +20,10 @@ models = ["torch==2.8.0", "torchvision==0.23.0", "transformers==4.57.6", "accele
 
 [project.scripts]
 participant-bench = "participant_bench.cli:main"
+pdf-vorverarbeiten = "vorverarbeitung.vorbereiten:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["verarbeitung/src/participant_bench", "vorverarbeitung"]
 
 [dependency-groups]
 dev = ["pytest>=8.4,<10", "ruff>=0.12,<1"]

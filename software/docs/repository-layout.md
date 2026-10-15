@@ -1,5 +1,22 @@
 # Umstellung auf zwei Projektordner
 
+## Softwarebereiche seit 15.10.2026
+
+`software/vorverarbeitung/` enthält die unabhängige PDF-Sammlung und Umbenennung.
+Eingabe ist standardmäßig `dateien/` im Repository-Hauptordner; Ausgabe ist
+`software/vorverarbeitung/ausgabe/pdfs/` ohne Unterordnerstruktur. Aussortierte
+PDFs landen direkt unter `software/vorverarbeitung/ausgabe/nicht_erfuellt/`.
+Eingabedokumente und erzeugte Ausgaben sind gitignoriert.
+
+Der bisherige Quellcode unter `software/src/participant_bench/` liegt nun unter
+`software/verarbeitung/src/participant_bench/`. Paketname und `participant-bench`
+bleiben erhalten. Hatch paketiert beide Bereiche; nach der Aktualisierung
+`uv sync --locked --extra models` aus `software/` ausführen. Gemeinsame
+Konfigurationen, Tests, Modelle, Daten und Runs liegen weiterhin dort.
+`configs/imported.yaml` aktiviert die rekursive Verarbeitung der importierten PDFs.
+
+## Software und schriftliche Arbeit seit 14.10.2026
+
 Seit 14.10.2026 liegen Software und schriftliche Arbeit getrennt unter
 `software/` und `bachelorarbeit/`. Alle bisherigen Softwarebefehle werden nun
 aus `software/` ausgeführt. `pyproject.toml`, `uv.lock`, `.python-version`,

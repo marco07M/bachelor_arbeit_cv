@@ -7,6 +7,9 @@
 /software/data/
 /software/runs/
 /software/prepared/
+/dateien/**
+!/dateien/README.md
+/software/vorverarbeitung/ausgabe/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
