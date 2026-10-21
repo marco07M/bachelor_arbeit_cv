@@ -17,10 +17,10 @@ ocr:
 rules:
   header_aliases:
     row_ref: [nr, nummer, lfd]
-    first_name: [vorname, firstname]
-    last_name: [nachname, familienname, lastname]
-    personnel_number: [personalnummer, personalnr, persnr]
-    department: [abteilung, department, bereich]
+    first_name: [vorname, vornamen, firstname]
+    last_name: [nachname, familienname, zuname, lastname, surname]
+    personnel_number: [personalnummer, personalnr, persnr, mitarbeiternummer]
+    department: [abteilung, department, bereich, kurzzeichen, kuerzel, kürzel, organization, organisation]
     signature: [unterschrift, signature]
   # Optional normalized column intervals, e.g. first_name: [0.10, 0.29].
   columns: {}
@@ -28,9 +28,17 @@ rules:
   body_bottom: 0.96
   row_tolerance: 0.008
 signature:
+  # Shared, separately recorded local VLM stage for signature presence in A/B/C.
+  # Use opencv to retain the conservative OCR-only signature baseline.
+  backend: local_vlm
+  inspect_known: true
+  context_height: 0.12
+  row_padding: 0.008
+  max_row_height: 0.18
+  max_new_tokens: 192
   blank_ink_fraction: 0.0005
   component_min_area: 8
-  # Ink remains unknown: no validated positive classifier for real signatures.
+  # The opencv backend alone keeps ink unknown; the detail VLM can report presence.
 models:
   ocr_llm:
     repo: Qwen/Qwen3-8B
@@ -45,6 +53,7 @@ models:
     do_sample: false
     temperature: 0.7
     warmup: true
+    preserve_partial_fields: true
   vlm:
     repo: Qwen/Qwen3-VL-4B-Instruct
     revision: ebb281ec70b05090aa6165b016eac8ec08e71b17
@@ -54,7 +63,8 @@ models:
     gpu_memory_gib: 10
     cpu_memory_gib: 32
     max_input_tokens: 12000
-    max_new_tokens: 2048
+    # Enough room for all participant rows, or full page text when none are recognized.
+    max_new_tokens: 8192
     do_sample: false
     temperature: 0.7
     min_pixels: 65536

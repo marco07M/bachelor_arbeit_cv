@@ -1,2 +1,4 @@
 extends: local.yaml
+signature:
+  backend: opencv
 methods: [ocr_llm]

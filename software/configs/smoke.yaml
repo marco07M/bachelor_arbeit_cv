@@ -1,5 +1,7 @@
 extends: local.yaml
 methods: [ocr_rules]
+signature:
+  backend: opencv
 pdf:
   dpi: 220
   recursive: false

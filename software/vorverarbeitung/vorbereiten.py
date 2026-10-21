@@ -1,4 +1,4 @@
-"""Standalone-Vorverarbeitung mit der Python-Standardbibliothek."""
+"""PDFs sammeln, Originale sichern und optional PDF-Anmerkungen entfernen."""
 
 import argparse
 import csv
@@ -14,15 +14,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SOFTWARE_ROOT = Path(__file__).resolve().parents[1]
-FIELDS = ["source", "destination", "number", "sha256", "status", "reason"]
+FIELDS = ["source", "destination", "number", "sha256", "status", "reason",
+          "original_destination", "original_status", "comparison_destination", "comparison_status",
+          "output_sha256", "annotations_removed", "redactions_preserved"]
 PROBLEM_STATUSES = {"conflict", "error"}
 
 
 def document_number(filename: str) -> str:
     """Sechsstellige ID hinter der Stammnummer und optionalem zweistelligem Präfix."""
+    stem = Path(filename).stem
+    if re.fullmatch(r"[0-9]{6}", stem):
+        return stem
     match = re.match(
         r"^(?:[0-9]{2}\.\s*)?[0-9]+\s*[._-]\s*([0-9]+)(?=[_.\s-]|$)",
-        Path(filename).stem,
+        stem,
     )
     if not match:
         raise ValueError("Keine gültige ID nach der Stammnummer erkannt")
@@ -73,13 +78,45 @@ def copy_exclusive(source: Path, destination: Path, expected_hash: str):
             raise
 
 
-def preprocess(input_root: Path, output_root: Path, *, dry_run: bool = False) -> dict:
+def validate_destination(root: Path, destination: Path) -> None:
+    if is_link(root) or is_link(destination) or not destination.resolve().is_relative_to(root.resolve()):
+        raise ValueError("Ziel verweist außerhalb des Ausgabeordners oder ist eine Verknüpfung")
+
+
+def comparison_paths(output_root: Path, source: Path, relative_source: str,
+                     number: str, digest: str) -> tuple[Path, Path, Path]:
+    # Include provenance as well as content: identical PDFs in different input
+    # folders still receive individual pairs with their original filenames.
+    key = hashlib.sha256((relative_source + "\0" + digest).encode("utf-8")).hexdigest()[:12]
+    root = output_root / "vergleich"
+    folder = root / f"{number or 'ohne_id'}_{key}"
+    edited_name = f"{number or 'dokument'}_bearbeitet.pdf"
+    if edited_name.casefold() == source.name.casefold():
+        edited_name = f"{number or 'dokument'}_bearbeitet_1.pdf"
+    validate_destination(root, folder)
+    original, edited = folder / source.name, folder / edited_name
+    validate_destination(folder, original)
+    validate_destination(folder, edited)
+    return folder, original, edited
+
+
+def preprocess(input_root: Path, output_root: Path, *, dry_run: bool = False,
+               remove_annotations: bool = False) -> dict:
+    # Keep the original copy-only Python API available; CLI cleanup is enabled by default.
+    if remove_annotations:
+        try:
+            if __package__:
+                from .markierungen import cleaned_pdf, write_exclusive
+            else:
+                from markierungen import cleaned_pdf, write_exclusive
+        except ImportError as exc:
+            raise RuntimeError("PyMuPDF fehlt; aus software/ mit uv sync --locked --extra models installieren") from exc
     input_root, output_root = input_root.resolve(), output_root.resolve()
     if not input_root.is_dir():
         raise ValueError(f"Eingabeordner existiert nicht: {input_root}")
     if input_root.is_relative_to(output_root) or output_root.is_relative_to(input_root):
         raise ValueError("Eingabe- und Ausgabeordner dürfen sich nicht überlappen")
-    entries, planned = [], {}
+    entries, planned, original_plans = [], {}, set()
     for source, linked in inventory(input_root):
         entry = dict.fromkeys(FIELDS, "")
         entry["source"] = str(source.relative_to(input_root))
@@ -103,13 +140,50 @@ def preprocess(input_root: Path, output_root: Path, *, dry_run: bool = False) ->
         destination = target_root / target_name
         entry.update(number=number, destination=str(destination.relative_to(output_root)))
         try:
-            # Auch Verknüpfungen in bereits vorhandenen Zielordnern abfangen.
-            if not destination.resolve().is_relative_to(target_root.resolve()) or is_link(target_root):
-                raise ValueError("Ziel verweist außerhalb des Ausgabeordners")
-            if destination.resolve() == target_root.resolve() or is_link(destination):
-                raise ValueError("Zieldatei ist eine Verknüpfung oder kein gültiger Dateipfad")
+            validate_destination(target_root, destination)
             digest = file_hash(source)
             entry["sha256"] = digest
+            cleaned_data = None
+            output_digest = digest
+            if remove_annotations:
+                # Archive each source before editing; retain its exact original name.
+                comparison_root, original, edited = comparison_paths(
+                    output_root, source, entry["source"], number, digest,
+                )
+                entry.update(original_destination=str(original.relative_to(output_root)),
+                             comparison_destination=str(edited.relative_to(output_root)))
+                if original.exists():
+                    if not original.is_file() or file_hash(original) != digest:
+                        raise ValueError("Vorhandene Originalsicherung weicht von der Quelle ab")
+                    entry["original_status"] = "already_present"
+                elif dry_run:
+                    entry["original_status"] = "duplicate" if original in original_plans else "would_copy"
+                else:
+                    comparison_root.mkdir(parents=True, exist_ok=True)
+                    copy_exclusive(source, original, digest)
+                    entry["original_status"] = "copied"
+                original_plans.add(original)
+                cleaned_data, removed, preserved = cleaned_pdf(source)
+                entry.update(annotations_removed=removed, redactions_preserved=preserved)
+                if file_hash(source) != digest:
+                    raise ValueError("Quelldatei wurde während der Bereinigung verändert")
+                if cleaned_data is not None:
+                    output_digest = hashlib.sha256(cleaned_data).hexdigest()
+                entry["output_sha256"] = output_digest
+                # Complete the individual pair even if the shared ID destination
+                # below conflicts with another source bearing the same course ID.
+                if edited.exists():
+                    if not edited.is_file() or file_hash(edited) != output_digest:
+                        raise ValueError("Vorhandene bearbeitete Vergleichskopie weicht ab")
+                    entry["comparison_status"] = "already_present"
+                elif dry_run:
+                    entry["comparison_status"] = "would_copy"
+                else:
+                    if cleaned_data is None:
+                        copy_exclusive(source, edited, digest)
+                    else:
+                        write_exclusive(edited, cleaned_data)
+                    entry["comparison_status"] = "copied"
             key = str(destination).casefold()
             previous = planned.get(key)
             if previous is not None:
@@ -119,37 +193,55 @@ def preprocess(input_root: Path, output_root: Path, *, dry_run: bool = False) ->
                     reason="Gleicher Zielname und gleicher Inhalt" if same else "Gleicher Zielname, anderer Inhalt",
                 )
             elif destination.exists():
-                same = destination.is_file() and file_hash(destination) == digest
-                entry.update(
-                    status="already_present" if same else "conflict",
-                    reason="Identische Datei vorhanden" if same else "Abweichendes Ziel bereits vorhanden",
-                )
-                if same:
+                existing_digest = file_hash(destination) if destination.is_file() else None
+                if existing_digest == output_digest:
+                    entry.update(status="already_present", reason="Identische Datei vorhanden")
                     planned[key] = digest
+                elif cleaned_data is not None and existing_digest == digest:
+                    # Upgrade an earlier byte-identical working copy only after archiving its original.
+                    if dry_run:
+                        entry.update(status="would_update", reason="Würde vorhandene Originalkopie bereinigen")
+                    else:
+                        temporary = destination.parent / f".cleanup-{uuid.uuid4().hex}.tmp"
+                        try:
+                            write_exclusive(temporary, cleaned_data)
+                            if file_hash(destination) != digest:
+                                raise ValueError("Zieldatei wurde während der Bereinigung verändert")
+                            temporary.replace(destination)
+                        finally:
+                            temporary.unlink(missing_ok=True)
+                        entry.update(status="updated", reason="Vorhandene Originalkopie bereinigt; Original gesichert")
+                    planned[key] = digest
+                else:
+                    entry.update(status="conflict", reason="Abweichendes Ziel bereits vorhanden")
             elif dry_run:
                 planned[key] = digest
                 entry.update(
                     status="would_copy_rejected" if rejection_reason else "would_copy",
-                    reason="Würde unverändert aussortiert" if rejection_reason else "Würde kopiert und umbenannt",
+                    reason="Würde aussortiert" if rejection_reason else "Würde kopiert und umbenannt",
                 )
             else:
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                copy_exclusive(source, destination, digest)
+                if cleaned_data is None:
+                    copy_exclusive(source, destination, digest)
+                else:
+                    write_exclusive(destination, cleaned_data)
                 planned[key] = digest
                 entry.update(
                     status="copied_rejected" if rejection_reason else "copied",
-                    reason="Unverändert aussortiert" if rejection_reason else "Kopiert und umbenannt",
+                    reason="Aussortiert" if rejection_reason else "Kopiert und umbenannt",
                 )
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             entry.update(status="error", reason=str(exc))
         if rejection_reason:
             entry["reason"] += f"; {rejection_reason}"
     report = {
-        "version": 1,
+        "version": 3,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "input_root": str(input_root),
         "output_root": str(output_root),
         "dry_run": dry_run,
+        "remove_annotations": remove_annotations,
         "summary": dict(Counter(entry["status"] for entry in entries)),
         "entries": entries,
     }
@@ -194,6 +286,19 @@ def print_summary(report: dict):
     ]
     if links:
         rows.append(("Verknüpfungen übersprungen", links))
+    if report.get("remove_annotations"):
+        changed = {"would_copy", "would_copy_rejected", "would_update"} if dry_run else {"copied", "copied_rejected", "updated"}
+        removed = sum(int(entry["annotations_removed"] or 0) for entry in report["entries"]
+                      if entry["status"] in changed or entry["comparison_status"] == ("would_copy" if dry_run else "copied"))
+        backups = sum(entry["original_status"] == ("would_copy" if dry_run else "copied") for entry in report["entries"])
+        rows.extend([
+            ("Originale würden gesichert" if dry_run else "Originale neu gesichert", backups),
+            ("Vergleichskopien geplant" if dry_run else "Vergleichskopien neu erstellt",
+             sum(entry["comparison_status"] == ("would_copy" if dry_run else "copied") for entry in report["entries"])),
+            ("Vorhandene würden bereinigt" if dry_run else "Vorhandene Kopien bereinigt",
+             counts.get("would_update" if dry_run else "updated", 0)),
+            ("Anmerkungen würden entfernt" if dry_run else "Anmerkungen entfernt", removed),
+        ])
     for label, value in rows:
         print(f"  {label + ':':<30} {value}")
     if pdfs == 0:
@@ -210,10 +315,11 @@ def main(argv=None) -> int:
     parser.add_argument("--input", type=Path, default=SOFTWARE_ROOT.parent / "dateien")
     parser.add_argument("--output", type=Path, default=SOFTWARE_ROOT / "vorverarbeitung" / "ausgabe")
     parser.add_argument("--dry-run", action="store_true", help="Nur prüfen, keine Dateien oder Ordner anlegen")
+    parser.add_argument("--keep-annotations", action="store_true", help="Nur wie bisher kopieren; keine Anmerkungsbereinigung")
     args = parser.parse_args(argv)
     try:
-        report = preprocess(args.input, args.output, dry_run=args.dry_run)
-    except (OSError, ValueError) as exc:
+        report = preprocess(args.input, args.output, dry_run=args.dry_run, remove_annotations=not args.keep_annotations)
+    except (OSError, ValueError, RuntimeError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
     for entry in report["entries"]:

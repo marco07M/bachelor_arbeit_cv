@@ -110,6 +110,18 @@
           ],
           "default": null
         },
+        "signature_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Method"
+        },
         "review_notes": {
           "items": {
             "type": "string"
@@ -202,6 +214,23 @@
       ],
       "title": "Status",
       "type": "string"
+    },
+    "page_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Page Text"
+    },
+    "text_fallback": {
+      "default": false,
+      "title": "Text Fallback",
+      "type": "boolean"
     },
     "participants": {
       "items": {

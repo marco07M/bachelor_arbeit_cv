@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "SignatureRowLocation": {
+      "additionalProperties": false,
+      "properties": {
+        "output_index": {
+          "minimum": 0,
+          "title": "Output Index",
+          "type": "integer"
+        },
+        "row_y": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Top and bottom on a 0..1000 coordinate scale; null if unlocatable.",
+          "title": "Row Y"
+        }
+      },
+      "required": [
+        "output_index",
+        "row_y"
+      ],
+      "title": "SignatureRowLocation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "rows": {
+      "items": {
+        "$ref": "#/$defs/SignatureRowLocation"
+      },
+      "title": "Rows",
+      "type": "array"
+    }
+  },
+  "required": [
+    "rows"
+  ],
+  "title": "SignatureLocations",
+  "type": "object"
+}

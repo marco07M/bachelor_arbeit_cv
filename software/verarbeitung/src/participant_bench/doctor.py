@@ -105,7 +105,7 @@ def environment(config, check_torch=True):
             )
     except (OSError, subprocess.TimeoutExpired):
         info["warnings"].append("nvidia-smi nicht verfügbar; GPU-Hersteller nicht bestimmt")
-    if check_torch:
+    if check_torch and any(spec.backend == "local" for spec in config.models.values()):
         try:
             import torch
 
@@ -150,13 +150,22 @@ def environment(config, check_torch=True):
         info["warnings"].append(str(exc))
     info["models"] = {}
     for method, model in config.models.items():
-        from .models import Unavailable, local_model_identity
+        from .models import Unavailable, model_identity
 
         try:
-            info["models"][method] = dict(status="available", **local_model_identity(model))
+            info["models"][method] = dict(status="available", **model_identity(model))
         except (Unavailable, ValueError, KeyError) as exc:
             info["models"][method] = {"status": "unavailable", "reason": str(exc)}
             info["warnings"].append(f"{method}: {exc}")
+        if model.backend == "api":
+            from .api_models import missing_environment
+
+            missing = missing_environment(model)
+            info["models"][method]["missing_environment"] = missing
+            info["models"][method]["connection_verified"] = False
+            if missing:
+                info["models"][method]["status"] = "unconfigured"
+            continue
         if model.device != "cpu" and info.get("gpu"):
             free = info["gpu"][0]["free_mib"] / 1024
             if free < model.gpu_memory_gib + 2:

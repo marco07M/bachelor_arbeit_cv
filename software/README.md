@@ -12,7 +12,11 @@ Personalnummer und Abteilung sowie ausschließlich die Anwesenheit einer
 Unterschrift. Kein Datum, keine Unterschriftentranskription, keine Identitäts-
 oder Echtheitsprüfung und kein Import in ein Schulungssystem.
 
-Alle Dokumente, Vorschauen und Ergebnisse bleiben lokal. **Ohne Ground Truth
+Mit der Standardkonfiguration bleiben alle Dokumente, Vorschauen und Ergebnisse lokal.
+Optional können LLM und VLM über eine ausdrücklich konfigurierte API laufen:
+Dann werden OCR-Texte bzw. Seitenbilder und Signaturausschnitte an diesen Dienst
+gesendet. Einrichtung für den internen Zugang: [API-Anbindung](docs/api.md).
+**Ohne Ground Truth
 wird keine Extraktionsqualität behauptet.** Die Ausgaben dienen menschlicher
 Kontrolle und Korrektur. Reale Formulare müssen noch auf Development-Daten
 angepasst und unabhängig auf Testdaten evaluiert werden.
@@ -38,7 +42,7 @@ werden als ID `123456` erkannt.
 Bei `101158 - 174563 - 09.09.2026 MUC.pdf` wird die zweite Zahl verwendet:
 Die Ausgabe heißt `174563.pdf`.
 
-Die Vorverarbeitung benötigt nur Python ab Version 3.12, keine OCR oder Modelle:
+Die Vorverarbeitung benötigt Python ab Version 3.12 und PyMuPDF, keine OCR oder Modelle:
 
 ```powershell
 .venv/Scripts/python.exe vorverarbeitung/vorbereiten.py --dry-run
@@ -46,8 +50,13 @@ Die Vorverarbeitung benötigt nur Python ab Version 3.12, keine OCR oder Modelle
 ```
 
 `--dry-run` prüft die geplanten Kopien ohne Schreibzugriffe. Echte Läufe erzeugen
-JSON-/CSV-Protokolle unter `vorverarbeitung/ausgabe/protokolle/`. Identische
-Ziele werden übersprungen, abweichende Ziele niemals überschrieben. Aussortierte
+JSON-/CSV-Protokolle unter `vorverarbeitung/ausgabe/protokolle/`.
+PDF-Anmerkungen wie Textmarker und Kommentare werden aus den Arbeitskopien
+entfernt. Jede Quelldatei erhält unter `vorverarbeitung/ausgabe/vergleich/` einen
+eigenen Ordner mit dem Original unter seinem echten Namen und der bearbeiteten
+Version `<ID>_bearbeitet.pdf`. Die Modelleingaben liegen zusätzlich unter `pdfs/`.
+Identische bereinigte Ziele werden übersprungen. Frühere bytegleiche Originalkopien
+werden nach der Sicherung bereinigt; abweichende Ziele bleiben erhalten. Aussortierte
 PDFs werden mit dem Grund protokolliert. Konflikte und technische Fehler werden
 durch Exitcode 1 angezeigt.
 
@@ -100,7 +109,36 @@ funktioniert und ist wiederaufnehmbar. Einzelne Modelle: `--method vlm` oder
 in `models/`. Unvollständige Gewichte sind `unavailable`. Es wird kein anderes
 Modell als Ersatz ausgeführt.
 
-## Hardware und Modelle
+## Optional: LLM und VLM über die interne API
+
+Die Vorlage [`configs/api-bmw.yaml`](configs/api-bmw.yaml) unterstützt API-Key
+und OAuth mit Client-ID und Client-Secret. Zugangsdaten werden ausschließlich
+aus Umgebungsvariablen gelesen. Interne Adressen, Header und Modellnamen müssen
+aus eurer Schnittstellenbeschreibung stammen; sie sind nicht vorbelegt.
+
+Öffne eine **separate PowerShell über das Windows-Startmenü**, wechsle in
+`software` und starte die Anwendung dort selbst. Zugangsdaten werden erst in
+diesem Prozess verdeckt abgefragt und danach wieder aus seiner Umgebung entfernt:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\run-private-api.ps1 -InputFolder vorverarbeitung/ausgabe/pdfs
+```
+
+Mit `-CheckOnly` statt `-InputFolder ...` werden nur fehlende Variablen geprüft,
+ohne Serverkontakt. Optional lädt `-EnvFile` eine von dir angelegte Datei
+außerhalb des Repositories. Es gibt keine dauerhafte Speicherung mit `-Persist`.
+Details zur Trennung von Codex und zu ihren Grenzen: [API-Anleitung](docs/api.md).
+Umgebungsvariablen und `.gitignore` allein sind keine Dateizugriffssperre.
+
+Der direkte CLI-Aufruf `api-check --connect` prüft Anmeldung und Modellliste
+ohne Dokumente und gehört ebenfalls in die separate PowerShell. Ein API-Lauf erfolgt
+**ohne `run --offline`**; dieser Schalter sperrt aktive API-Modelle. Für API-Modelle
+sind keine lokalen Gewichte und kein `--extra models` erforderlich. Für A/B und
+die optionale Ausrichtung wird weiterhin lokales Tesseract verwendet. Beide
+Modelle können auch unterschiedliche Backends verwenden. Details, benötigte
+Variablen und Grenzen: [API-Anleitung](docs/api.md).
+
+## Hardware und lokale Standardmodelle
 
 Tatsächlich erkannt: Windows 11, **eine NVIDIA RTX 4090 Laptop GPU mit
 16376 MiB VRAM**, anfangs etwa 14775 MiB frei, Treiber 572.83; ungefähr
@@ -115,7 +153,62 @@ deren dediziertem VRAM addiert. `doctor` trennt Displaytreibereinträge von CUDA
 | --- | --- | --- |
 | `ocr_rules` | OCR → Zeilen/Spalten → strukturierte Felder → Signaturfeldprüfung | Tesseract + OpenCV/Regeln |
 | `ocr_llm` | identische OCR mit Layout → lokale JSON-Extraktion → Signaturfeldprüfung | Qwen3-8B, BF16, Thinking aus |
-| `vlm` | dieselben orientierten Seitenbilder → lokale visuelle JSON-Extraktion inklusive Signatur | Qwen3-VL-4B-Instruct, BF16 |
+| `vlm` | Seitenbilder → Teilnehmerdaten inklusive Signaturpräsenz; Seitentext als Fallback bei fehlenden Teilnehmern | Qwen3-VL-4B-Instruct, BF16 |
+
+Bei allen drei Verfahren steht die Teilnehmerextraktion im Vordergrund. Ohne
+strukturierte Teilnehmer bleibt gelesener Text als Fallback zur manuellen Prüfung
+erhalten. A/B verwenden den vorhandenen Tesseract-Text; dadurch entstehen keine
+zusätzlichen Modellaufrufe. Fehler der Strukturierung bleiben als Fehler sichtbar.
+
+Beim VLM bezeichnet `personnel_number` die Spalte **Benutzer / User ID /
+Personalnummer**, `department` dagegen **Kurzzeichen / Abteilung / Organisation**.
+Die Zuordnung richtet sich nach Überschrift und Zellposition. Ist Benutzer
+sichtbar leer, bleibt dieses Feld leer (`""`, Status `empty`); der Teilnehmer
+und sein Kurzzeichen bleiben erhalten. Unleserliche oder geschwärzte Angaben
+bleiben `null/uncertain`. Leere Zellen dürfen keine nachfolgenden Spalten
+verschieben. Diese Anweisung gilt für lokale und API-VLMs. Sie wird mit zwei
+synthetischen Tabellen und unterschiedlichen Spaltenreihenfolgen geprüft:
+
+```powershell
+.venv/Scripts/python.exe scripts/make_empty_user_smoke.py --output data/empty-user-smoke
+.venv/Scripts/participant-bench.exe run --input data/empty-user-smoke/raw --ground-truth data/empty-user-smoke/ground_truth.jsonl --config configs/empty-user-smoke.yaml --offline
+```
+
+Nach dieser Änderung einen neuen Lauf starten. Ältere Ergebnisse werden durch
+das Öffnen oder Aktualisieren ihres Berichts nicht neu erkannt; alte Läufe
+können wegen der geänderten Promptidentität nicht mit `--resume` vermischt werden.
+
+Das OCR-Sprachmodell erhält jedes OCR-Wort in einer kompakten Tabelle:
+Wort-ID, Text, Position auf einer Skala von 0 bis 1000 und OCR-Confidence.
+Zusätzlich enthält `lines` dieselbe lesbare Zeilenaufteilung wie der OCR-Klartext,
+mit `line_id`, Zeilentext und zugehörigen Wort-IDs. Präzise Originalpositionen
+bleiben in den Rohdaten erhalten. Die kompakte Antwort enthält Feldwerte,
+`ocr_line_id` und referenzierte Wort-IDs. Die Anwendung prüft die Textbelege;
+Zeilenpositionen werden aus beobachteten OCR-Wörtern ermittelt. Es werden keine
+Wörter abgeschnitten, um das Eingabelimit einzuhalten. Sehr große Seiten können
+weiterhin das Limit erreichen; dann bleibt der vorhandene OCR-Text als Fallback.
+Nicht belegbare Modellzeilen werden einzeln mit Begründung verworfen. Andere,
+belegbare Zeilen derselben Antwort bleiben erhalten; die Seite erhält `partial`
+und Prüfhinweise. Wenn keine belegbare Zeile übrig bleibt, greift der Text-Fallback.
+Eine solche Nachprüfung ist kein Beleg für die tatsächliche Richtigkeit der
+OCR-Zeichen oder die Vollständigkeit aller Teilnehmer.
+
+Standardmäßig erhält B auch teilweise belegte Zeilen
+(`models.ocr_llm.preserve_partial_fields: true`). Eine im OCR-Text eindeutig
+lokalisierbare Personalnummer oder Namensangabe dient als Zeilenanker.
+Felder benötigen vollständige OCR-Wortbelege in derselben Textzeile; Namen aus
+anderen Zeilen und bloße Teilzeichenfolgen werden nicht übernommen. Unbelegte
+Felder bleiben `null/failed`, belegbare andere Felder derselben Zeile bleiben
+erhalten. Niedrige OCR-Confidence führt zu `uncertain`. Die Originalschreibweise
+der OCR wird erhalten. Die Prüfung verwendet vorrangig die OCR-Zeilenkennung;
+Wörter derselben Zeile benötigen keine überlappenden Zeichenkästen. Bei getrennten
+OCR-Blöcken oder fehlenden Zeilenkennungen dienen die Positionen als Ersatz.
+Äußere Satzzeichen wie in `Weber,` oder `(MUC)` werden beim Vergleich toleriert,
+bleiben in der Ausgabe aber erhalten. Unpassende Modellreferenzen und
+unvollständige Felder
+werden als Prüfhinweise gespeichert. Mit `false` bleibt die strengere Prüfung
+ganzer Modellzeilen verfügbar. Handschrift und wechselnde bzw. mehrzeilige
+Tabellen können weiterhin zu fehlenden oder mehrdeutigen Belegen führen.
 
 B verwendet explizites CPU-Offloading, weil 8B-Gewichte plus Aktivierungen
 nicht vollständig in das sichere GPU-Budget passen. C ist wegen der tatsächlichen
@@ -142,22 +235,34 @@ uv run --offline --locked --extra models participant-bench run --input data/raw 
 ```
 
 `--offline` vor `--locked` unterbindet auch Paketdownloads durch **uv**.
-`--offline` nach `run` kennzeichnet zusätzlich den Benchmark-Aufruf. Die Inferenz
-verwendet unabhängig davon immer lokale Pfade und `local_files_only=True`;
+`--offline` nach `run` sperrt aktive API-Backends vor dem Einlesen der PDFs.
+Die lokale Inferenz verwendet lokale Pfade und `local_files_only=True`;
 HF-/Transformers-Offlinemodus und optionale Telemetrieabschaltung sind aktiv.
-Es gibt keine Inference-Endpunkte, externen Bild-URLs oder Remote-Code-Ausführung.
+In der lokalen Konfiguration gibt es keine Inference-Endpunkte, externen
+Bild-URLs oder Remote-Code-Ausführung.
 Pakete/Gewichte/Sprachdaten müssen vorher installiert sein.
 
-`prepare` erzeugt PNGs und `manifest.json`. PyMuPDF berücksichtigt PDF-
-Rotationsmetadaten bereits beim Rendern. Nur zusätzlich erkannte physische
-Scanrotation wird angewendet. OSD mit geringer Evidenz markiert Prüfbedarf.
-Handschrift und Unterschriften sind keine Seitenrelevanzkriterien. Mehrere
-unabhängige Feldüberschriften kennzeichnen Listen; unklare Seiten, einschließlich
-Deckblättern, bleiben konservativ enthalten. Nur nahezu weiße Seiten werden
-automatisch ausgeschlossen. Leere Tabellen bleiben erhalten.
+Die Eingabe wird vorher manuell ausgewählt. Alle Seiten der angegebenen PDFs
+gehen direkt in die Teilnehmerextraktion. Es gibt keine automatische Prüfung
+auf Teilnehmerlisten, Schlüsselwortfilterung oder Aussortierung leerer Seiten.
+Für eine Stichprobe die ausgewählten PDFs nach `data/pdfs_eingabe/` kopieren und
+diesen Ordner als `--input` angeben.
 
-Für den primären Vergleich die Bilder **vor** der Evaluation kontrollieren und
-eine Kopie des Manifests im selben Ordner als `curated.json` festschreiben:
+`prepare` erzeugt PNGs und `manifest.json` mit `include: true` für jede Seite.
+PyMuPDF berücksichtigt PDF-Rotationsmetadaten bereits beim Rendern. Optional
+erkennt OSD zusätzliche physische Scanrotation; geringe Evidenz markiert
+Prüfbedarf, schließt aber keine Seite aus. Mit `pdf.auto_orient: false` entfällt
+diese OCR-basierte Ausrichtung. Ein reiner VLM-Lauf benötigt dann keine OCR-
+Initialisierung; A/B verwenden OCR weiterhin zur eigentlichen Textextraktion.
+
+Neue Manifeste haben Version 2 und `automatic_page_selection: false`.
+Ältere Manifeste mit automatischer Seitenauswahl mit `prepare` neu erzeugen,
+damit frühere Ausschlüsse nicht unbemerkt übernommen werden.
+
+Optional für einen festgeschriebenen Vergleich die Bilder **vor** der Evaluation
+kontrollieren und eine Kopie des Manifests im selben Ordner als `curated.json`
+speichern. Nur in diesem ausdrücklich manuell geprüften Manifest sind einzelne
+Seitenausschlüsse zulässig:
 
 - `include`: Auswahl je ursprünglicher PDF-Seite.
 - `curation_rotation_clockwise`: zusätzliche 0/90/180/270 Grad auf das bereits
@@ -208,18 +313,61 @@ rules:
 Andere Regeln aus `local.yaml` beim Kopieren beibehalten. `extends` ersetzt
 angegebene Hauptabschnitte vollständig; es ist kein beliebig tiefes YAML-Merging.
 Zeilenumbrüche, verbundene Zellen, wechselnde Spaltenreihenfolgen und schlechte
-Scans sind Grenzen von A. Ohne belastbare Kopfzeile keine erfundene Zuordnung;
-`partial` mit Prüfhinweisen. Niedrige OCR-Confidence markiert unsichere Felder,
+Scans sind Grenzen von A. Mehrteilige Überschriften wie `Personal Nr.` werden
+auch aus benachbarten OCR-Wörtern erkannt. Zwei erkannte Teilnehmerfelder können
+für eine Zuordnung ausreichen. Bei fehlenden Überschriften lassen sich
+`rules.columns` und `rules.body_top` anhand der Seitenvorschau ausdrücklich
+vorgeben. Die Beispielwerte oben müssen zum tatsächlichen Formular passen.
+Ohne belastbare Feldzuordnung gibt A `partial`, Prüfhinweise und den OCR-Text
+als Fallback aus. Niedrige OCR-Confidence markiert unsichere Felder,
 ist keine kalibrierte Wahrscheinlichkeit. Gedruckte Zeilennummern bleiben Strings;
 Ausgabeindizes sind ausdrücklich keine sicheren Zeilenreferenzen.
 
-A/B lokalisieren Unterschriftsfelder anhand begrenzter Tabellenzeilen, entfernen
-Formularlinien und Randreste und erkennen konservativ nur leere Felder als negativ.
-Tinte, Drucktext oder synthetische Striche bleiben `null/uncertain`. Ohne sicher
-lokalisiertes Feld ebenfalls unbekannt. Es gibt noch keinen auf echten
-Unterschriften validierten positiven Klassifikator. Bei B wird die Modellposition
-nur einer eindeutig überlappenden vollständigen Tabellenzeile zugeordnet. C urteilt
-visuell; dessen Signaturlaufzeit ist in der gemeinsamen Modellinferenz enthalten.
+`configs/local.yaml` verwendet für Unterschriften jetzt `signature.backend: local_vlm`.
+Diese gemeinsame Zusatzstufe nutzt bei A/B/C das vorhandene lokale
+Qwen3-VL-4B-Instruct. Sie betrachtet jede Teilnehmerzeile in einem vergrößerten
+Ausschnitt zusammen mit dem Spaltenkontext. Namen und Drucktext gelten nicht
+als Unterschrift. Sichtbare Unterschriftsmarkierungen ergeben `true`, eindeutig
+leere Felder `false`; unklare Felder bleiben `null`. Widersprechen sich Gesamtbild
+und Detailprüfung, wird das Ergebnis zur Prüfung markiert. Es gibt keinen
+Echtheits- oder Identitätsnachweis und noch keine validierte Genauigkeit auf realen Signaturen.
+
+Fehlende Zeilenpositionen werden bevorzugt aus vorhandenen OCR-Wortbelegen
+bestimmt. Verfügbare OCR kann für diese reine Positionssuche verwendet werden;
+sonst lokalisiert das VLM die bereits extrahierten Personen separat. Die
+Personenfelder werden dabei nicht geändert oder erneut extrahiert. Ein Fehler
+der Zusatzstufe verwirft keine Personen. A/B entladen ihr Extraktionsmodell vor
+dem Laden des Signatur-VLM; C verwendet dasselbe geladene VLM. Aufrufe, Rohantworten,
+Cachetreffer, Ausschnitte und zusätzliche Laufzeiten werden separat protokolliert.
+Die Signaturauswertung ist damit bei diesen Einstellungen ausdrücklich keine reine OCR-Baseline.
+
+Mit `signature.backend: opencv` bleibt die konservative Baseline verfügbar:
+Sie entfernt Formularränder und entscheidet nur sicher lokalisierte leere
+Felder negativ. Tinte bleibt unbekannt. Die Smoke-Konfigurationen verwenden
+diese Baseline. `signature.inspect_known: false` begrenzt die Detailprüfung auf
+bisher unbekannte Entscheidungen; standardmäßig werden auch bekannte geprüft.
+
+## Unterschriften vorhandener Ergebnisse nachprüfen
+
+Aus `software/` ohne erneute Teilnehmerextraktion:
+
+```powershell
+.venv/Scripts/participant-bench.exe signatures --run runs/DEINE_RUN_ID --method ocr_llm
+.venv/Scripts/participant-bench.exe signatures --run runs/DEINE_RUN_ID --method vlm
+```
+
+Ohne `--method` werden alle Verfahren des Quelllaufs nachgeprüft. Die Ausgabe
+liegt in `runs/DEINE_RUN_ID/signature-review/<Zeitstempel>/`. Der ursprüngliche
+Lauf bleibt erhalten. `signature_recheck.json` benennt Quelle und Prüfsummen;
+alte Laufzeiten und Qualitätsmetriken werden nicht als neue Messung übernommen.
+Das lokale Modell muss bereits installiert sein; der Befehl lädt keine Gewichte herunter.
+
+Im Bericht zeigt **Unterschriften im Detail** die tatsächlichen Ausschnitte.
+Nur die Zeile unter dem blauen Trenner wird bewertet; der obere Bereich ist
+Spaltenkontext. `signature_checks.csv` enthält die Entscheidungen und Bildpfade,
+`<Verfahren>/raw-<Seiten-ID>.json` zusätzlich die Rohantworten. Fehlende oder
+widersprüchliche Positionen bleiben zur manuellen Kontrolle offen. Echte
+Trefferquoten erfordern manuell gelabelte positive und negative Beispiele.
 
 VLM-Auflösung (`min_pixels`/`max_pixels`), Tokenbudget, dtype und Decodierung sind
 konfigurierbar. Optionale vertikale Kachelung über `tile_height` in Pixeln und
@@ -230,7 +378,79 @@ Duplikate werden nicht durch ungeprüfte Inhaltsgleichheit versteckt. Keine
 automatischen OOM-Retries, Reparaturaufrufe oder stillen Auflösungsänderungen.
 Zu lange Eingaben und ungültiges/abgeschnittenes JSON sind explizite Fehler.
 
+Das VLM extrahiert vorrangig Teilnehmerdaten aus jeder eingegebenen Seite.
+Eine bestimmte Überschrift oder Tabellenform ist keine Voraussetzung.
+`participants` enthält die ausgefüllten Personenzeilen; `page_text` bleibt dabei
+`null`. Nur wenn keine Teilnehmer strukturiert erkannt werden, enthält `page_text`
+als Fallback den gesamten lesbaren Text einschließlich Überschriften, Datumsangaben
+und Notizen. Eine tatsächlich leere Seite ergibt einen leeren String. Es gibt
+keine Dokumenttypprüfung. Fallback-Text wird im Bericht zur manuellen Prüfung
+markiert und nicht als erkannte Teilnehmer oder als richtige Extraktion gewertet.
+Die VLM-Antwort verwendet ein kompaktes Schema ohne Bounding-Box-Metadaten;
+intern werden Teilnehmerdaten weiterhin in das gemeinsame Evaluationsschema
+überführt. Unbekannte oder verdeckte Werte bleiben `null`, sichtbar leere Felder
+werden als leere Strings gespeichert. Unterschriften werden nicht transkribiert.
+
+`models.vlm.max_new_tokens` beträgt standardmäßig 8192. Wird dieses Limit erreicht,
+wird die Antwort ausdrücklich als abgeschnitten markiert. Das ist ein Fehler der
+Ausgabe, kein Ausschluss der PDF-Seite. Der Bericht zeigt zuerst Teilnehmerdaten,
+anschließend Text-Fallbacks und Fehlerursachen. Die unveränderte Modellantwort
+ist unter den technischen Details verlinkt, auch wenn
+deren JSON unvollständig ist. Neue Ausgaben im Laufordner:
+
+- `page_text.jsonl`: Fallback-Text, Fallback-Markierung und Status pro Seite und Verfahren.
+- `pages.csv`: Seitenweise Statuswerte und Fehlerursachen.
+- `<Verfahren>/texts/<Seiten-ID>.txt`: Seitentext nur bei Text-Fallback, für alle drei Verfahren.
+- `<Verfahren>/raw_text/<Seiten-ID>.txt`: unveränderte Modellantwort bei OCR+LLM und VLM, auch bei Fehlern.
+- `<Verfahren>/raw-<Seiten-ID>.json`: vollständige OCR-Daten und Modellantworten, soweit vorhanden.
+
+Vorhandene Läufe behalten ihre Ergebnisse. Für das bedingte Text-Fallback
+einen neuen Lauf starten; ältere Antworten werden
+nicht nachträglich als erfolgreiche Extraktion umgedeutet.
+
+## OCR-Klartext und Modelleingabe kontrollieren
+
+Der HTML-Bericht enthält den aufklappbaren Abschnitt **OCR-Klartext und
+Modelleingabe**, unabhängig davon, ob Teilnehmer erkannt wurden. Die Lesefassung
+enthält alle erkannten OCR-Wörter. Das Sprachmodell erhält diese Wörter als
+Layouttabelle mit Wort-IDs, Positionen und lesbaren OCR-Zeilen. Diese exakte
+Eingabe ist separat verlinkt, sofern der gespeicherte Prompt-Hash übereinstimmt. Die Systemanweisungen
+stehen in `prompts.json`. Der Klartext ist keine fehlerfreie Abschrift der PDF.
+
+- `<Verfahren>/ocr_text/<Seiten-ID>.txt`: vollständiger OCR-Klartext, auch ohne Text-Fallback.
+- `<Verfahren>/ocr_words/<Seiten-ID>.csv`: OCR-Wörter, Wort-IDs, Positionen und Confidence.
+- `ocr_llm/model_input/<Seiten-ID>-<Aufruf>.txt`: exakte Eingabe des Sprachmodells.
+- `ocr_text.jsonl`: Klartext und Verweise je Seite und Verfahren.
+
+Einen vorhandenen Bericht ohne neue Inferenz aktualisieren:
+
+```powershell
+.venv/Scripts/participant-bench.exe report --run runs/DEINE_RUN_ID
+```
+
+Die gespeicherten Vorhersagen und Messwerte bleiben dabei erhalten. Das ist
+eine Aktualisierung der Darstellung, keine neue Teilnehmerextraktion.
+
+Als ausdrücklich getrennten OCR-Versuch gibt es `configs/ocr-sparse.yaml`
+(Tesseract PSM 11 statt PSM 6, beide OCR-Verfahren). Diese Variante kann bei
+verstreut angeordnetem Text andere Wortergebnisse liefern. Höhere OCR-Confidence
+ist kein Beleg für höhere Richtigkeit; Varianten auf manuell geprüften
+Entwicklungsdaten vergleichen. Der reguläre OCR-Modus bleibt unverändert.
+
 ## Schema und Ground Truth
+
+Für eine vorhandene Excel-Kursliste gibt es zusätzlich einen separaten,
+kursweisen Abgleich nach der Extraktion:
+
+```powershell
+uv run --offline --locked --extra models participant-bench compare-excel --run runs/DEINE_RUN_ID --excel data/referenz/kurse.xlsx
+```
+
+`Class ID` entspricht der PDF-ID, `Organization` dem Kurzzeichen. Bei verdeckter
+User ID wird anhand von Vorname, Nachname und Kurzzeichen zugeordnet. Die
+Ergebnisse enthalten Feldvergleiche sowie gefundene, fehlende und zusätzliche
+Personen. Konfiguration, Umgang mit Mehrdeutigkeiten und Grenzen der Kennzahlen:
+[Excel-Abgleich](docs/excel-comparison.md).
 
 [JSONL-Vorlage](examples/ground_truth.template.jsonl), [JSON-Schemas](examples/schemas/).
 `uv run participant-bench schemas` erzeugt sie aus den implementierten Modellen.
@@ -285,10 +505,25 @@ Die vollständigen Definitionen stehen zusätzlich im HTML-Bericht und in
 
 ## Ergebnisdateien, Laufzeiten und Resume
 
+`participant-bench run` zeigt standardmäßig fortlaufende Statusmeldungen mit
+Uhrzeit (UTC) und verstrichener Laufzeit. Angezeigt werden Eingabedateien,
+PDF-Seitenvorbereitung, Orientierung/OCR, Gewichtsprüfung, Modellladen,
+GPU-Speicher, Warm-up, Tokenisierung und die eigentliche Modellantwort.
+Je Seite erscheinen Datei, ursprüngliche Seitennummer, Fortschritt, technischer
+Status, Anzahl ausgegebener Einträge und Laufzeit. Auch Cachetreffer,
+übernommene Resume-Ergebnisse und Fehler werden angezeigt.
+
+Bei länger dauernden Schritten erscheint alle zehn Sekunden eine Meldung zum
+aktiven Schritt und dessen bisheriger Dauer. Die Prozentanzeige zählt fertig
+verarbeitete Seiten des aktuellen Verfahrens; einzelne Seiten können
+unterschiedlich lange dauern. Alle Meldungen werden sofort ausgegeben und
+zusätzlich unter `runs/<Lauf-ID>/progress.log` gespeichert. Bei Resume wird
+dieses Protokoll ergänzt. Dein bisheriger Startbefehl funktioniert unverändert.
+
 Jeder Lauf erhält `runs/<UTC-Zeit>-<ID>/`:
 
 ```text
-config.yaml, environment.json, identity.json, prompts.json
+config.yaml, environment.json, identity.json, prompts.json, progress.log
 manifest.json, effective_pages.json, pages/*.png, review_pages.csv
 <method>/raw-<page>.json, raw.jsonl, extractions.jsonl, checkpoint.jsonl
 <method>/attempts.jsonl, attempts/raw-<page>-<attempt>.json
@@ -309,10 +544,9 @@ GPU-Messungen werden synchronisiert. Ladezeit, Warm-up, Vorverarbeitung, OCR,
 Strukturierung/Signatur und Modellinferenz sind getrennt. OCR wird für A/B geteilt,
 jedem vollständigen Verfahren aber mit der ursprünglich gemessenen OCR-Laufzeit
 zugerechnet. Cachezugriff und Originalaufwand stehen nebeneinander. Die
-Klassifikations-OCR wird dabei auf eingeschlossenen Seiten nicht doppelt gezählt.
-Bei C gehört OCR-basierte automatische Seitenauswahl nur im End-to-end-Scope zum
-gemeinsamen Vorverarbeitungsaufwand. Kuratierte Evaluation rechnet die vorherige
-manuelle Seitenauswahl nicht zur Extraktion.
+Vorbereitung umfasst Rendering und optional die Ausrichtung; es gibt keine
+zusätzliche OCR zur Seitenklassifikation. Kuratierte Evaluation rechnet die
+vorherige manuelle Seitenauswahl nicht zur Extraktion.
 
 `full_pipeline_charged_seconds` ist aus gemessenen Komponenten zusammengesetzter
 Aufwand für den gewählten Scope, keine zweite reale Stopuhr. `actual_method_wall_seconds`

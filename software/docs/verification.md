@@ -1,5 +1,234 @@
 # Verifikationsprotokoll
 
+Stand 21.10.2026, `participant-json-v10-empty-user-cells`: VLM-Anweisung und
+Feldbeschreibungen trennen Benutzer/User ID von Kurzzeichen nach Spaltenposition.
+Sichtbar leere Benutzer bleiben `""/empty`; die Person und ihr Kurzzeichen bleiben
+erhalten. Nur aus Leerzeichen bestehende Antworten werden ebenfalls als leere
+Zelle normalisiert; unbekannte/geschwärzte Werte bleiben `null/uncertain`.
+Die gemeinsamen Prompts werden lokal und im API-Adapter verwendet. Bestehende
+Läufe werden nicht verändert; die neue Promptidentität verhindert eine Mischung
+mit früheren Ergebnissen beim Resume.
+
+**214 Tests erfolgreich**, einschließlich neuer Fälle für leere Benutzer,
+unbekannte IDs, Leerraum, alphanumerische IDs und korrekten CSV-Export. Zusätzlich
+ein echter lokaler Lauf mit Qwen3-VL-4B-Instruct auf einer eigens erstellten
+zweiseitigen PDF: `runs/20261021T081431Z-48ddf9f6/report.html`. Zwei unterschiedliche
+Spaltenreihenfolgen, zehn Teilnehmer, sechs leere Benutzerfelder, Kurzzeichen mit
+Ziffern/Trennzeichen und vier leere Kurzzeichenfelder. Ergebnis: **40/40 Textfelder
+korrekt**, alle zehn Teilnehmer erhalten; Benutzer und Kurzzeichen je 10/10.
+Beide Seiten erfolgreich; etwa 41 Sekunden insgesamt. Keine API-Anfrage, keine
+realen Daten und keine zusätzliche OCR-/Signaturinferenz im Testlauf. Generator:
+`scripts/make_empty_user_smoke.py`; Konfiguration: `configs/empty-user-smoke.yaml`.
+Dies ist ein synthetischer Funktionstest, keine Qualitätsgarantie für echte Scans.
+
+Ergänzung 21.10.2026: Privater manueller API-Start über
+`scripts/run-private-api.ps1`. Die Option `-Persist` wurde entfernt;
+Zugangsdaten werden nur im gestarteten Prozess gesetzt und nach dem Lauf
+entfernt. Eine externe `NAME=WERT`-Datei wird ausschließlich über den expliziten
+Parameter `-EnvFile` eingelesen, ohne Codeausführung oder Variablenexpansion.
+Repository-interne Pfade und ungültige/mehrfach belegte Einträge werden abgewiesen.
+**32 API- und Starthelfer-Tests erfolgreich**, darunter sieben neue Fälle mit
+separaten PowerShell-Testprozessen und ausschließlich synthetischen Schlüsseln.
+Geprüft wurden die Übergabe an Python, das Ausbleiben von Schlüsselwerten in
+der Konsolenausgabe und das Entfernen nach Erfolg bzw. Importfehler. Beim Test
+des Starthelfers wurde `-CheckOnly` verwendet; es fand kein API-Aufruf statt.
+Dies ist keine technisch erzwungene Zugriffssperre gegenüber Prozessen mit
+gleichen Dateirechten; die Trennung und ihre Grenzen stehen in der API-Anleitung.
+
+Stand 21.10.2026: Optionale API-Backends für OCR/LLM und VLM ergänzt, einschließlich
+OAuth-Client-Credentials und API-Key aus Umgebungsvariablen. **201 Tests erfolgreich**,
+darunter 25 neue API-Fälle mit einem Loopback-HTTP-Server und ausschließlich
+synthetischen Namen/PDFs. Geprüft wurden Key-/OAuth-Anmeldung (Body und Basic),
+Tokenwiederverwendung und Erneuerung, Timeout-/HTTP-Fehler, Redirect-Sperre,
+OCR-Feldbelege, Bildübertragung, JSON-Verträge, abgeschnittene Ausgaben sowie
+PDF → Teilnehmer → Signaturdetails → Bericht, Resume und Signatur-Cache.
+Die erzeugten Konfigurationen, Berichte, Rohdaten und Caches wurden auf die
+synthetischen Zugangsdaten geprüft; diese werden dort nicht gespeichert.
+
+`ruff check` für Quellcode/Tests/Skripte/Vorverarbeitung und PowerShell-Syntaxprüfung
+des Einrichtungshelfer-Skripts sind erfolgreich. `api-check` ohne Verbindungsoption
+meldet erwartungsgemäß fehlende BMW-Variablen (Exitcode 1, kein Netzwerkzugriff).
+Ein API-Lauf mit `--offline` wird vor dem Einlesen der PDFs abgewiesen.
+Es wurden keine realen PDFs an einen Dienst übertragen und keine BMW-Zugangsdaten
+verwendet. Der echte interne Endpunkt und sein Protokoll sind weiterhin nicht
+verifiziert; die Vorlage ist kein Nachweis für eine bereits funktionierende
+BMW-Verbindung. Einrichtung und Grenzen: [API-Anleitung](api.md).
+
+Stand 20.10.2026: Die automatische Seitenklassifikation wurde entfernt. Alle
+Seiten der manuell ausgewählten Eingabe-PDFs werden nun an die Extraktion
+übergeben. Ältere Manifeste müssen neu vorbereitet werden. Die folgenden
+historischen Messungen beziehen sich auf ihren damaligen Code- und
+Konfigurationsstand.
+
+Seit `participant-json-v9-signature-details` verwendet die lokale Konfiguration
+eine zusätzliche gemeinsame Signaturstufe mit Qwen3-VL-4B-Instruct. Sie arbeitet
+auf vergrößerten Zeilenbildern mit getrenntem Spaltenkontext. Die konservative
+OpenCV-Baseline bleibt in den Smoke-Konfigurationen erhalten und kann weiterhin
+keine positiven Unterschriftenentscheidungen treffen. A/B entladen vor dem
+Signatur-VLM ihr Extraktionsmodell; C nutzt sein geladenes VLM weiter. Diese
+Zusatzstufe macht die Signaturauswertung von A/B ausdrücklich zu einer Kombination
+mit VLM. Die ursprünglichen VLM-Anweisungen und das Antwortschema für
+Teilnehmerfelder stimmen mit dem Stand des Quelllaufs `20261020T101106Z-e12943df`
+überein. Die getrennte Positionssuche ändert keine Personenfelder.
+
+Fehlende Positionen stammen bevorzugt aus eindeutigen vorhandenen OCR-Wortbelegen;
+widersprüchliche Namens-/ID-Zuordnungen werden dabei abgelehnt. Sonst erfolgt eine
+separate lokale VLM-Lokalisierung auf einer expliziten 0–1000-Skala. Nicht
+lokalisierbare Zeilen bleiben offen. Der CLI-Befehl `signatures` prüft vorhandene
+Personen ohne neue Teilnehmerinferenz nach, erhält den Quelllauf und schreibt
+Quellprüfsummen, Ausschnitte, Rohantworten und neue Signaturmessungen separat.
+Alte Qualitätsmetriken werden nicht als neue Evaluation übernommen.
+
+Echte lokale Nachprüfung von B:
+`runs/20261020T102932Z-895bb966/signature-review/20261020T111004Z-7dd2d1ab/`.
+Auf Seite 1 neun positive Detailbefunde statt neun unbekannter Signaturen;
+auf Seite 2 vier positive Befunde und sechs offene Fälle. Die ursprünglichen
+Personenfelder und Quelldateien blieben erhalten.
+
+Echte lokale Nachprüfung der 18 gespeicherten VLM-Personen des Laufs
+`20261020T101106Z-e12943df`: Auf Seite 1 neun positive Detailbefunde statt zuvor
+zwei positiven Gesamtbildentscheidungen. Auf Seite 2 fünf positive Detailbefunde
+und vier nicht lokalisierte Signaturfelder. Die neun vorhandenen positiven
+Gesamtbildentscheidungen bleiben dort erhalten; die vier unklaren Detailbefunde
+werden separat ausgewiesen und sind keine zusätzlichen bestätigten Treffer.
+Insgesamt stammen elf Zeilenpositionen aus OCR-Wortbelegen und sieben aus der
+separaten VLM-Lokalisierung. Ohne manuelle Referenzlabels sind das keine
+validierten Precision-/Recall-Werte.
+Aktueller Bericht mit getrennten Gesamtbild- und Detailentscheidungen:
+`runs/20261020T101106Z-e12943df/signature-review/20261020T113027Z-8967691a/report.html`.
+Dieser abschließende Durchlauf verwendet 18 Cachetreffer und keine neue
+Dokumentinferenz. Ein Vergleich bestätigt unveränderte Personenfelder und
+Zeilenreferenzen für beide Seiten. Die ursprünglichen echten Detailaufrufe
+stehen im Lauf `20261020T112415Z-8fb77fb8` unter derselben `signature-review/`-Wurzel.
+
+Ein zusätzlicher echter lokaler VLM-Test mit einer synthetischen PDF prüft ein
+leeres Feld, eine gezeichnete Unterschriftsmarkierung und gedruckten Text:
+Erwartet und erhalten wurde `[false, true, null]`, drei Detailaufrufe in 3,31 s
+ohne Modellsetup. Artefakte: `runs/signature-synthetic-1a1ef482/verification.json`.
+Dies prüft diese drei künstlichen Fälle, keine echte Handschriftverteilung.
+176 automatisierte Tests bestanden, einschließlich Signaturzuständen,
+Quellerhalt, Cachewiederverwendung, Positionskonflikten, unveränderten
+Personenfeldern sowie getrennten Aufrufen und der Modell-Entladereihenfolge.
+
+Seit `participant-json-v8-ocr-lines` erhält das OCR-Sprachmodell zusätzlich zur
+Worttabelle den lesbaren Zeilentext mit Zeilen- und Wortkennungen. Die Feldprüfung
+verwendet diese OCR-Zeilen vor dem geometrischen Vergleich. Äußere Satzzeichen
+werden nur beim Vergleich toleriert; die Ausgabe behält die OCR-Schreibweise.
+Echte Zuordnungen zu einer anderen OCR-Zeile bleiben gesperrt und bekommen einen
+eigenen Hinweis. Der pauschale Hinweis auf geschätzte Modell-Bounding-Boxes wird
+für OCR-basierte Positionen nicht mehr ausgegeben. Ein unbekannter Signaturstatus
+bleibt unabhängig von den gelesenen Textfeldern sichtbar.
+
+Auf den beiden Entwicklungsseiten des Laufs `20261020T101106Z-e12943df` umfasst
+der neue Prompt 5485 bzw. 2396 Token (Limit 12000), ohne OCR-Wörter abzuschneiden.
+Eine lokale Nachprüfung der gespeicherten Antworten reduziert fehlende Textfelder
+von zwölf auf acht bei unverändert fünf teilweise belegten Zeilen. Dabei wurde
+keine neue Inferenz ausgeführt und der alte Bericht nicht verändert. Dies belegt
+die korrigierte Wortprüfung, nicht die Richtigkeit oder Vollständigkeit der OCR.
+158 automatisierte Tests bestanden. Neue Regressionen prüfen abweichende
+Wortkastenhöhen derselben OCR-Zeile, überlappende Kästen verschiedener Zeilen,
+getrennte OCR-Blöcke, äußere Satzzeichen, zusätzliche gültige Wortreferenzen und
+die Disambiguierung wiederholter Namen über explizite OCR-Zeilenkennungen sowie
+die unveränderte gedruckte Schreibweise von Zeilennummern mit Satzzeichen.
+
+Im echten lokalen Lauf `20261020T102932Z-895bb966` liefert B auf der ersten
+Entwicklungsseite neun statt fünf Zeilen. 34 von 36 Textfeldern haben einen
+OCR-Beleg (im bisherigen Lauf acht von 20); die zuvor festgestellten
+zeilenübergreifenden Feldkombinationen treten in dieser Antwort nicht mehr auf.
+Niedrige OCR-Confidence, abweichende Modell-Wortreferenzen und zwei nicht belegte
+Felder bleiben als Prüfhinweise sichtbar. Die reine Modellgenerierung dieser
+Seite dauerte 1013,9 Sekunden bei 918 Ausgabe-Token. Der größere Textumfang und
+das CPU-Offloading machen dieses Verfahren hier langsam; dies ist keine
+kontrollierte Laufzeitstudie oder validierte Genauigkeitsmessung.
+Der Lauf ist mit beiden Seiten abgeschlossen. Auf Seite 2 liefert B zehn
+Zeilen mit 37 von 40 belegten Textfeldern; 13 Felder haben niedrige OCR-Confidence.
+Eine Mehrdeutigkeit und ein nicht beobachteter Wert bleiben gesperrt. Die reine
+Generierung dauerte dort 575,6 Sekunden bei 838 Ausgabe-Token. Es gab keine
+technisch fehlgeschlagenen Seiten. Beide Seiten bleiben `partial` und erfordern
+Kontrolle; insbesondere die zusätzliche Ausgabe auf Seite 2 ist ohne manuelle
+Referenzlabels kein Nachweis zusätzlicher richtiger Teilnehmender. A liefert auf
+dieser Vorlage weiterhin OCR-Klartext als Fallback, aber keine strukturierten
+Felder. Der Ergebnisbericht liegt unter
+`runs/20261020T102932Z-895bb966/report.html`.
+Der abschließende Randfall-Fix für gedruckte Zeilennummern wurde nachprüfbar auf
+beide gespeicherten Antworten angewendet: Feldwerte und Zeilenreferenzen stimmen
+mit den gespeicherten Ergebnissen überein, es gab keine neue Inferenz.
+
+Seit `participant-json-v7-partial-ocr-fields` sind vollständige OCR-Klartexte und
+die per Hash verifizierte LLM-Eingabe unabhängig vom Extraktionserfolg im Bericht
+verfügbar. Die Feldprüfung erhält teilweise belegte Zeilen, maskiert unbelegte
+oder fremden OCR-Zeilen zugeordnete Felder und übernimmt vollständige beobachtete
+Wörter statt Teilzeichenfolgen. Der gespeicherte Lauf
+`20261020T093657Z-294ed368` wurde ohne neue Modellinferenz nachgeprüft:
+`runs/20261020T093657Z-294ed368/revalidated/report.html`.
+Vier teilweise belegte Datensätze mit acht fehlenden Textfeldern bleiben erhalten;
+das sind keine vier vollständig oder nachweislich richtig erkannten Teilnehmer.
+Originale Modellantworten und Messwerte sind unverändert vorhanden.
+150 automatisierte Tests bestanden, einschließlich zeilenübergreifender
+Fehlzuordnungen, Teilzeichenfolgen, Originalschreibweisen, niedriger OCR-Confidence,
+unabhängiger Klartextexporte, Prompt-Hashes und Aktualisierung alter Berichte.
+
+Tesseract PSM 11 wurde auf denselben Entwicklungsseiten getrennt ausprobiert.
+Erkannt wurden 122/46 statt 138/51 Wörter, davon 94/22 statt 85/18 mit Confidence
+von mindestens 60. Diese Confidence-Werte sind keine Richtigkeitsmessung; der
+Standardmodus PSM 6 bleibt erhalten. Versuchsdaten liegen lokal unter
+`runs/20261020T093657Z-294ed368/ocr_experiments/`, eine optionale Konfiguration unter
+`configs/ocr-sparse.yaml`. Für den realen Datensatz fehlen weiterhin manuelle
+Referenzlabels als Grundlage belastbarer Qualitätsaussagen.
+
+Seit Prompt `participant-json-v6-compact-ocr` erhält das OCR-Sprachmodell eine
+kompakte Worttabelle und liefert Feldwerte mit beobachteten Wort-IDs. Auf der
+betroffenen Entwicklungsseite sinkt die Eingabe von 19701 auf 4194 Token,
+auf der zweiten Seite auf 1867 Token (Limit jeweils 12000). Alle OCR-Wörter
+bleiben erhalten. Auch die beiden OCR-Verfahren sichern Text-Fallbacks.
+Mehrteilige Überschriften und Vorlagen mit zwei eindeutigen Teilnehmerfeldern
+werden unterstützt; unbekannte Tabellen werden nicht durch erfundene Zuordnungen ersetzt.
+143 automatisierte Tests bestanden. Neue Tests prüfen den Erhalt aller Wörter,
+strikte Wortreferenzen, führende Nullen, mehrteilige Überschriften, explizite
+Vorlagen sowie OCR-Fallbacks bei leeren und fehlgeschlagenen Modellantworten.
+Die Fallback-Integration verwendet echte lokale Tesseract-Erkennung; die
+Sprachmodell-Doubles prüfen nur den Ablauf und sind kein Qualitätsnachweis.
+
+Echter lokaler OCR-Lauf: `runs/20261020T092258Z-dc9ad021/`, zwei Entwicklungsseiten.
+Kein Eingabelimit überschritten; die OCR-Texte bleiben auf beiden Seiten erhalten.
+Das Sprachmodell lieferte vier Zeilen auf Seite 1, davon zwei mit ausreichendem
+OCR-Beleg; Seite 2 blieb ohne Teilnehmer. Die zunächst angewendete strikte
+Seitenprüfung verwarf auf Seite 1 auch die belegbaren Zeilen. Die aktuelle
+Zeilenprüfung behält diese zwei Zeilen und protokolliert die anderen separat.
+Die gespeicherten Antworten wurden ohne neue Inferenz nachgeprüft:
+`runs/20261020T092258Z-dc9ad021/revalidated/report.html`.
+Dieser Bericht enthält keine neue Laufzeitmessung. Originaler Run und originale
+Modellantworten bleiben erhalten; Quelle und Prüfcodes stehen in `revalidation.json`.
+Es liegen keine manuellen Referenzlabels für einen Qualitätsnachweis vor.
+
+Der VLM-Prompt `participant-json-v5-text-fallback` extrahiert vorrangig
+Teilnehmerdaten. Nur bei fehlenden Teilnehmern wird der lesbare Seitentext als
+Fallback ausgegeben und zur manuellen Prüfung markiert. Die folgenden Messungen
+mit Prompt v4 dokumentieren die zuvor verwendete vollständige Transkription.
+
+Für Prompt v5 wurden 127 automatisierte Tests bestanden. Zusätzlich bestätigt
+ein echter lokaler VLM-Lauf mit drei synthetischen Seiten das bedingte Verhalten:
+zwei Teilnehmende ohne Listenüberschrift erkannt, dabei kein Volltext ausgegeben;
+ein Informationsblatt als Text-Fallback erhalten; eine Leerseite ohne erfundene
+Inhalte verarbeitet. Laufzeit rund 27,5 Sekunden, keine Reparaturaufrufe:
+`runs/20261020T085034Z-0ff646a0/report.html`. Das ist ein Funktionstest anhand
+synthetischer Daten, keine Zuverlässigkeitsaussage für den gesamten Datensatz.
+
+Der VLM-Prompt `participant-json-v4-page-text` las zusätzlich den gesamten
+lesbaren Seitentext aus und verwendet ein kompaktes Teilnehmerformat. Das
+konfigurierte Ausgabelimit beträgt 8192 Token. Abgeschnittene Antworten sind
+als Ausgabeprobleme ausgewiesen und bleiben unverändert einsehbar.
+125 automatisierte Tests bestanden, einschließlich Antwortformat, Fehlerweitergabe,
+Seitentextexport und HTML-Escaping. Die Antwort-Doubles dieser Tests prüfen
+Datenverträge und Ablauf, keine Erkennungsqualität.
+
+Ein erneuter echter lokaler VLM-Lauf auf den zwei vom Nutzer ausgewählten Seiten
+lieferte zwei gültige Antworten und 18 Teilnehmereinträge in rund 87,5 Sekunden:
+`runs/20261020T084404Z-0a0fc90f/report.html`. Beide Seiten wurden verarbeitet;
+keine automatische Seitenauswahl und keine Reparaturaufrufe. Dies bestätigt die
+technische Ausführbarkeit, nicht die inhaltliche Richtigkeit oder Vollständigkeit:
+Für diesen Lauf liegen keine manuell annotierten Referenzwerte vor.
+
 Umgebung und Datum: Windows 11, 14.10.2026. Exakte Umgebungsdaten liegen lokal in
 `runs/doctor.json` und zusätzlich pro Run in `environment.json`.
 

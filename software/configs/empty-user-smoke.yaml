@@ -1,0 +1,5 @@
+# Local VLM only; synthetic blank-cell check without OCR orientation or signature detail calls.
+extends: vlm-smoke.yaml
+pdf:
+  dpi: 220
+  auto_orient: false

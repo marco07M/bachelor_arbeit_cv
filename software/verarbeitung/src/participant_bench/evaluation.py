@@ -25,8 +25,9 @@ DEFINITIONS = {
     "not an independent identity verification.",
     "signature": "Known GT true/false only. Confusion matrix includes prediction unknown. Unknown positive "
     "is FN; coverage includes missing rows. Extra predicted true is FP. GT unknown excluded.",
-    "scope": "Curated extraction uses selected page IDs. End-to-end uses all GT pages, including "
-    "auto exclusions/failures. Unannotated output pages have no asserted quality.",
+    "scope": "All input pages enter extraction without automatic classification. Explicit manual curation "
+    "uses selected page IDs. End-to-end uses all GT pages, including manual exclusions/failures. "
+    "Unannotated output pages have no asserted quality.",
     "statistics": "Descriptive only. Fields/rows in the same document are dependent; no significance/winner score.",
 }
 

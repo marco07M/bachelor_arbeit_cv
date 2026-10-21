@@ -26,7 +26,10 @@ software/.venv/Scripts/python.exe software/vorverarbeitung/vorbereiten.py
 
 Alternativ mit einem vorhandenen Python ab Version 3.12:
 `python software/vorverarbeitung/vorbereiten.py`.
-Es sind keine zusätzlichen Python-Pakete für diesen Schritt nötig.
+Für die Bereinigung wird das im Projekt enthaltene PyMuPDF benötigt.
+PDF-Anmerkungen werden entfernt. Unter `software/vorverarbeitung/ausgabe/vergleich/`
+entsteht für jede Datei ein Ordner mit dem unveränderten Original unter seinem
+ursprünglichen Namen und der bearbeiteten Version `<ID>_bearbeitet.pdf`.
 
 Die Dokumente unter diesem Ordner werden von Git ignoriert. Diese README
 bleibt versioniert. Details: [Vorverarbeitung](../software/vorverarbeitung/README.md).

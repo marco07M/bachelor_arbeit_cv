@@ -8,6 +8,7 @@ import numpy as np
 
 from .ocr import grid_masks
 from .schema import TEXT_FIELDS, Box, Participant, TextField
+from .signatures import row_regions
 
 
 def token_key(text):
@@ -23,17 +24,46 @@ def line_positions(mask, axis, fraction=0.25):
     return [float(np.mean(group) / size) for group in groups]
 
 
+def find_headers(words, aliases, row_tolerance):
+    """Match exact configured labels, including labels split into adjacent OCR words."""
+    normalized = {field: {token_key(alias) for alias in values} for field, values in aliases.items()}
+    headers = {}
+    for word in words:
+        key = token_key(word["text"])
+        if not key or not any(label.startswith(key) for values in normalized.values() for label in values):
+            continue
+        candidates = [word]
+        center = (word["bbox"]["y0"] + word["bbox"]["y1"]) / 2
+        neighbors = sorted((
+            other for other in words
+            if other["bbox"]["x0"] >= word["bbox"]["x1"]
+            and abs((other["bbox"]["y0"] + other["bbox"]["y1"]) / 2 - center) <= row_tolerance
+        ), key=lambda other: other["bbox"]["x0"])
+        for other in neighbors[:3]:
+            if other["bbox"]["x0"] - candidates[-1]["bbox"]["x1"] > 0.035:
+                break
+            candidates.append(other)
+        for length in range(1, len(candidates) + 1):
+            group = candidates[:length]
+            combined = "".join(token_key(w["text"]) for w in group)
+            for field, values in normalized.items():
+                if combined not in values or field in headers:
+                    continue
+                headers[field] = dict(word, text=" ".join(w["text"] for w in group), bbox={
+                    "x0": min(w["bbox"]["x0"] for w in group),
+                    "y0": min(w["bbox"]["y0"] for w in group),
+                    "x1": max(w["bbox"]["x1"] for w in group),
+                    "y1": max(w["bbox"]["y1"] for w in group),
+                })
+    return headers
+
+
 def layout(image, data, config):
     _, horizontal, vertical = grid_masks(image)
     hlines = line_positions(horizontal, 1)
     vlines = line_positions(vertical, 0, 0.05)
     words = data["words"]
-    headers = {}
-    for word in words:
-        key = token_key(word["text"])
-        for field, aliases in config.rules.header_aliases.items():
-            if key in {token_key(alias) for alias in aliases} and field not in headers:
-                headers[field] = word
+    headers = find_headers(words, config.rules.header_aliases, config.rules.row_tolerance)
     columns = dict(config.rules.columns)
     anchors = sorted((w["bbox"]["x0"], name, w) for name, w in headers.items())
     for index, (x, name, word) in enumerate(anchors):
@@ -51,8 +81,12 @@ def layout(image, data, config):
                 columns[name] = (left, right)
     top = config.rules.body_top
     if top is None:
-        if len(headers) < 3:
-            return [], columns, ["Insufficient headers; configure columns and body_top for this template"]
+        if len(headers) < 3 and len(set(headers).intersection(TEXT_FIELDS)) < 2:
+            found = ", ".join(sorted(headers)) or "keine"
+            return [], columns, [
+                f"Spaltenüberschriften nicht ausreichend erkannt ({found}). "
+                "Für diese Vorlage rules.columns und rules.body_top konfigurieren; OCR-Text manuell prüfen."
+            ]
         top = max(w["bbox"]["y1"] for w in headers.values()) + 0.002
     bottom = config.rules.body_bottom
     rows = []
@@ -83,7 +117,7 @@ def layout(image, data, config):
 
 def signature(image, box: Box | None, data, config):
     if box is None:
-        return None, "uncertain", "Signature field could not be localized"
+        return None, "uncertain", "Unterschriftsfeld nicht zugeordnet; Signaturstatus unbekannt"
     width, height = image.size
     crop = image.crop((int(box.x0 * width), int(box.y0 * height), int(box.x1 * width), int(box.y1 * height)))
     ink, horizontal, vertical = grid_masks(crop)
@@ -162,6 +196,7 @@ def extract_rules(image, data, config):
                 signature_present=present,
                 signature_state=state,
                 signature_bbox=sig_box,
+                signature_method="opencv_conservative",
                 review_notes=notes + [note],
             )
         )
@@ -178,23 +213,18 @@ def extract_rules(image, data, config):
 def attach_signatures(participants, image, data, config):
     """B uses its own participant locations; do not silently transfer A's participant assignment."""
     start = time.perf_counter()
-    rows, columns, notes = layout(image, data, config)
-    for participant in participants:
+    _, columns, _ = layout(image, data, config)
+    regions = row_regions(participants, config)
+    for participant, region in zip(participants, regions, strict=True):
         box = participant.bbox
         sig_box = None
-        if box and "signature" in columns and not notes:
+        if box and region and "signature" in columns:
             left, right = columns["signature"]
-            matches = [
-                (y0, y1)
-                for y0, y1 in rows
-                if min(y1, box.y1) - max(y0, box.y0) > 0.5 * min(y1 - y0, box.y1 - box.y0)
-            ]
-            if len(matches) == 1:
-                y0, y1 = matches[0]
-                sig_box = Box(x0=left, y0=y0, x1=right, y1=y1)
+            sig_box = Box(x0=left, y0=region.y0, x1=right, y1=region.y1)
         present, state, note = signature(image, sig_box, data, config)
         participant.signature_present = present
         participant.signature_state = state
         participant.signature_bbox = sig_box
+        participant.signature_method = "opencv_conservative"
         participant.review_notes.append(note)
     return time.perf_counter() - start

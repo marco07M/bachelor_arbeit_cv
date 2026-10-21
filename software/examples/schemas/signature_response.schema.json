@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "field_located": {
+      "title": "Field Located",
+      "type": "boolean"
+    },
+    "signature_present": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Signature Present"
+    },
+    "evidence": {
+      "enum": [
+        "handwritten_mark",
+        "blank_field",
+        "unclear",
+        "no_field",
+        "printed_text"
+      ],
+      "title": "Evidence",
+      "type": "string"
+    }
+  },
+  "required": [
+    "field_located",
+    "signature_present",
+    "evidence"
+  ],
+  "title": "SignatureResponse",
+  "type": "object"
+}

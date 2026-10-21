@@ -1,2 +1,4 @@
 extends: local.yaml
 methods: [vlm]
+signature:
+  backend: opencv

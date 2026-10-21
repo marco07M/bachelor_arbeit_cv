@@ -1,62 +1,53 @@
-"""Render original PDFs once; curate inclusion and extra clockwise rotation in a manifest."""
+"""Render every input PDF page; optional orientation and explicit manual curation only."""
 
 import time
 from pathlib import Path
 
-import numpy as np
 import pymupdf
 from PIL import Image
 
 from .io import digest, file_hash, read_json, write_json
+from .progress import Progress
 
 
-def inventory(folder: Path, recursive: bool):
+def inventory(folder: Path, recursive: bool, progress: Progress | None = None):
     if not folder.is_dir():
         raise ValueError(f"Input folder does not exist: {folder}")
-    files = sorted(folder.rglob("*") if recursive else folder.iterdir())
-    return [
-        {
-            "path": str(p.resolve()),
-            "sha256": file_hash(p),
-            "kind": "pdf" if p.suffix.lower() == ".pdf" else "skipped_non_pdf",
-        }
-        for p in files
-        if p.is_file()
-    ]
+    progress = progress or Progress(enabled=False)
+    files = [p for p in sorted(folder.rglob("*") if recursive else folder.iterdir()) if p.is_file()]
+    entries = []
+    with progress.activity(f"Eingabedateien erfassen und Prüfsummen bilden ({len(files)} Dateien)"):
+        for index, path in enumerate(files, 1):
+            progress.log(f"Eingabe [{index}/{len(files)}]: {path.name}")
+            entries.append({
+                "path": str(path.resolve()), "sha256": file_hash(path),
+                "kind": "pdf" if path.suffix.lower() == ".pdf" else "skipped_non_pdf",
+            })
+    return entries
 
 
-def classify(image, ocr):
-    pixels = np.asarray(image.convert("L"))
-    ink_fraction = float(np.mean(pixels < 180))
-    if ink_fraction < 0.0001:
-        return "blank", False, False, ["Nearly white rendered page; no relevant visible content"]
-    text = ocr.get("text", "").casefold()
-    groups = [
-        ("vorname", "first name"),
-        ("nachname", "familienname", "last name"),
-        ("personalnummer", "personalnr", "persnr"),
-        ("abteilung", "department"),
-        ("unterschrift", "signature"),
-    ]
-    hits = sum(any(word in text for word in group) for group in groups)
-    if hits >= 3:
-        return "participant_list", True, False, [f"{hits} independent participant-field headers detected"]
-    return "uncertain", True, True, [f"Only {hits} header groups; conservatively retained for review"]
-
-
-def prepare(folder: Path, config, output: Path, ocr=None):
+def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | None = None):
     start = time.perf_counter()
     output.mkdir(parents=True, exist_ok=False)
     images = output / "pages"
     images.mkdir()
-    inputs = inventory(folder, config.pdf.recursive)
+    progress = progress or Progress(enabled=False)
+    progress.log("PDF-Vorbereitung starten")
+    inputs = inventory(folder, config.pdf.recursive, progress)
+    pdf_count = sum(item["kind"] == "pdf" for item in inputs)
+    pdf_index = 0
     pages, errors, seen = [], [], set()
     for item in inputs:
         if item["kind"] != "pdf":
+            progress.log(f"Übersprungen: {Path(item['path']).name} ist kein PDF")
             errors.append({"path": item["path"], "status": "skipped", "reason": item["kind"]})
             continue
+        pdf_index += 1
+        name = Path(item["path"]).name
+        progress.log(f"PDF [{pdf_index}/{pdf_count}]: {name} öffnen")
         document_id = item["sha256"]
         if document_id in seen:
+            progress.log(f"PDF {name}: identisches Duplikat, wird übersprungen")
             errors.append(
                 {
                     "path": item["path"],
@@ -71,7 +62,10 @@ def prepare(folder: Path, config, output: Path, ocr=None):
             with pymupdf.open(item["path"]) as doc:
                 if doc.needs_pass:
                     raise ValueError("Encrypted PDF requires password; not processed")
+                progress.log(f"PDF {name}: {doc.page_count} Seiten gefunden")
                 for number, page in enumerate(doc, 1):
+                    label = f"{name}, Seite {number}/{doc.page_count}"
+                    progress.log(f"Vorbereitung: {label}; rendern mit {config.pdf.dpi} DPI")
                     page_start = time.perf_counter()
                     page_id = f"{document_id}-p{number:04d}"
                     record = {
@@ -94,7 +88,8 @@ def prepare(folder: Path, config, output: Path, ocr=None):
                         image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
                         orientation_notes, orientation_s = [], 0.0
                         if config.pdf.auto_orient and ocr:
-                            rotation, confidence, error, orientation_s = ocr.orientation(image)
+                            with progress.activity(f"Ausrichtung prüfen: {label}"):
+                                rotation, confidence, error, orientation_s = ocr.orientation(image)
                             record["orientation_confidence"] = confidence
                             if confidence >= config.pdf.osd_min_confidence:
                                 image = image.rotate(-rotation, expand=True)
@@ -110,31 +105,27 @@ def prepare(folder: Path, config, output: Path, ocr=None):
                         image_path = images / f"{page_id}.png"
                         image.save(image_path)
                         image_hash = file_hash(image_path)
-                        lookup_start = time.perf_counter()
-                        try:
-                            ocr_data = ocr.recognize(image, image_hash) if ocr else {}
-                        except Exception as exc:
-                            ocr_data = {}
-                            orientation_notes.append(f"Classification OCR failed; page retained: {exc}")
-                        lookup_seconds = time.perf_counter() - lookup_start
-                        page_type, included, review, reasons = classify(image, ocr_data)
                         record.update(
                             image=str(image_path.relative_to(output)),
                             image_sha256=image_hash,
                             width=image.width,
                             height=image.height,
-                            page_type=page_type,
-                            include=included,
-                            review_required=review or bool(orientation_notes),
-                            reasons=reasons + orientation_notes,
+                            page_type="input_page",
+                            include=True,
+                            review_required=bool(orientation_notes),
+                            reasons=["Input page supplied for extraction; no automatic page classification"] + orientation_notes,
                             status="ready",
                             orientation_seconds=orientation_s,
-                            classification_ocr_seconds=ocr_data.get("elapsed_seconds", 0.0),
-                            classification_ocr_wall_seconds=lookup_seconds,
                             preparation_seconds=time.perf_counter() - page_start,
                         )
                         image.close()
+                        progress.log(
+                            f"Vorbereitet: {label}; bereit für Teilnehmerextraktion, "
+                            f"zusätzliche Drehung={record['additional_rotation_clockwise']}°, "
+                            f"{time.perf_counter() - page_start:.1f}s"
+                        )
                     except Exception as exc:
+                        progress.log(f"Seitenfehler: {label}: {type(exc).__name__}: {exc}")
                         record.update(
                             status="failed",
                             include=True,
@@ -145,11 +136,13 @@ def prepare(folder: Path, config, output: Path, ocr=None):
                         errors.append({"page_id": page_id, "status": "failed", "reason": str(exc)})
                     pages.append(record)
         except Exception as exc:
+            progress.log(f"PDF-Fehler: {name}: {type(exc).__name__}: {exc}")
             errors.append(
                 {"path": item["path"], "document_id": document_id, "status": "failed", "reason": str(exc)}
             )
     manifest = {
-        "version": 1,
+        "version": 2,
+        "automatic_page_selection": False,
         "input_root": str(folder.resolve()),
         "inputs": inputs,
         "preprocessing_config": config.model_dump(),
@@ -159,16 +152,18 @@ def prepare(folder: Path, config, output: Path, ocr=None):
         "curated": False,
     }
     write_json(output / "manifest.json", manifest)
+    progress.log(f"PDF-Vorbereitung fertig: {len(pages)} Seiten, "
+                 f"alle für die Extraktion enthalten; {len(errors)} protokollierte Hinweise/Fehler")
     return manifest
 
 
-def validate_manifest(path: Path, folder: Path, config):
+def validate_manifest(path: Path, folder: Path, config, progress: Progress | None = None):
     manifest = read_json(path)
-    if manifest.get("version") != 1:
-        raise ValueError("Unsupported manifest version")
+    if manifest.get("version") != 2 or manifest.get("automatic_page_selection") is not False:
+        raise ValueError("Altes Seitenmanifest mit automatischer Seitenauswahl; mit prepare neu erzeugen")
     if manifest["preprocessing_config"]["pdf"] != config.pdf.model_dump():
         raise ValueError("PDF preprocessing configuration changed; prepare a new manifest")
-    current = inventory(folder, config.pdf.recursive)
+    current = inventory(folder, config.pdf.recursive, progress)
     if current != manifest["inputs"]:
         raise ValueError("Input paths/hashes changed; prepare a new manifest")
     seen = set()
@@ -185,6 +180,8 @@ def validate_manifest(path: Path, folder: Path, config):
             splits.setdefault(page["document_id"], set()).add(page["split"])
         if type(page["include"]) is not bool:
             raise ValueError("include must be a JSON boolean")
+        if not page["include"] and not manifest.get("curated"):
+            raise ValueError("Seiten nur in einem manuell geprüften Manifest mit curated=true ausschließen")
         rotation = page.get("curation_rotation_clockwise", 0)
         if rotation not in (0, 90, 180, 270):
             raise ValueError("Curation rotation must be 0/90/180/270")

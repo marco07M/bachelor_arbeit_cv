@@ -18,6 +18,7 @@ from vorverarbeitung import vorbereiten
         ("12473.123456_12.23.1456_Muc.pdf", "123456"),
         ("12473.000007_12.23.1456_Muc.PDF", "000007"),
         ("12473.123456.pdf", "123456"),
+        ("123456.pdf", "123456"),
         ("12473.123456.12.23.pdf", "123456"),
         ("12473.123456 12.23.1456_Muc.pdf", "123456"),
         ("12473.000007 12.23.1456_Muc.PDF", "000007"),
@@ -195,7 +196,7 @@ def test_cli_sorts_bad_names_and_reports_empty_or_missing_input(tmp_path, capsys
     assert vorbereiten.main(command) == 1
     raw.mkdir()
     assert vorbereiten.main(command) == 1
-    (raw / "ohne-nummer.pdf").write_bytes(b"pdf")
+    make_pdf(raw / "ohne-nummer.pdf")
     assert vorbereiten.main(command) == 0
     assert "would_copy_rejected" in capsys.readouterr().out
     assert not output.exists()

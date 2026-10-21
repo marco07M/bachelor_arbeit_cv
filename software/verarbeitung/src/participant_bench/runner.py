@@ -16,12 +16,35 @@ from PIL import Image
 from .doctor import environment
 from .evaluation import evaluate_groups
 from .io import digest, file_hash, read_json, read_jsonl, write_csv, write_json, write_jsonl
-from .models import METHOD_INSTRUCTIONS, PROMPT_VERSION, SYSTEM, LocalModel, Unavailable, local_model_identity
+from .models import (
+    METHOD_INSTRUCTIONS,
+    OCR_SYSTEM,
+    PROMPT_VERSION,
+    SYSTEM,
+    VLM_SYSTEM,
+    LocalModel,
+    Unavailable,
+    create_model,
+    model_identity,
+    require_offline,
+    validate_api_environment,
+)
 from .ocr import OCR
+from .ocr_layout import readable_text
 from .pdf import prepare, run_identity, validate_manifest
+from .progress import Progress
 from .report import cost_scenario, report
 from .rules import attach_signatures, extract_rules
-from .schema import GroundTruthPage, ModelResponse, PageResult
+from .schema import (
+    GroundTruthPage,
+    ModelResponse,
+    OCRPageResponse,
+    PageResult,
+    SignatureLocations,
+    SignatureResponse,
+    VisualPageResponse,
+)
+from .signatures import LOCATION_SYSTEM, SIGNATURE_PROMPT_VERSION, SIGNATURE_SYSTEM, inspect_signatures
 
 
 class MemoryMonitor:
@@ -62,6 +85,33 @@ def aggregate_status(pages):
     return "partial"
 
 
+def signature_details(result, raw, image, model, config, method_dir):
+    started, previous_calls = time.perf_counter(), model.calls
+    try:
+        records, elapsed, calls = inspect_signatures(
+            result.participants, image, model, config, method_dir, result.page_id,
+            ocr_data=raw.get("ocr") or raw.get("signature_ocr"),
+        )
+    except Exception as exc:
+        raw["signature_stage_error"] = f"{type(exc).__name__}: {exc}"
+        result.calls += max(0, model.calls - previous_calls)
+        result.timings["signature_seconds"] = result.timings.get("signature_seconds", 0.0) + time.perf_counter() - started
+        result.review_notes.append("Zusätzliche Signaturprüfung fehlgeschlagen; Teilnehmerdaten bleiben erhalten")
+        if result.status == "success":
+            result.status = "partial"
+        return
+    raw["signature_checks"] = records
+    result.calls += calls
+    result.timings["signature_seconds"] = result.timings.get("signature_seconds", 0.0) + elapsed
+    if result.status == "success" and (
+        any(record.get("error") for record in records)
+        or any(record.get("observation", {}).get("signature_present") is None
+               for record in records if not record.get("skipped_known"))
+        or any(person.signature_present is None for person in result.participants)
+    ):
+        result.status = "partial"
+
+
 def load_truth(path, manifest, split, scope):
     pages = [GroundTruthPage.model_validate_json(json.dumps(row)) for row in read_jsonl(path)]
     keys = [(p.document_id, p.page_number) for p in pages]
@@ -97,7 +147,9 @@ def load_truth(path, manifest, split, scope):
     ]
 
 
-def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None):
+def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None, *, offline=False):
+    require_offline(config, offline)
+    validate_api_environment(config)
     started = time.perf_counter()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     output = Path(resume) if resume else Path(config.output_dir) / stamp
@@ -105,29 +157,46 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         output.mkdir(parents=True, exist_ok=False)
     elif not (output / "identity.json").is_file():
         raise ValueError("Resume folder has no saved identity")
+    progress = Progress(output / "progress.log")
+    progress.log(f"{'Lauf fortsetzen' if resume else 'Lauf starten'}: {output.name}; Verfahren: {', '.join(config.methods)}")
+    progress.log(f"Eingabe: {folder.resolve()}; Ergebnisse: {output.resolve()}")
     ocr, ocr_error = None, None
-    try:
-        ocr = OCR(config)
-    except (OSError, RuntimeError) as exc:
-        ocr_error = str(exc)
+    if config.pdf.auto_orient or any(method in ("ocr_rules", "ocr_llm") for method in config.methods):
+        try:
+            with progress.activity("Lokale OCR für Ausrichtung bzw. Textextraktion initialisieren"):
+                ocr = OCR(config)
+        except (OSError, RuntimeError) as exc:
+            ocr_error = str(exc)
+            progress.log(f"OCR nicht verfügbar: {exc}; VLM kann weiterhin Seitenbilder verarbeiten")
+    else:
+        progress.log("VLM-Direktextraktion: alle Eingabeseiten ohne OCR-Voranalyse verarbeiten")
     if resume and manifest_path is None:
         manifest_path = Path(read_json(output / "identity.json")["source_manifest"])
     if manifest_path:
-        manifest = validate_manifest(manifest_path, folder, config)
+        with progress.activity("Vorhandenes Seitenmanifest, Eingaben und Bilder prüfen"):
+            manifest = validate_manifest(manifest_path, folder, config, progress=progress)
     else:
-        manifest = prepare(folder, config, output / "prepared", ocr)
+        manifest = prepare(folder, config, output / "prepared", ocr, progress=progress)
         manifest_path = output / "prepared/manifest.json"
+    progress.log(f"Eingabeseiten: {len(manifest['pages'])}; "
+                 f"{sum(p['include'] for p in manifest['pages'])} zur Extraktion enthalten")
     if scope == "curated" and not manifest.get("curated"):
         raise ValueError("Curated evaluation requires manually reviewed manifest with curated=true")
     if split != "all" and any(p.get("split") not in ("development", "test") for p in manifest["pages"]):
         raise ValueError("--split requires development/test annotations on every manifest page")
+    progress.log("Modellverfügbarkeit und Laufidentität prüfen")
     identities = {}
     for method in config.methods:
         if method in config.models:
             try:
-                identities[method] = local_model_identity(config.models[method])
+                identities[method] = model_identity(config.models[method])
             except Unavailable as exc:
                 identities[method] = {"unavailable": str(exc)}
+    if config.signature.backend in ("local_vlm", "vlm") and "vlm" in config.models:
+        try:
+            identities["signature_vlm"] = model_identity(config.models["vlm"])
+        except Unavailable as exc:
+            identities["signature_vlm"] = {"unavailable": str(exc)}
     code = {str(p.name): file_hash(p) for p in Path(__file__).parent.glob("*.py")}
     identity = digest(
         {
@@ -159,7 +228,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
     (output / "config.yaml").write_text(
         yaml.safe_dump(config.model_dump(), allow_unicode=True), encoding="utf-8"
     )
-    write_json(output / "environment.json", environment(config))
+    with progress.activity("Hardware, CUDA und Paketversionen erfassen"):
+        write_json(output / "environment.json", environment(config))
     manifest_snapshot = copy.deepcopy(manifest)
     manifest_snapshot["source_manifest"] = str(manifest_path.resolve())
     for page in manifest_snapshot["pages"]:
@@ -171,8 +241,17 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         {
             "version": PROMPT_VERSION,
             "system": SYSTEM,
+            "ocr_system": OCR_SYSTEM,
+            "vlm_system": VLM_SYSTEM,
             "method_instructions": METHOD_INSTRUCTIONS,
             "response_schema": ModelResponse.model_json_schema(),
+            "ocr_response_schema": OCRPageResponse.model_json_schema(),
+            "vlm_response_schema": VisualPageResponse.model_json_schema(),
+            "signature_prompt_version": SIGNATURE_PROMPT_VERSION,
+            "signature_system": SIGNATURE_SYSTEM,
+            "signature_location_system": LOCATION_SYSTEM,
+            "signature_location_response_schema": SignatureLocations.model_json_schema(),
+            "signature_response_schema": SignatureResponse.model_json_schema(),
         },
     )
     page_dir = output / "pages"
@@ -180,7 +259,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
     # Apply only explicit manual correction to the already metadata/OSD-oriented image.
     prepared_pages = []
     image_preparation_start = time.perf_counter()
-    for original in manifest["pages"]:
+    for index, original in enumerate(manifest["pages"], 1):
+        progress.log(f"Laufbilder vorbereiten [{index}/{len(manifest['pages'])}]: "
+                     f"{Path(original['source_path']).name}, PDF-Seite {original['page_number']}")
         page = dict(original)
         if split != "all" and page["split"] != split:
             page["include"] = False
@@ -200,8 +281,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
     results, summaries, errors, metrics = {}, {}, list(manifest["errors"]), {}
     if resume and (output / "errors.jsonl").is_file():
         errors.extend(read_jsonl(output / "errors.jsonl"))
-    for method in config.methods:
-        print(f"Running {method}", flush=True)
+    for method_index, method in enumerate(config.methods, 1):
+        selected_pages = [p for p in prepared_pages if p["include"]]
+        progress.log(f"Verfahren [{method_index}/{len(config.methods)}]: {method}; {len(selected_pages)} Seiten")
         method_dir = output / method
         method_dir.mkdir(exist_ok=True)
         checkpoint_path = method_dir / "checkpoint.jsonl"
@@ -239,18 +321,24 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                     else:
                         load_attempt_start = time.perf_counter()
                         try:
-                            model = LocalModel(method, config)
+                            model = create_model(method, config, progress=progress, local_class=LocalModel)
                         except Unavailable as exc:
                             unavailable = str(exc)
                         except Exception as exc:
                             unavailable = f"Model load failed: {type(exc).__name__}: {exc}"
                             resource["load_failed"] = True
                         resource["load_attempt_wall_seconds"] = time.perf_counter() - load_attempt_start
-                for page in prepared_pages:
-                    if not page["include"]:
-                        continue
+                elif method != "ocr_rules" and not needs_model:
+                    progress.log(f"{method}: kein Modellladen nötig; keine offenen verarbeitbaren Seiten")
+                if unavailable:
+                    progress.log(f"{method}: nicht verfügbar: {unavailable}")
+                for page_index, page in enumerate(selected_pages, 1):
+                    label = (f"{method} [{page_index}/{len(selected_pages)}]: "
+                             f"{Path(page['source_path']).name}, PDF-Seite {page['page_number']}")
+                    progress.log(label + "; Verarbeitung starten")
                     if page["page_id"] in cached:
                         page_results.append(cached[page["page_id"]])
+                        progress.log(label + "; erfolgreiches Ergebnis aus vorherigem Lauf übernommen")
                         continue
                     result = PageResult(
                         run_id=run_id,
@@ -274,7 +362,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                             try:
                                 if method in ("ocr_rules", "ocr_llm"):
                                     lookup_start = time.perf_counter()
-                                    data = ocr.recognize(image, page["run_image_sha256"])
+                                    with progress.activity("OCR für die Extraktion"):
+                                        data = ocr.recognize(image, page["run_image_sha256"])
+                                    progress.log("OCR aus Cache übernommen" if data["cache_hit"] else "OCR neu berechnet")
                                     result.timings["ocr_lookup_wall_seconds"] = (
                                         time.perf_counter() - lookup_start
                                     )
@@ -282,6 +372,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                     result.timings["ocr_cache_hit"] = float(data["cache_hit"])
                                     raw["ocr"] = data
                                 if method == "ocr_rules":
+                                    progress.log("Tabellenzeilen, Felder und Unterschriftsfelder mit Regeln auswerten")
                                     participants, notes, timings = extract_rules(image, data, config)
                                     result.participants, result.review_notes = participants, notes
                                     result.timings.update(timings)
@@ -294,6 +385,19 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                     raw["responses"] = responses
                                     result.calls = len(responses)
                                     result.participants, result.status = participants, status
+                                    result.review_notes.extend(
+                                        note for response in responses for note in response.get("review_notes", [])
+                                    )
+                                    texts = [r["page_text"] for r in responses if r.get("page_text") is not None]
+                                    result.page_text = "\n\n".join(texts) if texts else None
+                                    result.text_fallback = any(r.get("text_fallback", False) for r in responses)
+                                    if result.text_fallback:
+                                        result.review_notes.append(
+                                            "Keine Teilnehmer in mindestens einem Bildabschnitt erkannt; "
+                                            "Seitentext als Fallback erhalten. Manuell prüfen."
+                                        )
+                                    response_errors = [r["error"] for r in responses if r.get("error")]
+                                    result.error = " | ".join(response_errors) if response_errors else None
                                     result.parse_status = (
                                         "invalid"
                                         if any(r["parse_status"] != "valid" for r in responses)
@@ -306,29 +410,42 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                             else "not_attempted"
                                         )
                                     result.timings["model_extraction_seconds"] = elapsed
-                                    for response in responses:
-                                        if response.get("error"):
-                                            errors.append(
-                                                {
-                                                    "method": method,
-                                                    "page_id": page["page_id"],
-                                                    "reason": response["error"],
-                                                }
-                                            )
                                     if method == "ocr_llm":
+                                        progress.log("Unterschriftsfelder anhand des Seitenbildes prüfen")
                                         result.timings["signature_seconds"] = attach_signatures(
                                             participants, image, data, config
                                         )
                                     else:
                                         result.review_notes.append(
-                                            "Signature presence jointly judged by VLM; "
-                                            "runtime included in model_extraction_seconds"
+                                            "Signaturpräsenz im Gesamtbild durch VLM beurteilt; "
+                                            "zusätzliche Detailprüfung und Laufzeit separat protokolliert"
                                         )
+                                        if config.signature.backend in ("local_vlm", "vlm") and participants:
+                                            if ocr is not None and config.signature.use_ocr_positions:
+                                                position_start = time.perf_counter()
+                                                try:
+                                                    raw["signature_ocr"] = ocr.recognize(image, page["run_image_sha256"])
+                                                except Exception:
+                                                    result.review_notes.append("OCR-Positionsbelege fehlen; VLM-Lokalisierung verwenden")
+                                                lookup_elapsed = time.perf_counter() - position_start
+                                                result.timings["signature_ocr_lookup_wall_seconds"] = lookup_elapsed
+                                                result.timings["signature_seconds"] = raw.get("signature_ocr", {}).get("elapsed_seconds", lookup_elapsed)
+                                            signature_details(result, raw, image, model, config, method_dir)
                             finally:
                                 image.close()
                     except Exception as exc:
                         result.error = f"{type(exc).__name__}: {exc}"
                         result.status = "failed"
+                    if method in ("ocr_rules", "ocr_llm") and not result.participants and "ocr" in raw:
+                        result.page_text = readable_text(raw["ocr"])
+                        result.text_fallback = True
+                        result.review_notes.append(
+                            "Keine Teilnehmer strukturiert erkannt; vorhandener OCR-Text als Fallback erhalten. "
+                            "Manuell prüfen. OCR kann handschriftliche oder schlecht lesbare Inhalte übersehen."
+                        )
+                        progress.log(label + "; OCR-Text als Fallback gesichert")
+                    if result.error:
+                        progress.log(label + "; Fehler: " + result.error)
                     result.timings["page_wall_seconds"] = time.perf_counter() - page_start
                     measured_stages = sum(
                         value
@@ -353,15 +470,79 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                     write_jsonl(history_path, [r.model_dump() for r in history])
                     page_results.append(result)
                     write_jsonl(checkpoint_path, [r.model_dump() for r in page_results])
+                    progress.log(
+                        f"{label}; Status={result.status}, JSON={result.parse_status}, "
+                        f"{len(result.participants)} Einträge, {result.timings['page_wall_seconds']:.1f}s; "
+                        f"Ergebnis gesichert ({page_index / len(selected_pages):.0%})"
+                    )
                     if result.error:
                         errors.append({"method": method, "page_id": page["page_id"], "reason": result.error})
                 if model:
                     resource.update(model.resources())
             finally:
                 if model:
-                    model.close()
+                    with progress.activity(f"{method}: Modell entladen und GPU-Speicher freigeben"):
+                        model.close()
                 gc.collect()
-        for key in ("load_seconds", "warmup_seconds", "warmup_calls", "load_attempt_wall_seconds"):
+            # OCR methods finish/unload their extraction model before loading the shared signature VLM.
+            # No participant values or assignments are transferred between extraction methods.
+            if method != "vlm" and config.signature.backend in ("local_vlm", "vlm"):
+                pending = [page for page in page_results if page.participants and not
+                           read_json(method_dir / f"raw-{page.page_id}.json").get("signature_checks")]
+                signature_model = None
+                signature_load_start = time.perf_counter()
+                try:
+                    if pending:
+                        progress.log(f"{method}: separates VLM für Unterschriften initialisieren; "
+                                     f"{len(pending)} Seiten mit Teilnehmenden")
+                        signature_model = create_model("vlm", config, progress=progress, local_class=LocalModel)
+                        resource["signature_load_attempt_wall_seconds"] = time.perf_counter() - signature_load_start
+                    for result in pending:
+                        page = next(page for page in selected_pages if page["page_id"] == result.page_id)
+                        raw_path = method_dir / f"raw-{result.page_id}.json"
+                        raw = read_json(raw_path)
+                        detail_start = time.perf_counter()
+                        try:
+                            with Image.open(page["run_image"]) as source:
+                                with source.convert("RGB") as image:
+                                    signature_details(result, raw, image, signature_model, config, method_dir)
+                        except Exception as exc:
+                            raw["signature_stage_error"] = f"{type(exc).__name__}: {exc}"
+                            result.review_notes.append("Signaturprüfung dieser Seite fehlgeschlagen; Teilnehmer bleiben erhalten")
+                            if result.status == "success":
+                                result.status = "partial"
+                        result.timings["page_wall_seconds"] += time.perf_counter() - detail_start
+                        raw["status"] = result.status
+                        write_json(raw_path, raw)
+                        last_attempt = max(i for i, attempt in enumerate(history) if attempt.page_id == result.page_id)
+                        history[last_attempt] = result
+                        write_jsonl(history_path, [row.model_dump() for row in history])
+                        write_jsonl(checkpoint_path, [row.model_dump() for row in page_results])
+                    if signature_model:
+                        resource["signature_model"] = signature_model.resources()
+                        resource["warmup_calls"] = resource.get("warmup_calls", 0) + resource["signature_model"].get("warmup_calls", 0)
+                        peak = resource["signature_model"].get("peak_gpu_allocated_bytes")
+                        if peak is not None:
+                            resource["peak_gpu_allocated_bytes"] = max(resource.get("peak_gpu_allocated_bytes") or 0, peak)
+                except Exception as exc:
+                    resource.setdefault("signature_load_attempt_wall_seconds", time.perf_counter() - signature_load_start)
+                    for result in pending:
+                        result.review_notes.append(f"Signaturprüfung nicht verfügbar: {type(exc).__name__}")
+                        if result.status == "success":
+                            result.status = "partial"
+                    progress.log(f"{method}: Signaturprüfung nicht abgeschlossen ({type(exc).__name__}); Teilnehmer bleiben erhalten")
+                finally:
+                    if signature_model:
+                        signature_model.close()
+                    for result in pending:
+                        matches = [i for i, attempt in enumerate(history) if attempt.page_id == result.page_id]
+                        if matches:
+                            history[matches[-1]] = result
+                    write_jsonl(history_path, [row.model_dump() for row in history])
+                    write_jsonl(checkpoint_path, [row.model_dump() for row in page_results])
+                    gc.collect()
+        for key in ("load_seconds", "warmup_seconds", "warmup_calls", "load_attempt_wall_seconds",
+                    "signature_load_attempt_wall_seconds", "http_model_requests", "oauth_token_requests"):
             resource[key] = resource.get(key, 0) + prior_resource.get(key, 0)
         for key in ("peak_gpu_allocated_bytes", "peak_gpu_reserved_bytes"):
             values = [v for v in (resource.get(key), prior_resource.get(key)) if v is not None]
@@ -410,15 +591,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         preparation_charge = (
             manifest["preparation_seconds"] if scope == "end-to-end" else 0.0
         ) + image_preparation_seconds
-        # Classification and extraction may share OCR: subtract its actual included-page lookup wall time.
-        if method in ("ocr_rules", "ocr_llm") and scope == "end-to-end":
-            active_ids = {p.page_id for p in page_results}
-            preparation_charge -= sum(
-                p.get("classification_ocr_wall_seconds", 0.0)
-                for p in manifest["pages"]
-                if p["page_id"] in active_ids
-            )
-        full_charge = preparation_charge + extraction_charge + resource.get("load_attempt_wall_seconds", 0.0)
+        full_charge = (preparation_charge + extraction_charge + resource.get("load_attempt_wall_seconds", 0.0)
+                       + resource.get("signature_load_attempt_wall_seconds", 0.0))
         valid_pages = sum(r.parse_status == "valid" for r in page_results)
         output_participants = [p for r in page_results for p in r.participants]
         unknown_fields = sum(
@@ -429,6 +603,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         summaries[method] = {
             "status": aggregate_status(page_results),
             "selected_pages": len(page_results),
+            "text_fallback_pages": sum(r.text_fallback for r in page_results),
             "valid_pages": valid_pages,
             "schema_failure_pages": sum(r.parse_status == "invalid" for r in page_results),
             "failed_pages": sum(r.status == "failed" for r in page_results),
@@ -446,6 +621,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "output_text_fields": 4 * len(output_participants),
             "output_unknown_text_fields": unknown_fields,
             "output_signature_fields": len(output_participants),
+            "signature_backend": config.signature.backend,
+            "model_backend": config.models[method].backend if method in config.models else "ocr_rules",
+            "signature_model_load_seconds": resource.get("signature_load_attempt_wall_seconds", 0.0),
             "output_unknown_signatures": sum(p.signature_present is None for p in output_participants),
             "generation_calls": sum(r.calls for r in history),
             "warmup_calls": resource.get("warmup_calls", 0),
@@ -453,8 +631,12 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "resume_reused_pages": sum(r.page_id in cached for r in page_results),
         }
         results[method] = page_results
+        progress.log(f"{method} abgeschlossen: {summaries[method]['status']}; "
+                     f"{valid_pages}/{len(page_results)} Seiten mit gültiger Ausgabe, "
+                     f"{len(output_participants)} Einträge; {summaries[method]['actual_method_wall_seconds']:.1f}s")
         if truths is not None:
-            metrics[method], details = evaluate_groups(page_results, truths)
+            with progress.activity(f"{method}: Ergebnisse mit der Ground Truth vergleichen"):
+                metrics[method], details = evaluate_groups(page_results, truths)
             write_csv(method_dir / "evaluation_details.csv", details)
     write_json(output / "summary.json", summaries)
     write_jsonl(output / "errors.jsonl", errors)
@@ -466,7 +648,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             if p["review_required"]
         ],
     )
-    report(output, summaries, results, metrics, manifest, cost_scenario(config))
+    with progress.activity("HTML-Bericht und CSV-Ergebnisse erstellen"):
+        report(output, summaries, results, metrics, manifest, cost_scenario(config))
     write_json(
         output / "run_timing.json",
         {
@@ -478,4 +661,6 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         },
     )
     print(f"Report: {(output / 'report.html').resolve()}", flush=True)
+    progress.log(f"Lauf beendet nach {time.perf_counter() - started:.1f}s; Bericht: {(output / 'report.html').resolve()}")
+    progress.log(f"Statusprotokoll: {(output / 'progress.log').resolve()}")
     return output, summaries

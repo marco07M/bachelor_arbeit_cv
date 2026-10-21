@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pymupdf
 import pytest
-
 from participant_bench.config import load_config
 from participant_bench.doctor import tesseract_command
 from participant_bench.io import file_hash, read_json, write_json
@@ -45,7 +44,7 @@ def curated_manifest(destination, manifest):
     return path
 
 
-def test_real_offline_ocr_curated_end_to_end(fixture, monkeypatch):
+def test_real_offline_ocr_curated_end_to_end(fixture, monkeypatch, capsys):
     config, raw, destination, manifest = fixture
     originals = {p.name: file_hash(p) for p in raw.iterdir()}
     path = curated_manifest(destination, manifest)
@@ -64,11 +63,19 @@ def test_real_offline_ocr_curated_end_to_end(fixture, monkeypatch):
     assert (output / "report.html").is_file()
     assert "00123" in (output / "extractions.csv").read_text(encoding="utf-8-sig")
     assert originals == {p.name: file_hash(p) for p in raw.iterdir()}
+    log = (output / "progress.log").read_text(encoding="utf-8")
+    assert "Lauf starten" in log
+    assert "Verfahren [1/1]: ocr_rules; 4 Seiten" in log
+    assert "Ergebnis gesichert (100%)" in log
+    assert "HTML-Bericht und CSV-Ergebnisse erstellen" in log
+    assert "Lauf beendet" in log
+    assert "Ergebnis gesichert (100%)" in capsys.readouterr().out
     resumed, stats = run(
         config, raw, path, destination.parent / "synthetic/ground_truth.jsonl", "curated", resume=output
     )
     assert resumed == output
     assert stats["ocr_rules"]["resume_reused_pages"] == 4
+    assert "aus vorherigem Lauf übernommen" in (output / "progress.log").read_text(encoding="utf-8")
 
 
 def test_pdf_metadata_rotation_not_applied_twice(fixture):
@@ -76,8 +83,9 @@ def test_pdf_metadata_rotation_not_applied_twice(fixture):
     rotated = manifest["pages"][4]
     assert rotated["pdf_rotation_metadata"] == 90
     assert rotated["additional_rotation_clockwise"] in (0, 270)
-    assert manifest["pages"][1]["page_type"] == "blank"
-    assert manifest["pages"][2]["include"] is True  # uncertain title is retained
+    assert manifest["pages"][1]["page_type"] == "input_page"
+    assert all(page["include"] for page in manifest["pages"])  # blank pages and covers are also supplied
+    assert manifest["automatic_page_selection"] is False
     assert any(e["status"] == "skipped" for e in manifest["errors"])
 
 

@@ -1,0 +1,10 @@
+# Alternative OCR segmentation for scattered text and tables; compare on development data.
+# This is an explicit experiment, not a guaranteed improvement over the baseline.
+extends: local.yaml
+methods: [ocr_rules, ocr_llm]
+ocr:
+  command: auto
+  languages: deu+eng
+  psm: 11
+  timeout_seconds: 120
+  remove_grid_lines: true
