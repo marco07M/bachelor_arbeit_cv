@@ -5,19 +5,80 @@ Alle Befehle aus `software/` ausführen. Die lokale Standardkonfiguration
 VLM beim konfigurierten Dienst; Rendering, Tesseract, Exporte und Excel-Abgleich
 laufen weiterhin auf deinem Rechner.
 
-## Stand des internen BMW-Zugangs
+## GATE-Zugang und Endpunkte
 
-`configs/api-bmw.yaml` ist eine vorbereitete **Vorlage**, keine verifizierte
-BMW-Schnittstellenbeschreibung. Eine öffentliche Recherche hat keine belastbare
-API-/Token-Adresse oder Modellnamen für diesen internen GenAI-Zugang ergeben.
-Client-ID, API-Key und Client-Secret allein enthalten diese Informationen nicht.
-Die Software probiert deshalb keine geratene Adresse aus.
+GATE ist ein REST-Dienst mit OpenAI-kompatibler Chat-Completions-Schnittstelle.
+Die Projektvorlage `configs/api-bmw.yaml` verwendet WebEAM-OAuth
+(Client-Credentials) plus einen APIM-API-Key. Für die Region muss der passende
+Endpunkt gewählt werden:
 
-Implementiert sind Chat-Completions-kompatible Modellanfragen und optional
-OAuth-Client-Credentials. Ob euer Zugang genau diese Kombination verwendet,
-muss anhand interner Dokumentation oder einer bereinigten Beispielanfrage
-geprüft werden. Ein anderes Anfrageformat benötigt eine Anpassung im Adapter
-`verarbeitung/src/participant_bench/api_models.py`.
+| Region | QA / INT | PROD |
+| --- | --- | --- |
+| EU | `https://api.int.gcp.cloud.bmw/llmapi/v1` | `https://api.gcp.cloud.bmw/llmapi/v1` |
+| US | `https://api.int.gcp.cloud.bmw/llmapi/us/v1` | `https://api.gcp.cloud.bmw/llmapi/us/v1` |
+
+Die Dokumentation nennt außerdem die alternativen API-Hosts
+`https://api-int.bmwgroup.net/llmapi` (QA) und
+`https://api.bmwgroup.net/llmapi` (PROD). Nutze für dieses Projekt zunächst
+die obigen Endpunkte; mische nicht Hosts oder Zugangsdaten verschiedener Stages.
+EU-Daten müssen über EU-Endpunkte, US-Daten über US-Endpunkte verarbeitet werden.
+
+Für die Token-Anfrage nennt die Dokumentation diese WebEAM-Endpunkte:
+
+| Stage | Token-Endpunkt |
+| --- | --- |
+| QA / INT | `https://emea.int.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token` |
+| PROD | `https://emea.prod.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token` |
+
+Die API-Dokumentation führt diese Token-URLs nach Stage und die Modell-API-URLs
+nach Stage **und** Region auf. Für US-Zugänge oder abweichende Anwendungs-
+Registrierungen die passende Kombination im Onboarding bestätigen lassen.
+
+### Onboarding und erforderliche Berechtigungen
+
+Vor dem ersten Aufruf brauchst du ein aktives BMW-APP-ID sowie Zugriffsrechte
+auf die BMW-Portale:
+
+1. Im WebEAM-Portal mit Rolle **Operations Manager** `New Configuration` →
+   `M2M` wählen und den `alpha`-Realm verwenden. Die Konfiguration erstellen
+   und `Client ID` (Dashboard) sowie `Client Secret` (registrierte E-Mail)
+   sicher übernehmen.
+2. Im API-Management-Portal für dieselbe Anwendung das passende Produkt
+   abonnieren: Stage `int` → **LLM API QA**, Stage `prod` → **LLM API PROD**.
+   In den Zugangsdaten `Source Type: WEN`, `API Key: <WebEAM client_id>`,
+   `Client Type: public` und `Client Realm: machine2machine` eintragen.
+   Die Anfrage muss den Anwendungsfall und die geplante Umsetzung beschreiben.
+3. Nach Freigabe den API-Key im APIM Developer Portal unter den Zugangsdaten
+   der Anwendung abrufen. Die Freigabemail enthält den Schlüssel laut Anleitung
+   nicht. API-Key und WebEAM-Zugangsdaten müssen zur selben Anwendung gehören.
+4. QA und PROD benötigen getrennte WebEAM-Zugangsdaten; API-Keys sind ebenfalls
+   stage-spezifisch. QA-Zugangsdaten funktionieren nicht gegen PROD und umgekehrt.
+5. Das aktuelle BMW-CA-Zertifikat von
+   <https://trustbundle.bmwgroup.net/BMW_Trusted_Certificates_Latest.pem>
+   herunterladen und lokal außerhalb des Repositorys speichern.
+
+Details und Voraussetzungen:
+[Onboarding](https://pages.atc-github.azure.cloud.bmw/Data-Transformation-AI/llm-api/get_started/onboarding.html),
+[Authentifizierung](https://pages.atc-github.azure.cloud.bmw/Data-Transformation-AI/llm-api/api_reference/authentication.html),
+[FAQ](https://pages.atc-github.azure.cloud.bmw/Data-Transformation-AI/llm-api/faq.html).
+
+### Netzwerkzugriff außerhalb des BMW-Intranets
+
+Die GATE-Unterlagen nennen keine eindeutige Zusage, ob die API aus dem
+öffentlichen Internet erreichbar ist oder zwingend BMW-Intranet/VPN benötigt.
+Die `bmw`-Domain und erfolgreiche Anmeldung an den Portalen belegen für sich
+allein nicht, ob die API-Netzwerkroute von einem privaten Gerät funktioniert.
+Ein Zugriff außerhalb des Intranets ist daher **nicht garantiert**: Er hängt
+von BMW-Netzwerkregeln, VPN, Firewall und Proxy-Konfiguration ab. Die FAQ weist
+explizit auf mögliche Proxy-Probleme hin.
+
+Frage bei eurem BMW-Netzwerk-/API-Management-Team nach, ob aus dem vorgesehenen
+Laufzeitnetz HTTPS-Zugriff (Port 443) auf den ausgewählten API- und
+WebEAM-Token-Endpunkt erlaubt ist und ob ein Proxy oder eine No-Proxy-Regel
+benötigt wird. Um die Verbindung zu prüfen, nutze den unten beschriebenen
+`api-check --connect` in einem von BMW freigegebenen Netzwerk. Keine
+Sicherheitskontrollen umgehen und Zugangsdaten nicht an nicht freigegebene
+Geräte oder Netze übertragen.
 
 ## Installation und Zugangsdaten
 
@@ -36,9 +97,11 @@ dieser Sitzung. Lass den folgenden Aufruf selbst laufen:
 powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\run-private-api.ps1 -InputFolder vorverarbeitung/ausgabe/pdfs
 ```
 
-Der Starthelfer fragt API-Key, Client-ID und Client-Secret verdeckt ab und
-setzt ausschließlich Prozess-Umgebungsvariablen. Anschließend startet er die
-Python-Anwendung. Nach dem Lauf entfernt er die Zugangsdaten aus seiner
+Der Starthelfer fragt die Verbindungswerte ab. API-Key, Client-ID und
+Client-Secret werden verdeckt eingegeben; übrige Werte wie Endpunkt, Modellname
+und Zertifikatpfad sind sichtbar. Er setzt ausschließlich
+Prozess-Umgebungsvariablen. Anschließend startet er die Python-Anwendung. Nach
+dem Lauf entfernt er Schlüssel, Client-Zugangsdaten und CA-Pfad aus seiner
 Umgebung, auch bei einem Fehler. Er speichert keine Schlüsseldatei und keine
 Benutzer- oder Systemumgebungsvariablen. Die verdeckten Antworten stehen nicht
 als Befehle in der PowerShell-Historie. `RemoteSigned` gilt nur für diesen
@@ -48,7 +111,7 @@ Mit `-CheckOnly` statt `-InputFolder ...` nur die Konfiguration prüfen, ohne
 API-Verbindung oder Dokumentverarbeitung. Für eine Stichprobe
 `-InputFolder data/pdfs_eingabe` angeben. Unbekannte Angaben kannst du beim
 Einrichten mit Enter überspringen; die Prüfung zeigt fehlende Variablennamen.
-Die internen Adressen und Modellkennungen werden weiterhin benötigt.
+Die Modellkennungen müssen zu eurem freigeschalteten Modellkatalog passen.
 
 Die frühere Option `-Persist` wurde entfernt. Falls du sie vorher verwendet
 hast, entferne die betreffenden Zugangsdaten selbst aus den Windows-
@@ -67,12 +130,22 @@ mit Platzhaltern, die du ausschließlich dort ersetzt:
 BMW_AI_API_KEY=DEIN_API_KEY
 BMW_AI_CLIENT_ID=DEINE_CLIENT_ID
 BMW_AI_CLIENT_SECRET=DEIN_CLIENT_SECRET
-BMW_AI_BASE_URL=DEINE_INTERNE_API_BASISADRESSE
-BMW_AI_TOKEN_URL=DEINE_INTERNE_TOKEN_ADRESSE
-BMW_AI_API_KEY_HEADER=DEIN_API_KEY_HEADERNAME
+BMW_AI_BASE_URL=https://api.int.gcp.cloud.bmw/llmapi/v1
+BMW_AI_TOKEN_URL=https://emea.int.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token
+BMW_AI_API_KEY_HEADER=x-apikey
+BMW_AI_SCOPE=machine2machine
+BMW_CA_BUNDLE=C:\Users\DEIN_BENUTZER\.participant-bench-private\BMW_Trusted_Certificates_Latest.pem
 BMW_LLM_MODEL=DEIN_LLM_MODELL
 BMW_VLM_MODEL=DEIN_VLM_MODELL
 ```
+
+Das Beispiel ist für **EU QA / INT**. Für PROD müssen die zugehörigen PROD-
+Zugangsdaten, der PROD-API-Key sowie die PROD-API- und Token-URLs verwendet
+werden. `BMW_AI_API_KEY` kommt aus APIM; `BMW_AI_CLIENT_ID` und
+`BMW_AI_CLIENT_SECRET` aus WebEAM. Beim Onboarding muss der API-Key zum
+WebEAM-`client_id` und dieselbe Anwendung gehören. Die Modellnamen müssen für
+deine Anwendung freigeschaltet und für LLM bzw. VLM geeignet sein. Der
+Anfragepfad kann leer bleiben; Standard ist `chat/completions`.
 
 In deiner separat geöffneten PowerShell starten:
 
@@ -117,6 +190,7 @@ die Entwicklung und Tests nicht benötigt; dafür werden synthetische Werte benu
 | `BMW_AI_CLIENT_SECRET` | Client-Secret |
 | `BMW_AI_API_KEY` | API-Key für das Gateway |
 | `BMW_AI_API_KEY_HEADER` | Exakter Headername für diesen Key laut interner Dokumentation |
+| `BMW_CA_BUNDLE` | Optionaler Pfad zum aktuellen BMW-CA-Zertifikat im PEM-Format |
 | `BMW_LLM_MODEL` | Modellkennung für OCR-Textauswertung |
 | `BMW_VLM_MODEL` | Modellkennung mit Bildunterstützung |
 | `BMW_AI_CHAT_PATH` | Optionaler Anfragepfad; Standard `chat/completions` |

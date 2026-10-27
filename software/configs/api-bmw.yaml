@@ -23,6 +23,7 @@ models:
       scope_env: BMW_AI_SCOPE
       resource_env: BMW_AI_RESOURCE
       token_auth_method: body
+      ca_bundle_env: BMW_CA_BUNDLE
   vlm:
     backend: api
     max_new_tokens: 8192
@@ -40,3 +41,4 @@ models:
       scope_env: BMW_AI_SCOPE
       resource_env: BMW_AI_RESOURCE
       token_auth_method: body
+      ca_bundle_env: BMW_CA_BUNDLE

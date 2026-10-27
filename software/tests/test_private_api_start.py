@@ -20,6 +20,7 @@ VARIABLES = (
     "BMW_AI_CHAT_PATH",
     "BMW_AI_SCOPE",
     "BMW_AI_RESOURCE",
+    "BMW_CA_BUNDLE",
     "LLM_API_BASE_URL",
     "LLM_API_MODEL",
     "LLM_API_KEY",

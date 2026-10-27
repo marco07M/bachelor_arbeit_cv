@@ -7,6 +7,7 @@ $apiVariableNames = @(
     'BMW_AI_API_KEY', 'BMW_AI_CLIENT_ID', 'BMW_AI_CLIENT_SECRET',
     'BMW_AI_BASE_URL', 'BMW_AI_TOKEN_URL', 'BMW_AI_API_KEY_HEADER',
     'BMW_LLM_MODEL', 'BMW_VLM_MODEL', 'BMW_AI_CHAT_PATH', 'BMW_AI_SCOPE', 'BMW_AI_RESOURCE',
+    'BMW_CA_BUNDLE',
     'LLM_API_BASE_URL', 'LLM_API_MODEL', 'LLM_API_KEY', 'VLM_API_BASE_URL', 'VLM_API_MODEL', 'VLM_API_KEY'
 )
 
@@ -90,4 +91,5 @@ Set-BenchmarkApiVariable 'BMW_VLM_MODEL' 'VLM-Modellname mit Bildunterstuetzung'
 Set-BenchmarkApiVariable 'BMW_AI_CHAT_PATH' 'Optionaler Anfragepfad, Standard chat/completions'
 Set-BenchmarkApiVariable 'BMW_AI_SCOPE' 'Optionaler OAuth-Scope'
 Set-BenchmarkApiVariable 'BMW_AI_RESOURCE' 'Optionale OAuth-Resource'
+Set-BenchmarkApiVariable 'BMW_CA_BUNDLE' 'Pfad zum BMW-CA-Zertifikat (PEM)'
 Write-Host 'Pruefen: .venv/Scripts/participant-bench.exe api-check --config configs/api-bmw.yaml'

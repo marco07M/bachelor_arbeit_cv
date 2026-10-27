@@ -12,7 +12,8 @@ $ErrorActionPreference = 'Stop'
 $apiExitCode = 1
 $softwareDirectory = Split-Path $PSScriptRoot -Parent
 $apiCredentialNames = @(
-    'BMW_AI_API_KEY', 'BMW_AI_CLIENT_ID', 'BMW_AI_CLIENT_SECRET', 'LLM_API_KEY', 'VLM_API_KEY'
+    'BMW_AI_API_KEY', 'BMW_AI_CLIENT_ID', 'BMW_AI_CLIENT_SECRET', 'BMW_CA_BUNDLE',
+    'LLM_API_KEY', 'VLM_API_KEY'
 )
 Push-Location -LiteralPath $softwareDirectory
 try {

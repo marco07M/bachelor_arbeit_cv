@@ -111,10 +111,11 @@ Modell als Ersatz ausgeführt.
 
 ## Optional: LLM und VLM über die interne API
 
-Die Vorlage [`configs/api-bmw.yaml`](configs/api-bmw.yaml) unterstützt API-Key
-und OAuth mit Client-ID und Client-Secret. Zugangsdaten werden ausschließlich
-aus Umgebungsvariablen gelesen. Interne Adressen, Header und Modellnamen müssen
-aus eurer Schnittstellenbeschreibung stammen; sie sind nicht vorbelegt.
+Die Vorlage [`configs/api-bmw.yaml`](configs/api-bmw.yaml) unterstützt die
+GATE-Authentifizierung mit WebEAM-OAuth, APIM-API-Key und BMW-CA-Zertifikat.
+Zugangsdaten werden ausschließlich aus Umgebungsvariablen gelesen. Die für eure
+Anwendung freigeschalteten Modellnamen und Region müssen aus Onboarding und
+Modellkatalog stammen; die API-Adressen stehen in der [API-Anleitung](docs/api.md).
 
 Öffne eine **separate PowerShell über das Windows-Startmenü**, wechsle in
 `software` und starte die Anwendung dort selbst. Zugangsdaten werden erst in
