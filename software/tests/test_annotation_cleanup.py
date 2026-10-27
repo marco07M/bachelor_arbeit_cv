@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pymupdf
-from participant_bench.io import file_hash, read_json
 
+from participant_bench.io import file_hash, read_json
 from vorverarbeitung import vorbereiten
 
 

@@ -1,0 +1,29 @@
+# Every variant starts from the same existing local baseline. No global defaults are changed.
+base_config: smoke.yaml
+method: ocr_rules
+calibrator: sigmoid
+target_precision: 0.98
+min_samples: 50
+min_class: 5
+min_documents: 3
+min_accepted: 10
+minimum_quality_gain: 0
+minimum_runtime_gain: 0.05
+review_seconds_per_field: 10  # Assumption, not measured work time.
+variants:
+  - name: dpi200
+    overrides: {pdf: {dpi: 200}}
+  - name: dpi300
+    overrides: {pdf: {dpi: 300}}
+  - name: dpi400
+    overrides: {pdf: {dpi: 400}}
+  - name: pdf_text
+    overrides: {ocr: {source: prefer_pdf}}
+  - name: keep_grid
+    overrides: {ocr: {remove_grid_lines: false}}
+  - name: otsu
+    overrides: {ocr: {preprocessing: {threshold: otsu}}}
+  - name: adaptive
+    overrides: {ocr: {preprocessing: {threshold: adaptive}}}
+  - name: deskew
+    overrides: {ocr: {preprocessing: {deskew: true}}}

@@ -1,44 +1,53 @@
-# Template for an INTERNAL service with Chat-Completions-compatible requests.
-# No BMW endpoints or model names are assumed; fill environment variables from internal documentation.
-extends: local.yaml
-methods: [ocr_rules, ocr_llm, vlm]
+# Company PC: OAuth Basic token -> Bearer token plus gateway key -> model.
+methods:
+- vlm
+seed: 42
+output_dir: runs
+cache_dir: .cache/participant-api
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: false
 signature:
   backend: vlm
   inspect_known: true
+  use_ocr_positions: false
 models:
   ocr_llm:
     backend: api
     max_new_tokens: 4096
-    api:
+    options:
+      auth: oauth2
       base_url_env: BMW_AI_BASE_URL
       model_env: BMW_LLM_MODEL
       chat_path_env: BMW_AI_CHAT_PATH
-      auth: oauth2
       api_key_env: BMW_AI_API_KEY
+      api_key_header: x-apikey
       api_key_header_env: BMW_AI_API_KEY_HEADER
-      api_key_prefix: ""
+      api_key_prefix: ''
       token_url_env: BMW_AI_TOKEN_URL
       client_id_env: BMW_AI_CLIENT_ID
       client_secret_env: BMW_AI_CLIENT_SECRET
       scope_env: BMW_AI_SCOPE
       resource_env: BMW_AI_RESOURCE
-      token_auth_method: body
-      ca_bundle_env: BMW_CA_BUNDLE
+      token_auth_method: basic
+      ca_bundle_env: BMW_AI_CA_BUNDLE
   vlm:
     backend: api
     max_new_tokens: 8192
-    api:
+    options:
+      auth: oauth2
       base_url_env: BMW_AI_BASE_URL
       model_env: BMW_VLM_MODEL
       chat_path_env: BMW_AI_CHAT_PATH
-      auth: oauth2
       api_key_env: BMW_AI_API_KEY
+      api_key_header: x-apikey
       api_key_header_env: BMW_AI_API_KEY_HEADER
-      api_key_prefix: ""
+      api_key_prefix: ''
       token_url_env: BMW_AI_TOKEN_URL
       client_id_env: BMW_AI_CLIENT_ID
       client_secret_env: BMW_AI_CLIENT_SECRET
       scope_env: BMW_AI_SCOPE
       resource_env: BMW_AI_RESOURCE
-      token_auth_method: body
-      ca_bundle_env: BMW_CA_BUNDLE
+      token_auth_method: basic
+      ca_bundle_env: BMW_AI_CA_BUNDLE

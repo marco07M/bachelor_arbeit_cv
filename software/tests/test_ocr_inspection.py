@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from participant_bench.io import digest, file_hash, read_jsonl, write_json, write_jsonl
 from participant_bench.models import check_ocr_evidence, parse_ocr_response
 from participant_bench.ocr_layout import model_input

@@ -49,9 +49,11 @@ def report(output, summary, results, metrics, manifest, costs):
     sources = {page["page_id"]: page for page in manifest["pages"]}
     for method, pages in results.items():
         truncated_pages = 0
+        has_assignment = False
         for page in pages:
             raw_path = output / method / f"raw-{page.page_id}.json"
             raw = read_json(raw_path) if raw_path.is_file() else {}
+            has_assignment = has_assignment or "assignment" in raw
             responses = raw.get("responses", [])
             truncated = any(response.get("output_budget_reached") for response in responses)
             truncated_pages += truncated
@@ -73,17 +75,38 @@ def report(output, summary, results, metrics, manifest, costs):
                     "field_located": check.get("observation", {}).get("field_located"),
                     "cache_hit": check.get("cache_hit", False), "error": check.get("error"), "crop": crop,
                 })
-            fallback = page.text_fallback or (not page.participants and page.page_text is not None)
+            fallback = page.output_kind != "ocr_text" and (page.text_fallback or (not page.participants and page.page_text is not None))
             record = {
                 "method": method, "document_id": page.document_id, "page_id": page.page_id,
                 "source_file": source_name, "page_number": page.page_number, "status": page.status,
                 "response_format": page.parse_status, "participants": len(page.participants),
+                "output_kind": page.output_kind,
                 "output_budget_reached": truncated, "error": error or None,
                 "text_fallback": fallback, "page_text": page.page_text if fallback else None,
                 "review_notes": " | ".join(page.review_notes),
             }
             text_records.append(record)
             links = []
+            if "unlimited_ocr" in raw:
+                recognized = raw["unlimited_ocr"]
+                plain_path = Path(method) / "ocr_text" / f"{page.page_id}.txt"
+                (output / plain_path).parent.mkdir(parents=True, exist_ok=True)
+                (output / plain_path).write_text(recognized["clean_text"], encoding="utf-8", newline="")
+                native_links = [(plain_path.as_posix(), "Vollständiger OCR-Text mit Tabellenstruktur"),
+                                ((Path(method) / raw_path.name).as_posix(), "Rohantwort, Layoutregionen und Zellzuordnung")]
+                if "assignment" in raw:
+                    assigned = raw["assignment"]
+                    for key, title in (("text_prompt", "Exakte LLM-Eingabe zur Zellzuordnung"),
+                                       ("raw_response", "LLM-Antwort zur Zellzuordnung")):
+                        if key in assigned:
+                            relative = Path(method) / "assignment" / f"{page.page_id}-{key}.txt"
+                            (output / relative).parent.mkdir(parents=True, exist_ok=True)
+                            (output / relative).write_text(assigned[key], encoding="utf-8", newline="")
+                            native_links.append((relative.as_posix(), title))
+                ocr_records.append(dict(method=method, page_id=page.page_id, source_file=source_name,
+                    page_number=page.page_number, text=recognized["clean_text"], word_count=None,
+                    links=native_links))
+                links.extend(native_links)
             if "ocr" in raw:
                 links.append(((Path(method) / raw_path.name).as_posix(), "OCR-Rohdaten mit Wortpositionen"))
                 plain = readable_text(raw["ocr"])
@@ -142,7 +165,10 @@ def report(output, summary, results, metrics, manifest, costs):
                 )
         overview.append({
             "Verfahren": method, "Seiten zur Extraktion": len(pages),
+            "Ausgabeart": summary[method].get("output_kind", "structured"),
             "Modell-Backend": summary[method].get("model_backend", "historischer Lauf"),
+            "Unlimited-Zuordnung": ("lokales LLM" if has_assignment else
+                                    "Tabellenparser/OCR" if method == "unlimited_ocr" else "—"),
             "Antworten mit gültigem Format": sum(p.parse_status == "valid" for p in pages),
             "Teilnehmende": sum(len(p.participants) for p in pages),
             "Unterschrift vorhanden": sum(person.signature_present is True for p in pages for person in p.participants),
@@ -174,6 +200,7 @@ def report(output, summary, results, metrics, manifest, costs):
                     "exact_correct": values["exact_match"]["numerator"],
                     "exact_total": values["exact_match"]["denominator"],
                     "exact_match": values["exact_match"]["value"],
+                    "raw_exact_match": values.get("raw_exact_match", {}).get("value"),
                     "cer_edits": values["cer"]["numerator"],
                     "cer_characters": values["cer"]["denominator"],
                     "cer": values["cer"]["value"],
@@ -211,6 +238,8 @@ def report(output, summary, results, metrics, manifest, costs):
         if not metrics
         else "Qualität: deskriptiv gegen Ground Truth."
     )
+    if not metrics and summary and all(value.get("output_kind") == "ocr_text" for value in summary.values()):
+        quality = "Reine OCR-Ausgabe: CER/WER mit evaluate-ocr separat prüfen; keine strukturierte Feldbewertung."
     pages = [
         {
             "Datei": Path(p["source_path"]).name,
@@ -249,7 +278,9 @@ def report(output, summary, results, metrics, manifest, costs):
     )
     ocr_view = "".join(
         f'<details><summary>{esc(row["source_file"])} – Seite {row["page_number"]} '
-        f'({esc(row["method"])}): {row["word_count"]} OCR-Wörter</summary>'
+        f'({esc(row["method"])}): '
+        + (f'{row["word_count"]} OCR-Wörter' if row["word_count"] is not None else 'OCR-Dokumenttext')
+        + '</summary>'
         f'<pre>{esc(row["text"])}</pre><p>'
         + " · ".join(f'<a href="{esc(path)}">{esc(label)}</a>' for path, label in row["links"])
         + "</p></details>" for row in ocr_records
@@ -308,8 +339,10 @@ Systemanweisungen stehen in prompts.json. Der Klartext kann Erkennungsfehler ent
 <h2>Definitionen und Grenzen</h2><pre>{esc(json.dumps(DEFINITIONS, ensure_ascii=False, indent=2))}</pre>
 <p>A: Zeilenumbrüche, verschobene Spalten, verbundene Zellen und schlechte Scans können Zuordnungen stören.
 Der konservative OpenCV-Modus entscheidet nur leere lokalisierte Unterschriftsfelder negativ.
-Bei signature.backend=vlm (auch local_vlm) nutzen A/B/C eine gemeinsame, separat protokollierte Signaturprüfung.
-Das unter models.vlm konfigurierte Backend bestimmt dabei lokale oder API-Inferenz.
+Bei signature.backend=vlm (auch local_vlm) nutzen strukturierte Verfahren eine gemeinsame, separat protokollierte Signaturprüfung.
+Reine OCR-Ausgaben (output_kind=ocr_text) werden nicht als Teilnehmerextraktion bewertet.
+Unlimited-OCR ermittelt keine Unterschriftenpräsenz aus dem Fehlen von OCR-Text.
+Das unter models.vlm konfigurierte Backend bestimmt dabei den Ausführungsort.
 Sichtbare Unterschriftspräsenz ist kein Echtheitsnachweis. Eingabeseiten werden vorab manuell ausgewählt;
 der Lauf führt keine automatische Seitenklassifikation durch. Orientierung anhand der Vorschau prüfen.</p>
 <h2>Kostenannahmen</h2><pre>{esc(json.dumps(costs, ensure_ascii=False, indent=2))}</pre>

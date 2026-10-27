@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image, ImageDraw
+from pydantic import ValidationError
+
 from participant_bench.config import load_config
 from participant_bench.io import file_hash, read_json, read_jsonl, write_json, write_jsonl
 from participant_bench.progress import Progress
@@ -18,8 +21,6 @@ from participant_bench.schema import (
     VisualPageResponse,
 )
 from participant_bench.signatures import apply_observation, inspect_signatures, ocr_row_box, row_regions
-from PIL import Image, ImageDraw
-from pydantic import ValidationError
 
 
 def person(y=0.4, present=None):
@@ -244,6 +245,7 @@ def test_signature_only_recheck_preserves_source_and_never_runs_participant_extr
 @pytest.mark.parametrize("method", ["ocr_llm", "vlm"])
 def test_runner_records_separate_signature_calls_and_unloads_ocr_model_first(tmp_path, monkeypatch, method):
     import pymupdf
+
     from participant_bench import runner
 
     config = load_config(Path("configs/local.yaml"))

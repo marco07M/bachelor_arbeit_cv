@@ -1,6 +1,7 @@
 # Technische und wissenschaftliche Entscheidungen
 
-Stand der Implementierung: 14.10.2026. Es wurden aktuelle offizielle Einstiegsseiten
+Stand der GPU-Konfiguration: 27.10.2026 (ursprüngliche Entscheidungen: 14.10.2026).
+Es wurden aktuelle offizielle Einstiegsseiten
 und die versionierten Modellkarten geprüft. Laufende Paketauflösungen stehen im
 uv.lock; Modellrevisionen in configs/local.yaml. Keine Modellkarte ersetzt den
 lokalen Smoke-Test oder die Evaluation auf echten Teilnehmerlisten.
@@ -13,7 +14,7 @@ lokalen Smoke-Test oder die Evaluation auf echten Teilnehmerlisten.
 | OCR | Tesseract 5.4.0 Windows, deu+eng, OSD, tessdata_fast | [Tesseract Installation](https://tesseract-ocr.github.io/tessdoc/Installation.html), Apache-2.0 |
 | OCR-Verteilung | UB Mannheim Windows-Build, portabel entpackt | [Windows-Build](https://github.com/UB-Mannheim/tesseract/releases/tag/v5.4.0.20240606) |
 | A | Liniengeometrie + OCR-Wortpositionen + konfigurierbare Spalten | Eigenimplementierung, keine externe Strukturierungs-API |
-| B | Qwen3-8B, Thinking deaktiviert, BF16, CPU-Offloading ausdrücklich konfiguriert | [Modellkarte](https://huggingface.co/Qwen/Qwen3-8B), Apache-2.0 |
+| B | Qwen3-8B, Thinking deaktiviert, LLM.int8, vollständig auf CUDA-Gerät 0 | [Modellkarte](https://huggingface.co/Qwen/Qwen3-8B), Apache-2.0 |
 | C | Qwen3-VL-4B-Instruct, BF16, lokaler Processor + PIL-Bild | [Modellkarte](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct), Apache-2.0 |
 | Inferenz | Transformers 4.57.6, Accelerate, SDPA, batch 1 | [Qwen3-VL Dokumentation](https://huggingface.co/docs/transformers/model_doc/qwen3_vl), [Accelerate](https://huggingface.co/docs/accelerate/en/usage_guides/big_modeling), Apache-2.0 |
 | PDF | PyMuPDF 1.26.7, Rendering ohne Textebenen-Baseline | [Lizenz](https://pymupdf.readthedocs.io/en/latest/about.html#license-and-copyright), AGPL-3.0 / kommerziell |
@@ -31,15 +32,23 @@ hat ebenfalls Apache-2.0-Lizenz, benötigt bei BF16 aber bereits grob 16 GB alle
 für 8 Milliarden Parameter. Dies ist eine Gewichtsabschätzung (2 Bytes/Parameter),
 keine gemessene Spitzenbelegung. Die tatsächlich erkannte einzelne Laptop-GPU
 hat 16376 MiB VRAM, nicht 47 GB. Deshalb ist C mit 4B gewählt. B behält die gewünschte
-8B-Größenordnung und verwendet eine explizite Obergrenze von 10 GiB GPU plus
-32 GiB CPU. Die tatsächliche Verteilung wird protokolliert. Speicher mehrerer GPUs
-wird nicht zusammengerechnet; der Adapter budgetiert ausschließlich GPU 0.
+8B-Größenordnung. Die zunächst verwendete BF16-Aufteilung mit 10 GiB GPU plus
+32 GiB CPU ließ im gemessenen Lauf 15 von 36 Schichten auf der CPU und führte zu
+langen Laufzeiten. Seit dem 27.10.2026 lädt B denselben Checkpoint mit LLM.int8
+vollständig auf GPU 0; Modellrevision und Originalgewichte bleiben erhalten.
+Die tatsächliche Verteilung und Quantisierung werden protokolliert. Speicher
+mehrerer GPUs wird nicht zusammengerechnet.
 
-Keine Quantisierung und kein FlashAttention-Paket im Kern: BF16/SDPA vermeiden
-zusätzliche native Windows-Abhängigkeiten. Die 2 GiB GPU-Reserve ist eine
+Für LLM.int8 ist bitsandbytes 0.48.1 im optionalen Extra `models` festgelegt;
+die öffentliche Windows-/CUDA-12.6-Unterstützung wurde geprüft und die echte
+Inferenz lokal getestet. Die geringere Genauigkeit kann Ergebnisse verändern;
+gleiche Extraktionsqualität wird nicht vorausgesetzt. VLM bleibt bei BF16/SDPA;
+ein zusätzliches FlashAttention-Paket ist nicht erforderlich. Die 2 GiB GPU-Reserve ist eine
 konservative Startregel, keine Garantie gegen OOM. Es gibt keine automatischen
 OOM-Retries oder stillen Auflösungsänderungen. `max_pixels`, Tokenbudget, dtype,
 Decodierung und optionale Kachelung sind explizite konfigurierte Varianten.
+Details und eine explizite BF16-/CPU-Offload-Referenzkonfiguration:
+[GPU-Ausführung](gpu-inference.md).
 
 Die Modellkarte zum ursprünglichen Qwen3-VL-Release enthält noch den historischen
 Hinweis auf damals unveröffentlichtes Transformers 4.57.0. Das Projekt nutzt

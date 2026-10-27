@@ -14,6 +14,24 @@ class PDFConfig(ConfigModel):
     recursive: bool = False
     auto_orient: bool = True
     osd_min_confidence: float = 5
+    include_images: bool = False
+
+
+class ImageConfig(ConfigModel):
+    grayscale: bool = False
+    contrast: float = Field(default=1.0, gt=0, le=5)
+    denoise: Literal[0, 3, 5, 7] = 0
+    threshold: Literal["none", "otsu", "adaptive"] = "none"
+    deskew: bool = False
+    max_skew_degrees: float = Field(default=7, gt=0, le=15)
+    crop: tuple[float, float, float, float] | None = None
+    scale: float = Field(default=1, ge=0.5, le=3)
+
+    @model_validator(mode="after")
+    def valid_crop(self):
+        if self.crop and not (0 <= self.crop[0] < self.crop[2] <= 1 and 0 <= self.crop[1] < self.crop[3] <= 1):
+            raise ValueError("Crop must be ordered normalized x0,y0,x1,y1")
+        return self
 
 
 class OCRConfig(ConfigModel):
@@ -22,6 +40,8 @@ class OCRConfig(ConfigModel):
     psm: int = Field(default=6, ge=3, le=13)
     timeout_seconds: int = Field(default=120, ge=1)
     remove_grid_lines: bool = True
+    source: Literal["ocr", "prefer_pdf"] = "ocr"
+    preprocessing: ImageConfig = Field(default_factory=ImageConfig)
 
 
 class RulesConfig(ConfigModel):
@@ -60,59 +80,19 @@ class SignatureConfig(ConfigModel):
     component_min_area: int = Field(default=8, ge=1)
 
 
-class APIConfig(ConfigModel):
-    # These are environment-variable names, never credential values.
-    base_url: str | None = None
-    base_url_env: str | None = None
-    model: str | None = None
-    model_env: str | None = None
-    chat_path: str = "chat/completions"
-    chat_path_env: str | None = None
-    api_version: str | None = None
-    auth: Literal["api_key", "oauth2"] = "api_key"
-    api_key_env: str | None = "API_KEY"
-    api_key_header: str = "Authorization"
-    api_key_header_env: str | None = None
-    api_key_prefix: str = "Bearer "
-    token_url: str | None = None
-    token_url_env: str | None = None
-    client_id_env: str = "CLIENT_ID"
-    client_secret_env: str = "CLIENT_SECRET"
-    scope_env: str | None = None
-    resource_env: str | None = None
-    token_auth_method: Literal["body", "basic"] = "body"
-    token_send_api_key: bool = False
-    ca_bundle_env: str | None = None
-    timeout_seconds: float = Field(default=120, gt=0, le=1800)
-    response_format: Literal["json_object", "json_schema", "none"] = "json_object"
-    max_tokens_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
-    image_detail: Literal["auto", "high", "low"] = "high"
-    send_temperature: bool = False
-
-    @model_validator(mode="after")
-    def configured(self):
-        if not self.base_url and not self.base_url_env:
-            raise ValueError("API benötigt base_url oder base_url_env")
-        if not self.model and not self.model_env:
-            raise ValueError("API benötigt model oder model_env")
-        if self.auth == "oauth2" and not self.token_url and not self.token_url_env:
-            raise ValueError("OAuth benötigt token_url oder token_url_env")
-        if self.auth == "api_key" and not self.api_key_env:
-            raise ValueError("API-Key-Anmeldung benötigt api_key_env")
-        return self
-
-
 class ModelConfig(ConfigModel):
-    backend: Literal["local", "api"] = "local"
-    api: APIConfig | None = None
+    backend: str = Field(default="local", pattern=r"^[a-z][a-z0-9_]*$")
+    options: dict = Field(default_factory=dict)
     repo: str | None = None
     revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{40}$")
     path: str | None = None
     dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
+    quantization: Literal["none", "int8"] = "none"
     device: Literal["auto", "cuda", "cpu"] = "auto"
     gpu_memory_gib: int = Field(default=10, ge=1)
     cpu_memory_gib: int = Field(default=32, ge=1)
     max_input_tokens: int = Field(default=12000, ge=128, le=32768)
+    prefill_chunk_size: int | None = Field(default=None, ge=128, le=8192)
     max_new_tokens: int = Field(default=2048, ge=1)
     do_sample: bool = False
     temperature: float = Field(default=0.7, gt=0)
@@ -125,10 +105,12 @@ class ModelConfig(ConfigModel):
 
     @model_validator(mode="after")
     def valid_tiles(self):
+        if self.quantization != "none" and (self.backend != "local" or self.device != "cuda"):
+            raise ValueError("int8 benötigt ein lokales Modell mit device: cuda (ohne CPU-Offload)")
         if self.backend == "local" and not all((self.repo, self.revision, self.path)):
             raise ValueError("Lokales Modell benötigt repo, revision und path")
-        if self.backend == "api" and self.api is None:
-            raise ValueError("API-Modell benötigt api-Konfiguration")
+        if self.backend != "local" and not self.options:
+            raise ValueError("Externes Modellbackend benötigt options-Konfiguration")
         if self.tile_height and self.tile_overlap >= self.tile_height:
             raise ValueError("tile_overlap must be smaller than tile_height")
         if self.max_pixels < self.min_pixels:
@@ -156,7 +138,7 @@ class CostsConfig(ConfigModel):
 
 
 class Config(ConfigModel):
-    methods: list[Literal["ocr_rules", "ocr_llm", "vlm"]]
+    methods: list[Literal["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"]]
     seed: int = 42
     output_dir: str = "runs"
     cache_dir: str = ".cache/participant-bench"
@@ -172,6 +154,11 @@ class Config(ConfigModel):
     def unique_methods(self):
         if not self.methods or len(set(self.methods)) != len(self.methods):
             raise ValueError("Methods must be nonempty and unique")
+        unlimited = self.models.get("unlimited_ocr")
+        if "unlimited_ocr" in self.methods and unlimited and unlimited.options.get("extraction") == "llm":
+            llm = self.models.get("ocr_llm")
+            if llm is None or llm.backend != "local":
+                raise ValueError("Unlimited-OCR-Zuordnung benötigt ein lokales models.ocr_llm; keine API")
         return self
 
 

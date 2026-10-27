@@ -11,6 +11,7 @@ import pytesseract
 from PIL import Image
 
 from .doctor import tesseract_command
+from .image_preprocessing import preprocess, rotate_box
 from .io import digest, file_hash, read_json, write_json
 
 
@@ -69,13 +70,14 @@ class OCR:
         self.cache = Path(config.cache_dir) / "ocr"
         self.cache.mkdir(parents=True, exist_ok=True)
 
-    def recognize(self, image: Image.Image, image_hash: str):
+    def recognize(self, image: Image.Image, image_hash: str, *, embedded_words=None, rotation_clockwise=0):
         key = digest(
             {
                 "image": image_hash,
-                "config": self.config.model_dump(),
+                "config": self.config.ocr.model_dump(),
                 "ocr": self.identity,
-                "implementation": "ocr-v1",
+                "implementation": "ocr-v2-preprocessing",
+                "embedded_words": embedded_words, "rotation": rotation_clockwise,
             }
         )
         cache_path = self.cache / f"{key}.json"
@@ -84,18 +86,33 @@ class OCR:
             result["cache_hit"] = True
             return result
         start = time.perf_counter()
-        source = image
+        if self.config.ocr.source == "prefer_pdf" and embedded_words and len(embedded_words) >= 3:
+            usable = all(w["text"].strip() and "\ufffd" not in w["text"] for w in embedded_words)
+            if usable:
+                words = [dict(w, bbox=rotate_box(w["bbox"], rotation_clockwise), ocr_confidence=None) for w in embedded_words]
+                result = {"words": words, "text": " ".join(w["text"] for w in words), "elapsed_seconds": time.perf_counter() - start,
+                          "cache_hit": False, "cache_key": key, "identity": self.identity, "size": list(image.size),
+                          "text_source": "pdf_text", "preprocessing": {"applied": False}}
+                write_json(cache_path, result)
+                self.enforce_limit()
+                return result
+        source, original_box, preprocessing = preprocess(image, self.config.ocr.preprocessing)
         if self.config.ocr.remove_grid_lines:
-            ink, horizontal, vertical = grid_masks(image)
+            ink, horizontal, vertical = grid_masks(source)
             lines = cv2.bitwise_or(horizontal, vertical)
-            source = Image.fromarray(255 - cv2.subtract(ink, lines))
-        data = pytesseract.image_to_data(
-            source,
-            lang=self.config.ocr.languages,
-            config=f"--psm {self.config.ocr.psm}",
-            output_type=pytesseract.Output.DICT,
-            timeout=self.config.ocr.timeout_seconds,
-        )
+            cleaned = Image.fromarray(255 - cv2.subtract(ink, lines))
+            source.close()
+            source = cleaned
+        try:
+            data = pytesseract.image_to_data(
+                source,
+                lang=self.config.ocr.languages,
+                config=f"--psm {self.config.ocr.psm}",
+                output_type=pytesseract.Output.DICT,
+                timeout=self.config.ocr.timeout_seconds,
+            )
+        finally:
+            source.close()
         w, h = image.size
         words = []
         for i, text in enumerate(data["text"]):
@@ -105,7 +122,7 @@ class OCR:
             words.append(
                 {
                     "text": text,
-                    "bbox": {"x0": x / w, "y0": y / h, "x1": (x + width) / w, "y1": (y + height) / h},
+                    "bbox": original_box(x, y, width, height),
                     "ocr_confidence": float(data["conf"][i]),
                     "line": [data[k][i] for k in ("block_num", "par_num", "line_num")],
                 }
@@ -118,6 +135,7 @@ class OCR:
             "cache_key": key,
             "identity": self.identity,
             "size": [w, h],
+            "text_source": "tesseract", "preprocessing": preprocessing,
         }
         write_json(cache_path, result)
         self.enforce_limit()

@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import pymupdf
+
 from participant_bench.io import file_hash, write_jsonl
 from participant_bench.schema import GroundTruthPage, Participant, TextField
 

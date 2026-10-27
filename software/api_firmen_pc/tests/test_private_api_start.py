@@ -20,6 +20,7 @@ VARIABLES = (
     "BMW_AI_CHAT_PATH",
     "BMW_AI_SCOPE",
     "BMW_AI_RESOURCE",
+    "BMW_AI_CA_BUNDLE",
     "BMW_CA_BUNDLE",
     "LLM_API_BASE_URL",
     "LLM_API_MODEL",
@@ -57,7 +58,8 @@ def test_external_env_is_literal_process_only_and_not_printed(tmp_path):
     external = tmp_path / "synthetic.env"
     external.write_text(
         f"# synthetic only\nBMW_AI_API_KEY='{FAKE_KEY}'\nBMW_AI_CLIENT_ID=fake-client\n"
-        "BMW_AI_CLIENT_SECRET=\"$(throw 'not executable')`n$HOME\"\n",
+        "BMW_AI_CLIENT_SECRET=\"$(throw 'not executable')`n$HOME\"\n"
+        "BMW_CA_BUNDLE=C:\\synthetic\\company-ca.pem\n",
         encoding="utf-8",
     )
     expected_literal = "$(throw 'not executable')`n$HOME"
@@ -67,6 +69,7 @@ def test_external_env_is_literal_process_only_and_not_printed(tmp_path):
 . {ps_literal(SCRIPTS / "set-api-environment.ps1")} -EnvFile {ps_literal(external)} -NoPrompt
 if ($env:BMW_AI_API_KEY -cne {ps_literal(FAKE_KEY)}) {{ throw 'Synthetic key mismatch' }}
 if ($env:BMW_AI_CLIENT_SECRET -cne {ps_literal(expected_literal)}) {{ throw 'Value was interpreted' }}
+if ($env:BMW_AI_CA_BUNDLE -cne 'C:\\synthetic\\company-ca.pem') {{ throw 'Remote CA alias was not imported' }}
 & {ps_literal(sys.executable)} -c "import os; assert os.environ['BMW_AI_API_KEY'] == '{FAKE_KEY}'"
 if ($LASTEXITCODE -ne 0) {{ throw 'Application did not inherit synthetic key' }}
 Write-Output 'Synthetic process inheritance OK'
@@ -128,7 +131,8 @@ def test_check_only_launches_no_api_and_clears_process_credentials(tmp_path):
     external.write_text(
         f"BMW_AI_API_KEY={FAKE_KEY}\nBMW_AI_CLIENT_ID=fake-client\nBMW_AI_CLIENT_SECRET=fake-secret\n"
         "BMW_AI_BASE_URL=https://synthetic.invalid/v1\nBMW_AI_TOKEN_URL=https://synthetic.invalid/token\n"
-        "BMW_AI_API_KEY_HEADER=X-Test-Key\nBMW_LLM_MODEL=synthetic-text\nBMW_VLM_MODEL=synthetic-vision\n",
+        "BMW_AI_API_KEY_HEADER=X-Test-Key\nBMW_LLM_MODEL=synthetic-text\nBMW_VLM_MODEL=synthetic-vision\n"
+        "BMW_CA_BUNDLE=C:\\synthetic\\company-ca.pem\n",
         encoding="utf-8",
     )
     result = run_shell(
@@ -136,7 +140,8 @@ def test_check_only_launches_no_api_and_clears_process_credentials(tmp_path):
         f"""
 & {ps_literal(SCRIPTS / "run-private-api.ps1")} -EnvFile {ps_literal(external)} -NoPrompt -CheckOnly
 if ($LASTEXITCODE -ne 0) {{ throw 'Configuration check failed' }}
-if ($env:BMW_AI_API_KEY -or $env:BMW_AI_CLIENT_SECRET -or $env:BMW_AI_CLIENT_ID) {{
+if ($env:BMW_AI_API_KEY -or $env:BMW_AI_CLIENT_SECRET -or $env:BMW_AI_CLIENT_ID -or
+    $env:BMW_AI_CA_BUNDLE -or $env:BMW_CA_BUNDLE) {{
     throw 'Credentials were retained'
 }}
 Write-Output 'Private launcher cleanup OK'

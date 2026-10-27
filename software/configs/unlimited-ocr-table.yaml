@@ -1,0 +1,30 @@
+extends: local.yaml
+methods:
+- unlimited_ocr
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: true
+  osd_min_confidence: 5
+  include_images: true
+signature:
+  backend: opencv
+models:
+  unlimited_ocr:
+    backend: local
+    repo: baidu/Unlimited-OCR
+    revision: 8249d20b2822a7d8a4c22c8d8c9069b5ac36bda3
+    path: models/unlimited-ocr
+    device: cuda
+    dtype: bfloat16
+    gpu_memory_gib: 8
+    cpu_memory_gib: 16
+    max_new_tokens: 4096
+    warmup: true
+    options:
+      extraction: table
+      precision: auto
+      crop_to_patches: true
+      attention: sdpa
+      min_free_gib: 9
+      timeout_seconds: 600

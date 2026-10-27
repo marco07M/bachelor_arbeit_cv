@@ -7,14 +7,14 @@ $apiVariableNames = @(
     'BMW_AI_API_KEY', 'BMW_AI_CLIENT_ID', 'BMW_AI_CLIENT_SECRET',
     'BMW_AI_BASE_URL', 'BMW_AI_TOKEN_URL', 'BMW_AI_API_KEY_HEADER',
     'BMW_LLM_MODEL', 'BMW_VLM_MODEL', 'BMW_AI_CHAT_PATH', 'BMW_AI_SCOPE', 'BMW_AI_RESOURCE',
-    'BMW_CA_BUNDLE',
+    'BMW_AI_CA_BUNDLE', 'BMW_CA_BUNDLE',
     'LLM_API_BASE_URL', 'LLM_API_MODEL', 'LLM_API_KEY', 'VLM_API_BASE_URL', 'VLM_API_MODEL', 'VLM_API_KEY'
 )
 
 function Import-BenchmarkApiEnvironment {
     param([string]$Path)
     $apiFilePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
-    $repositoryDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')).TrimEnd('\', '/')
+    $repositoryDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..')).TrimEnd('\', '/')
     if ($apiFilePath.Equals($repositoryDirectory, [StringComparison]::OrdinalIgnoreCase) -or
         $apiFilePath.StartsWith($repositoryDirectory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Die Zugangsdaten-Datei muss ausserhalb des gesamten Repositories liegen.'
@@ -85,11 +85,16 @@ Set-BenchmarkApiVariable 'BMW_AI_CLIENT_ID' 'Client-ID' -Secret
 Set-BenchmarkApiVariable 'BMW_AI_CLIENT_SECRET' 'Client-Secret' -Secret
 Set-BenchmarkApiVariable 'BMW_AI_BASE_URL' 'Interne API-Basisadresse, ohne /chat/completions'
 Set-BenchmarkApiVariable 'BMW_AI_TOKEN_URL' 'OAuth-Token-URL'
-Set-BenchmarkApiVariable 'BMW_AI_API_KEY_HEADER' 'Headername fuer den API-Key laut interner Dokumentation'
+Set-BenchmarkApiVariable 'BMW_AI_API_KEY_HEADER' 'Headername fuer den API-Key (Standard in dieser Vorlage: x-apikey)'
 Set-BenchmarkApiVariable 'BMW_LLM_MODEL' 'LLM-Modellname'
 Set-BenchmarkApiVariable 'BMW_VLM_MODEL' 'VLM-Modellname mit Bildunterstuetzung'
 Set-BenchmarkApiVariable 'BMW_AI_CHAT_PATH' 'Optionaler Anfragepfad, Standard chat/completions'
 Set-BenchmarkApiVariable 'BMW_AI_SCOPE' 'Optionaler OAuth-Scope'
 Set-BenchmarkApiVariable 'BMW_AI_RESOURCE' 'Optionale OAuth-Resource'
-Set-BenchmarkApiVariable 'BMW_CA_BUNDLE' 'Pfad zum BMW-CA-Zertifikat (PEM)'
-Write-Host 'Pruefen: .venv/Scripts/participant-bench.exe api-check --config configs/api-bmw.yaml'
+if (-not [Environment]::GetEnvironmentVariable('BMW_AI_CA_BUNDLE', 'Process') -and
+    [Environment]::GetEnvironmentVariable('BMW_CA_BUNDLE', 'Process')) {
+    [Environment]::SetEnvironmentVariable(
+        'BMW_AI_CA_BUNDLE', [Environment]::GetEnvironmentVariable('BMW_CA_BUNDLE', 'Process'), 'Process')
+}
+Set-BenchmarkApiVariable 'BMW_AI_CA_BUNDLE' 'Optionaler lokaler Pfad zum Firmen-CA-Bundle (PEM)'
+Write-Host 'Pruefen: .venv/Scripts/participant-api.exe check --config configs/api-bmw.yaml'

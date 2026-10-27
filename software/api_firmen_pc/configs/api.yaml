@@ -1,20 +1,28 @@
-# Generic Chat-Completions-compatible API with bearer API key, no local weights required.
-extends: local.yaml
-methods: [ocr_rules, ocr_llm, vlm]
+methods:
+- ocr_rules
+- ocr_llm
+- vlm
 signature:
   backend: vlm
+  use_ocr_positions: false
 models:
   ocr_llm:
     backend: api
     max_new_tokens: 4096
-    api:
+    options:
       base_url_env: LLM_API_BASE_URL
       model_env: LLM_API_MODEL
       api_key_env: LLM_API_KEY
   vlm:
     backend: api
     max_new_tokens: 8192
-    api:
+    options:
       base_url_env: VLM_API_BASE_URL
       model_env: VLM_API_MODEL
       api_key_env: VLM_API_KEY
+output_dir: runs
+cache_dir: .cache/participant-api
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: false

@@ -11,7 +11,7 @@ import yaml
 from PIL import Image
 
 from .io import file_hash, read_json, read_jsonl, write_json, write_jsonl
-from .models import LocalModel, create_model, require_offline, validate_api_environment
+from .models import LocalModel, create_model, require_offline, validate_model_environment
 from .progress import Progress
 from .report import report
 from .runner import aggregate_status, signature_details
@@ -21,7 +21,7 @@ from .signatures import LOCATION_SYSTEM, SIGNATURE_PROMPT_VERSION, SIGNATURE_SYS
 
 def recheck_run(source: Path, config, methods=None, output: Path | None = None, *, offline=False) -> Path:
     require_offline(config, offline, methods=["vlm"])
-    validate_api_environment(config, methods=["vlm"])
+    validate_model_environment(config, methods=["vlm"])
     if "vlm" not in config.models:
         raise ValueError("Für die Signaturprüfung muss models.vlm konfiguriert sein")
     original_summary = read_json(source / "summary.json")

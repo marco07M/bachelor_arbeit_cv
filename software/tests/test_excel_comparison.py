@@ -5,6 +5,7 @@ import sys
 
 import pytest
 from openpyxl import Workbook
+
 from participant_bench.excel_comparison import compare_run, course_mapping, evaluate_method
 from participant_bench.excel_reference import ExcelConfig, ReferencePerson, read_reference
 from participant_bench.io import file_hash, read_json, write_json, write_jsonl

@@ -215,6 +215,15 @@
       "title": "Status",
       "type": "string"
     },
+    "output_kind": {
+      "default": "structured",
+      "enum": [
+        "structured",
+        "ocr_text"
+      ],
+      "title": "Output Kind",
+      "type": "string"
+    },
     "page_text": {
       "anyOf": [
         {

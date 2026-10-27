@@ -11,6 +11,7 @@ from .schema import TEXT_FIELDS
 
 DEFINITIONS = {
     "normalization": "NFC, whitespace collapse, casefold for names/department; personnel number exact raw string.",
+    "raw_exact_match": "Unicode string equality without case/whitespace normalization; known None/empty cells equivalent. Same matched rows and denominator as exact_match.",
     "matching": "Within document/page: unique printed row_ref; then vertical box IoU >=0.25; "
     "without both positions Hungarian name+department similarity >=0.65. Personnel number excluded.",
     "exact_match": "Correct known GT fields / all readable or empty GT fields, including missing rows. "
@@ -139,6 +140,9 @@ def prf(tp, fp, fn):
 
 
 def evaluate(results, ground_truth):
+    results = list(results)
+    if any(result.output_kind == "ocr_text" for result in results):
+        raise ValueError("Reine OCR-Ausgaben benötigen CER/WER; keine strukturierte Feldbewertung")
     by_page = {(r.document_id, r.page_number): r for r in results}
     fields = {name: Counter() for name in TEXT_FIELDS}
     signature, totals, matching_sources = Counter(), Counter(), Counter()
@@ -178,6 +182,8 @@ def evaluate(results, ground_truth):
                 counter["denominator"] += 1
                 counter["prediction_unknown"] += int(p_field is None or not known(p_field))
                 same = correct(p_field, gt_field, name)
+                literal_same = p_field is not None and known(p_field) and (p_field.value or "") == (gt_field.value or "")
+                counter["literal_tp"] += int(literal_same)
                 counter["tp"] += int(same)
                 counter["fn"] += int(not same)
                 counter["fp"] += int(not same and p_field is not None and known(p_field))
@@ -198,6 +204,7 @@ def evaluate(results, ground_truth):
                         "truth_raw": gt_field.value,
                         "prediction_raw": p_field.value if p_field else None,
                         "exact": same,
+                        "raw_exact": literal_same,
                     }
                 )
             if row_scorable:
@@ -240,6 +247,7 @@ def evaluate(results, ground_truth):
     scores = {}
     for name, counts in fields.items():
         scores[name] = {
+            "raw_exact_match": ratio(counts["literal_tp"], counts["denominator"]),
             "exact_match": ratio(counts["tp"], counts["denominator"]),
             "cer": ratio(counts["edits"], counts["reference_characters"]),
             "prf": prf(counts["tp"], counts["fp"], counts["fn"]),
@@ -252,6 +260,7 @@ def evaluate(results, ground_truth):
         "counts": dict(totals),
         "fields": scores,
         "overall_exact_match": ratio(all_counts["tp"], all_counts["denominator"]),
+        "overall_raw_exact_match": ratio(all_counts["literal_tp"], all_counts["denominator"]),
         "field_prf": prf(all_counts["tp"], all_counts["fp"], all_counts["fn"]),
         "entry_prf": prf(totals["entry_tp"], totals["entry_fp"], totals["entry_fn"]),
         "assignment": {

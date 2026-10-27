@@ -174,6 +174,7 @@ class PageResult(StrictModel):
     page_id: str
     method_id: str
     status: Status
+    output_kind: Literal["structured", "ocr_text"] = "structured"
     page_text: str | None = None
     text_fallback: bool = False
     participants: list[Participant] = Field(default_factory=list)
@@ -187,7 +188,7 @@ class PageResult(StrictModel):
 class GroundTruthPage(StrictModel):
     document_id: str
     page_number: int = Field(ge=1)
-    split: Literal["development", "test"]
+    split: Literal["development", "validation", "test"]
     dependency_group: str
     content_type: Literal["typed", "handwritten", "mixed", "other"]
     relevant: bool

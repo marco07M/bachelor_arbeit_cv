@@ -96,19 +96,44 @@ class Unavailable(RuntimeError):
     pass
 
 
-def model_identity(spec):
-    if spec.backend == "api":
-        from .api_models import api_identity
+_MODEL_BACKENDS = {}
 
-        return api_identity(spec)
+
+def register_model_backend(name, *, factory, identity, validate):
+    """Enable a separately installed backend explicitly, never from configuration imports."""
+    if name == "local":
+        raise ValueError("Das lokale Backend kann nicht ersetzt werden")
+    _MODEL_BACKENDS[name] = dict(factory=factory, identity=identity, validate=validate)
+
+
+def external_backend(name):
+    try:
+        return _MODEL_BACKENDS[name]
+    except KeyError:
+        raise Unavailable(
+            f"Externes Modellbackend {name} ist hier nicht aktiviert; "
+            "das separate Programm im passenden Projektordner starten"
+        ) from None
+
+
+def model_identity(spec):
+    if spec.backend != "local":
+        return external_backend(spec.backend)["identity"](spec)
+    if spec.repo == "baidu/Unlimited-OCR":
+        from .unlimited import identity
+
+        return identity(spec)
     return local_model_identity(spec)
 
 
 def create_model(method, config, progress=None, local_class=None):
-    if config.models[method].backend == "api":
-        from .api_models import APIModel
+    name = config.models[method].backend
+    if name != "local":
+        return external_backend(name)["factory"](method, config, progress=progress)
+    if method == "unlimited_ocr":
+        from .unlimited import UnlimitedModel
 
-        return APIModel(method, config, progress=progress)
+        return UnlimitedModel(method, config, progress=progress)
     return (local_class or LocalModel)(method, config, progress=progress)
 
 
@@ -116,27 +141,20 @@ def require_offline(config, offline, methods=None):
     active = set(methods or config.methods)
     if config.signature.backend in ("local_vlm", "vlm"):
         active.add("vlm")
-    if offline and any(config.models[name].backend == "api" for name in active if name in config.models):
-        raise ValueError("--offline ist mit aktiven API-Modellen nicht möglich; lokale Konfiguration wählen")
+    if offline and any(config.models[name].backend != "local" for name in active if name in config.models):
+        raise ValueError("--offline ist mit externen Modellen nicht möglich; lokale Konfiguration wählen")
 
 
-def validate_api_environment(config, methods=None):
-    """Fail before reading PDFs when an active API lacks required settings; no network."""
-    from .api_models import api_identity, checked_url, env_value, missing_environment
-
+def validate_model_environment(config, methods=None):
+    """Check explicitly enabled external backends before reading documents."""
     active = set(methods or config.methods)
     if config.signature.backend in ("local_vlm", "vlm"):
         active.add("vlm")
     for method in sorted(active):
         spec = config.models.get(method)
-        if spec is None or spec.backend != "api":
+        if spec is None or spec.backend == "local":
             continue
-        missing = missing_environment(spec)
-        if missing:
-            raise Unavailable(f"{method}: Umgebungsvariablen fehlen: {', '.join(missing)}; api-check verwenden")
-        api_identity(spec)
-        if spec.api.auth == "oauth2":
-            checked_url(env_value(spec.api.token_url_env, spec.api.token_url))
+        external_backend(spec.backend)["validate"](spec)
 
 
 def build_system(method, response_type, system_prompt=None):
@@ -148,7 +166,7 @@ def build_system(method, response_type, system_prompt=None):
 
 def local_model_identity(model, verify=False, progress: Progress | None = None):
     if model.backend != "local":
-        raise Unavailable("API-Modell hat keine lokalen Gewichte")
+        raise Unavailable("Externes Modell hat keine lokalen Gewichte")
     path = Path(model.path)
     manifest_path = path / "download_manifest.json"
     if not manifest_path.is_file():
@@ -247,8 +265,13 @@ def download_models(config, methods=None, transport="hub"):
             if method not in config.models:
                 continue
             model = config.models[method]
-            if model.backend == "api":
-                print(f"{method}: API-Backend benötigt keine lokalen Modellgewichte", flush=True)
+            if method == "unlimited_ocr":
+                from .unlimited_setup import download
+
+                download(model, transport)
+                continue
+            if model.backend != "local":
+                print(f"{method}: Externes Backend benötigt keine lokalen Modellgewichte", flush=True)
                 continue
             path = Path(model.path)
             if path.exists() and any(path.iterdir()):
@@ -360,8 +383,49 @@ def parse_ocr_response(raw: str, data: dict, rejected_rows: list | None = None,
     return participants
 
 
+def model_load_kwargs(spec, torch, method):
+    """An explicit CUDA device keeps every layer on GPU; auto may offload to CPU."""
+    cuda = spec.device != "cpu" and torch.cuda.is_available()
+    if spec.device != "cpu" and not cuda:
+        raise Unavailable("Configured CUDA/auto model has no CUDA; explicitly choose cpu if intended")
+    kwargs = {
+        "local_files_only": True,
+        "trust_remote_code": False,
+        "use_safetensors": True,
+        "low_cpu_mem_usage": True,
+        "dtype": getattr(torch, spec.dtype),
+        "attn_implementation": "sdpa",
+        "device_map": {"": 0} if spec.device == "cuda" else ("auto" if cuda else {"": "cpu"}),
+    }
+    if cuda and spec.device == "auto":
+        kwargs["max_memory"] = {0: f"{spec.gpu_memory_gib}GiB", "cpu": f"{spec.cpu_memory_gib}GiB"}
+    if spec.quantization == "int8":
+        if method != "ocr_llm":
+            raise Unavailable("int8 ist nur für das OCR-Sprachmodell vorgesehen; VLM bleibt in BF16")
+        try:
+            import bitsandbytes  # noqa: F401
+            from transformers import BitsAndBytesConfig
+        except (ImportError, OSError) as exc:
+            raise Unavailable("8-Bit-Laden benötigt bitsandbytes: uv sync --locked --extra models") from exc
+        if torch.cuda.get_device_capability(0) < (7, 5):
+            raise Unavailable("LLM.int8 benötigt eine CUDA-GPU mit Compute Capability >= 7.5")
+        kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_8bit=True, llm_int8_threshold=6.0, llm_int8_enable_fp32_cpu_offload=False,
+        )
+    return kwargs
+
+
 class LocalModel:
     def __init__(self, method, config, progress: Progress | None = None):
+        self._previous_cuda_memory_fraction = None
+        self.cuda_allocator_limit_bytes = None
+        try:
+            self._initialize(method, config, progress)
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize(self, method, config, progress):
         self.method, self.config = method, config
         self.progress = progress or Progress(enabled=False)
         self.spec = config.models[method]
@@ -384,8 +448,10 @@ class LocalModel:
         self.torch = torch
         torch.manual_seed(config.seed)
         self.cuda = self.spec.device != "cpu" and torch.cuda.is_available()
-        if psutil.virtual_memory().available < (self.spec.cpu_memory_gib + 4) * 1024**3:
-            raise Unavailable("Insufficient available RAM for configured CPU budget plus 4 GiB reserve")
+        kwargs = model_load_kwargs(self.spec, torch, method)
+        ram_budget_gib = self.spec.cpu_memory_gib + 4 if self.spec.device != "cuda" else 8
+        if psutil.virtual_memory().available < ram_budget_gib * 1024**3:
+            raise Unavailable(f"Insufficient available RAM: {ram_budget_gib} GiB required for loading/offload")
         if self.spec.device != "cpu" and not self.cuda:
             raise Unavailable("Configured CUDA/auto model has no CUDA; explicitly choose cpu if intended")
         if self.cuda:
@@ -395,22 +461,22 @@ class LocalModel:
             if free < (self.spec.gpu_memory_gib + 2) * 1024**3:
                 raise Unavailable("Insufficient GPU budget plus 2 GiB activation reserve")
             torch.cuda.reset_peak_memory_stats()
+            if self.spec.device == "cuda":
+                self.progress.log("Feste GPU-Zuordnung: alle Modellschichten auf cuda:0; kein CPU-Offload")
+                self._previous_cuda_memory_fraction = torch.cuda.get_per_process_memory_fraction(0)
+                self.cuda_allocator_limit_bytes = min(
+                    int(total * self._previous_cuda_memory_fraction), free - 2 * 1024**3,
+                )
+                torch.cuda.set_per_process_memory_fraction(self.cuda_allocator_limit_bytes / total, 0)
+                self.progress.log(f"CUDA-Speichergrenze {self.cuda_allocator_limit_bytes / 1024**3:.2f} GiB; "
+                                  "2 GiB frei halten, Windows-RAM-Auslagerung vermeiden")
+            if self.spec.quantization == "int8":
+                self.progress.log(f"{self.spec.repo} mit LLM.int8 laden; Modellrevision und Parameterzahl unverändert")
         else:
             self.progress.log("Modell wird auf der CPU ausgeführt")
         self.sync()
         start = time.perf_counter()
-        kwargs = {
-            "local_files_only": True,
-            "trust_remote_code": False,
-            "dtype": getattr(torch, self.spec.dtype),
-            "attn_implementation": "sdpa",
-            "device_map": "auto" if self.cuda else {"": "cpu"},
-        }
-        if self.cuda:
-            kwargs["max_memory"] = {
-                0: f"{self.spec.gpu_memory_gib}GiB",
-                "cpu": f"{self.spec.cpu_memory_gib}GiB",
-            }
+        load_target = "GPU 0" if self.spec.device == "cuda" else "GPU/CPU"
         if method == "vlm":
             with self.progress.activity("Lokalen VLM-Bildprozessor und Tokenizer laden"):
                 self.processor = AutoProcessor.from_pretrained(
@@ -420,21 +486,32 @@ class LocalModel:
                     min_pixels=self.spec.min_pixels,
                     max_pixels=self.spec.max_pixels,
                 )
-            with self.progress.activity("VLM-Gewichte laden und auf GPU/CPU verteilen"):
+            with self.progress.activity(f"VLM-Gewichte laden und auf {load_target} verteilen"):
                 self.model = Qwen3VLForConditionalGeneration.from_pretrained(self.spec.path, **kwargs)
         else:
             with self.progress.activity("Lokalen Sprachmodell-Tokenizer laden"):
                 self.processor = AutoTokenizer.from_pretrained(
                     self.spec.path, local_files_only=True, trust_remote_code=False
                 )
-            with self.progress.activity("Sprachmodell-Gewichte laden und auf GPU/CPU verteilen"):
+            with self.progress.activity(f"Sprachmodell-Gewichte laden und auf {load_target} verteilen"):
                 self.model = AutoModelForCausalLM.from_pretrained(self.spec.path, **kwargs)
         self.model.eval()
         self.sync()
         self.load_seconds = time.perf_counter() - start
         self.device_map = {str(k): str(v) for k, v in self.model.hf_device_map.items()}
+        self.parameter_devices = {}
+        for parameter in self.model.parameters():
+            device = str(parameter.device)
+            self.parameter_devices[device] = self.parameter_devices.get(device, 0) + parameter.numel()
+        if self.spec.device == "cuda" and any(not device.startswith("cuda:") for device in self.parameter_devices):
+            self.close()
+            raise Unavailable("GPU-Zuordnung verletzt: Modellparameter liegen außerhalb von CUDA")
+        self.weight_memory_bytes = self.model.get_memory_footprint()
         self.progress.log(f"Modell geladen nach {self.load_seconds:.1f}s; Geräte: "
                           + ", ".join(sorted(set(self.device_map.values()))))
+        self.progress.log(f"Modellspeicher {self.weight_memory_bytes / 1024**3:.2f} GiB; "
+                          f"Quantisierung={self.spec.quantization}; Parametergeräte: "
+                          + ", ".join(self.parameter_devices))
         self.warmup_seconds, self.warmup_calls = 0.0, 0
         if self.spec.warmup:
             self.progress.log("Modell-Warm-up starten (kleiner Testaufruf)")
@@ -485,6 +562,11 @@ class LocalModel:
             "do_sample": self.spec.do_sample,
             "use_cache": True,
         }
+        chunk_size = self.spec.prefill_chunk_size
+        if self.method == "ocr_llm" and chunk_size is not None and input_tokens > chunk_size:
+            parameters["prefill_chunk_size"] = chunk_size
+            progress.log(f"OCR-Prompt vollständig in Abschnitten von {chunk_size} Token einlesen; "
+                         "keine Kürzung des Textes")
         if not self.spec.do_sample:
             parameters.update(temperature=None, top_p=None, top_k=None)
         if self.spec.do_sample:
@@ -600,7 +682,7 @@ class LocalModel:
                 record["parse_status"] = "valid"
                 progress.log(f"Bildabschnitt {tile_index}: JSON gültig, {len(parsed)} Teilnehmereinträge")
             except Exception as exc:
-                progress.log(f"Bildabschnitt {tile_index}: fehlgeschlagen ({type(exc).__name__}: {exc})")
+                progress.log(f"Bildabschnitt {tile_index}: fehlgeschlagen ({type(exc).__name__}); Details in Rohdaten")
                 record.update(
                     parse_status="invalid" if "raw_response" in record else "not_attempted",
                     error_stage=record.get("error_stage", "validation" if "raw_response" in record else "generation"),
@@ -620,6 +702,11 @@ class LocalModel:
             "peak_gpu_allocated_bytes": self.torch.cuda.max_memory_allocated() if self.cuda else None,
             "peak_gpu_reserved_bytes": self.torch.cuda.max_memory_reserved() if self.cuda else None,
             "device_map": self.device_map,
+            "parameter_devices": self.parameter_devices,
+            "quantization": self.spec.quantization,
+            "weight_memory_bytes": self.weight_memory_bytes,
+            "cuda_allocator_limit_bytes": self.cuda_allocator_limit_bytes,
+            "prefill_chunk_size": self.spec.prefill_chunk_size,
             "calls": self.calls,
             "warmup_calls": self.warmup_calls,
             "load_seconds": self.load_seconds,
@@ -629,7 +716,17 @@ class LocalModel:
         }
 
     def close(self):
-        del self.model, self.processor
+        for name in ("model", "processor"):
+            if hasattr(self, name):
+                delattr(self, name)
         gc.collect()
-        if self.cuda:
+        if getattr(self, "cuda", False):
+            self.torch.cuda.synchronize()
+            # PyTorch 2.8 retains cuBLAS workspaces independently of live model tensors.
+            clear_workspaces = getattr(getattr(self.torch, "_C", None), "_cuda_clearCublasWorkspaces", None)
+            if clear_workspaces is not None:
+                clear_workspaces()
             self.torch.cuda.empty_cache()
+            if self._previous_cuda_memory_fraction is not None:
+                self.torch.cuda.set_per_process_memory_fraction(self._previous_cuda_memory_fraction, 0)
+                self._previous_cuda_memory_fraction = None

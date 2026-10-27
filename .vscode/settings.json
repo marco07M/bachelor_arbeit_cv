@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "C:\\Users\\Q548238\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}/software/.venv",
   "python.testing.cwd": "${workspaceFolder}/software",
   "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": ["tests"],

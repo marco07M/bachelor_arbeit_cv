@@ -108,7 +108,7 @@ def apply_observation(person: Participant, observation: SignatureResponse, backe
         person.signature_state = "read" if present else "empty"
     elif prior is None:
         person.signature_present, person.signature_state = None, "uncertain"
-    person.signature_method = "api_vlm_detail" if backend == "api" else "local_vlm_detail"
+    person.signature_method = f"{backend}_vlm_detail"
     if observation.field_located and present is not None:
         obsolete = ("Unterschriftsfeld nicht zugeordnet", "Signature field could not be localized",
                     "Ink/printed marks present; no validated positive signature classifier")
@@ -206,7 +206,7 @@ def inspect_signatures(participants: list[Participant], image: Image.Image, mode
                   "prompt_version": SIGNATURE_PROMPT_VERSION, "cache_key": fingerprint,
                   "region": region.model_dump() if region else None, "cache_hit": bool(cached),
                   "parse_status": "not_attempted",
-                  "signature_method": "api_vlm_detail" if model.spec.backend == "api" else "local_vlm_detail"}
+                  "signature_method": f"{model.spec.backend}_vlm_detail"}
         record["participant_row"] = person.bbox.model_dump() if person.bbox else None
         record["location_source"] = location_sources[index]
         if index == 0 and location is not None:

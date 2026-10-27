@@ -13,15 +13,7 @@ from types import SimpleNamespace
 import pymupdf
 import pytest
 import yaml
-from participant_bench.api_models import (
-    APIConnection,
-    APIModel,
-    api_identity,
-    checked_url,
-    missing_environment,
-)
-from participant_bench.cli import main
-from participant_bench.config import APIConfig, Config, ModelConfig, load_config
+from participant_bench.config import Config, ModelConfig
 from participant_bench.io import file_hash, read_json, read_jsonl
 from participant_bench.models import Unavailable, create_model
 from participant_bench.runner import run
@@ -29,6 +21,23 @@ from participant_bench.schema import SignatureResponse
 from participant_bench.signature_review import recheck_run
 from PIL import Image
 from pydantic import ValidationError
+
+from participant_api.backend import enable
+from participant_api.cli import main
+from participant_api.config import APIConfig, load_config
+from participant_api.models import (
+    APIConnection,
+    APIModel,
+    api_identity,
+    checked_url,
+    missing_environment,
+)
+
+
+@pytest.fixture(autouse=True)
+def activate_api():
+    enable()
+
 
 KEY, CLIENT, SECRET, TOKEN = "fake-key-52a", "fake-client-93b", "fake-secret-18c", "fake-token-72d"
 PERSON = {"first_name": "Anna", "last_name": "Weber", "personnel_number": "00123", "department": "MUC"}
@@ -109,7 +118,7 @@ def service(monkeypatch):
 def api_spec(service, **updates):
     api = {"base_url": service.url + "/v1", "model": "synthetic-vision", "api_key_env": "TEST_API_KEY"}
     api.update(updates)
-    return ModelConfig(backend="api", api=APIConfig(**api))
+    return ModelConfig(backend="api", options=APIConfig(**api).model_dump())
 
 
 def oauth_spec(service, **updates):
@@ -127,6 +136,47 @@ def oauth_spec(service, **updates):
     return api_spec(service, **values)
 
 
+@pytest.mark.parametrize(
+    ("configured", "available"),
+    [("BMW_AI_CA_BUNDLE", "BMW_CA_BUNDLE"), ("BMW_CA_BUNDLE", "BMW_AI_CA_BUNDLE")],
+)
+def test_company_ca_variable_alias_is_used_without_network(service, monkeypatch, configured, available):
+    import ssl
+
+    for name in ("BMW_AI_CA_BUNDLE", "BMW_CA_BUNDLE"):
+        monkeypatch.delenv(name, raising=False)
+    synthetic_path = "synthetic-company-ca.pem"
+    monkeypatch.setenv(available, synthetic_path)
+    context = ssl.create_default_context()
+    loaded = []
+
+    def create_context(*, cafile):
+        loaded.append(cafile)
+        return context
+
+    monkeypatch.setattr("participant_api.models.ssl.create_default_context", create_context)
+    connection = APIConnection(api_spec(service, ca_bundle_env=configured))
+    assert loaded == [synthetic_path]
+    assert connection.token_requests == connection.inference_requests == 0
+    assert service.requests == []
+
+
+def test_explicit_company_ca_variable_takes_precedence(service, monkeypatch):
+    import ssl
+
+    monkeypatch.setenv("BMW_AI_CA_BUNDLE", "preferred.pem")
+    monkeypatch.setenv("BMW_CA_BUNDLE", "alternative.pem")
+    context = ssl.create_default_context()
+    loaded = []
+    monkeypatch.setattr(
+        "participant_api.models.ssl.create_default_context",
+        lambda *, cafile: loaded.append(cafile) or context,
+    )
+    APIConnection(api_spec(service, ca_bundle_env="BMW_AI_CA_BUNDLE"))
+    assert loaded == ["preferred.pem"]
+    assert service.requests == []
+
+
 def test_api_and_local_require_their_own_configuration(tmp_path):
     with pytest.raises(ValidationError):
         ModelConfig()
@@ -140,7 +190,7 @@ def test_api_and_local_require_their_own_configuration(tmp_path):
                 "models": {
                     "vlm": {
                         "backend": "api",
-                        "api": {
+                        "options": {
                             "base_url": "https://example.invalid/v1",
                             "model": "test",
                             "client_secret": SECRET,
@@ -154,7 +204,7 @@ def test_api_and_local_require_their_own_configuration(tmp_path):
     with pytest.raises(ValueError) as error:
         load_config(path)
     assert SECRET not in str(error.value) and "client_secret" in str(error.value)
-    assert load_config(Path("configs/local.yaml")).models["vlm"].backend == "local"
+    assert load_config(Path("../configs/local.yaml")).models["vlm"].backend == "local"
     assert load_config(Path("configs/api-bmw.yaml")).models["vlm"].backend == "api"
 
 
@@ -424,3 +474,35 @@ def test_api_check_reports_authentication_failure_without_leaking_credentials(
     report = capsys.readouterr().out
     assert "HTTP 401" in report and all(value not in report for value in (KEY, CLIENT, SECRET, TOKEN))
     assert len(service.requests) == 1
+
+
+def test_main_smoke_requests_basic_oauth_before_the_model(service, tmp_path, capsys):
+    config = Config(
+        methods=["ocr_llm"],
+        models={"ocr_llm": oauth_spec(service, token_auth_method="basic")},
+    )
+    path = tmp_path / "smoke.yaml"
+    path.write_text(yaml.safe_dump(config.model_dump()), encoding="utf-8")
+    service.custom = {"choices": [{"message": {"content": "OK"}}]}
+    assert main(["smoke", "--config", str(path), "--method", "ocr_llm"]) == 0
+    assert [request["path"] for request in service.requests] == ["/token", "/v1/chat/completions"]
+    token, model = service.requests
+    assert token["headers"]["Authorization"].startswith("Basic ")
+    assert model["headers"]["Authorization"] == "Bearer " + TOKEN
+    assert model["headers"]["X-Gateway-Key"] == KEY
+    assert json.loads(model["body"])["messages"] == [{"role": "user", "content": "Reply with OK."}]
+    output = capsys.readouterr()
+    assert "OK" in output.out
+    assert all(value not in output.out + output.err for value in (KEY, CLIENT, SECRET, TOKEN))
+
+
+def test_main_smoke_missing_credentials_fails_without_network(service, monkeypatch, tmp_path, capsys):
+    config = Config(methods=["ocr_llm"], models={"ocr_llm": oauth_spec(service)})
+    path = tmp_path / "smoke.yaml"
+    path.write_text(yaml.safe_dump(config.model_dump()), encoding="utf-8")
+    monkeypatch.delenv("TEST_CLIENT_SECRET")
+    assert main(["smoke", "--config", str(path)]) == 1
+    assert not service.requests
+    output = capsys.readouterr()
+    assert "TEST_CLIENT_SECRET" in output.err
+    assert all(value not in output.out + output.err for value in (KEY, CLIENT, SECRET, TOKEN))

@@ -12,10 +12,9 @@ Personalnummer und Abteilung sowie ausschließlich die Anwesenheit einer
 Unterschrift. Kein Datum, keine Unterschriftentranskription, keine Identitäts-
 oder Echtheitsprüfung und kein Import in ein Schulungssystem.
 
-Mit der Standardkonfiguration bleiben alle Dokumente, Vorschauen und Ergebnisse lokal.
-Optional können LLM und VLM über eine ausdrücklich konfigurierte API laufen:
-Dann werden OCR-Texte bzw. Seitenbilder und Signaturausschnitte an diesen Dienst
-gesendet. Einrichtung für den internen Zugang: [API-Anbindung](docs/api.md).
+Dieser Projektteil führt die Dokumentanalyse lokal aus. Die API-Verarbeitung
+für den Firmen-PC liegt separat unter [`api_firmen_pc/`](api_firmen_pc/README.md)
+mit eigener Umgebung und eigenem Einstieg. Zugangsdaten sind hier nicht nötig.
 **Ohne Ground Truth
 wird keine Extraktionsqualität behauptet.** Die Ausgaben dienen menschlicher
 Kontrolle und Korrektur. Reale Formulare müssen noch auf Development-Daten
@@ -109,35 +108,57 @@ funktioniert und ist wiederaufnehmbar. Einzelne Modelle: `--method vlm` oder
 in `models/`. Unvollständige Gewichte sind `unavailable`. Es wird kein anderes
 Modell als Ersatz ausgeführt.
 
-## Optional: LLM und VLM über die interne API
+## Getrennte Rechner: lokal und Firmen-API
 
-Die Vorlage [`configs/api-bmw.yaml`](configs/api-bmw.yaml) unterstützt die
-GATE-Authentifizierung mit WebEAM-OAuth, APIM-API-Key und BMW-CA-Zertifikat.
-Zugangsdaten werden ausschließlich aus Umgebungsvariablen gelesen. Die für eure
-Anwendung freigeschalteten Modellnamen und Region müssen aus Onboarding und
-Modellkatalog stammen; die API-Adressen stehen in der [API-Anleitung](docs/api.md).
+Für den vorhandenen Testordner genügt ein Doppelklick auf
+[`start_lokal_cv_test.cmd`](start_lokal_cv_test.cmd). Die Datei verarbeitet
+ausschließlich alle PDFs unter `data/cv-test-20261020-093337/`, einschließlich
+Unterordnern, mit den lokalen Verfahren OCR/Regeln, OCR/LLM und VLM. Weitere
+PDFs einfach dort hinzufügen. Der Start funktioniert unabhängig vom aktuellen
+Terminalordner; das Fenster bleibt am Ende offen. Jeder Start erzeugt einen
+neuen Lauf unter `runs/`. `start_lokal_cv_test.cmd --pruefen` zählt lediglich
+die PDFs, ohne Modelle zu starten.
 
-Öffne eine **separate PowerShell über das Windows-Startmenü**, wechsle in
-`software` und starte die Anwendung dort selbst. Zugangsdaten werden erst in
-diesem Prozess verdeckt abgefragt und danach wieder aus seiner Umgebung entfernt:
+| Rechner | Projektordner | Einstieg |
+| --- | --- | --- |
+| Laptop mit GPU | `software/` | `.venv/Scripts/participant-bench.exe run --input vorverarbeitung/ausgabe/pdfs --config configs/local.yaml --offline` |
+| Firmen-PC | `software/api_firmen_pc/` | `.venv/Scripts/python.exe main.py run --input data/pdfs_eingabe` |
+
+Der [Firmen-PC-Ordner](api_firmen_pc/README.md) enthält API-Code, OAuth-Konfiguration,
+Starthelfer, eigene Lockdatei und Tests. Er installiert keine lokalen LLM-/VLM-Gewichte.
+Ein gezielter ZIP-Export überträgt die benötigten Quellen ohne Daten und Modelle.
+Das frühere `test_url/` liegt unverändert und von Git ausgeschlossen unter
+`api_firmen_pc/privat/test_url/`; die neue Startdatei verwendet nur Umgebungsvariablen.
+Die Ergebnisformate, Berichte und der Excel-Abgleich sind in beiden Wegen identisch.
+API-Kommandos wie `check` gibt es ausschließlich im Firmen-PC-Projekt.
+
+## OCR anhand geprüfter Referenzen optimieren
+
+Als zusätzlicher lokaler Ansatz steht [Unlimited-OCR](docs/unlimited-ocr.md)
+mit eigener, versionsgetrennter Laufzeit zur Verfügung. Zum Start im vorhandenen
+CV-Testordner `start_unlimited_cv_test.cmd` verwenden. Es bewahrt die rohe
+OCR-Antwort und ordnet erkannte Tabellenzellen ohne Namenskorrektur zu.
+Reine OCR und strukturierte Extraktion werden separat bewertet. `ocr_rules`
+bleibt als transparente Tesseract-/Regel-Baseline im Vergleich erhalten.
+
+Die neue [Kalibrierungsanleitung](docs/ocr-calibration.md) beschreibt eine lokale
+CSV-Annotation, gruppierte 60/20/20-Aufteilung, kontrollierte OCR-Varianten,
+CER/WER, Feld-/Zeilen-/Signaturmetriken, feldweise Sigmoid-/Isotonic-Kalibrierung
+und eine separat gesperrte finale Testbewertung. API-Modelle sind in diesen
+Befehlen gesperrt. Grundlegender Ablauf:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\run-private-api.ps1 -InputFolder vorverarbeitung/ausgabe/pdfs
+.venv/Scripts/participant-bench.exe ocr-reference --input vorverarbeitung/ausgabe/pdfs --output data/ocr-reference-v1 --sample-documents 100
+# documents.csv, pages.csv, participants.csv und optional Referenztext manuell prüfen.
+.venv/Scripts/participant-bench.exe ocr-split --dataset data/ocr-reference-v1
+.venv/Scripts/participant-bench.exe ocr-calibrate --dataset data/ocr-reference-v1 --config configs/calibration.yaml --output runs/ocr-exp01
+.venv/Scripts/participant-bench.exe ocr-final --experiment runs/ocr-exp01
 ```
 
-Mit `-CheckOnly` statt `-InputFolder ...` werden nur fehlende Variablen geprüft,
-ohne Serverkontakt. Optional lädt `-EnvFile` eine von dir angelegte Datei
-außerhalb des Repositories. Es gibt keine dauerhafte Speicherung mit `-Persist`.
-Details zur Trennung von Codex und zu ihren Grenzen: [API-Anleitung](docs/api.md).
-Umgebungsvariablen und `.gitignore` allein sind keine Dateizugriffssperre.
-
-Der direkte CLI-Aufruf `api-check --connect` prüft Anmeldung und Modellliste
-ohne Dokumente und gehört ebenfalls in die separate PowerShell. Ein API-Lauf erfolgt
-**ohne `run --offline`**; dieser Schalter sperrt aktive API-Modelle. Für API-Modelle
-sind keine lokalen Gewichte und kein `--extra models` erforderlich. Für A/B und
-die optionale Ausrichtung wird weiterhin lokales Tesseract verwendet. Beide
-Modelle können auch unterschiedliche Backends verwenden. Details, benötigte
-Variablen und Grenzen: [API-Anleitung](docs/api.md).
+Die finale Testbewertung erst nach abgeschlossener Kalibrierung starten. Ohne
+ausreichende unabhängige Evidenz wird keine Variante übernommen und keine
+automatische Feldakzeptanz aktiviert. Standardparameter und Originaldaten bleiben
+erhalten; Vergleiche und exportierbare Reliability-Diagramme liegen im Experimentordner.
 
 ## Hardware und lokale Standardmodelle
 
@@ -153,8 +174,9 @@ deren dediziertem VRAM addiert. `doctor` trennt Displaytreibereinträge von CUDA
 | ID | Vollständige Pipeline | Modell / Komponente |
 | --- | --- | --- |
 | `ocr_rules` | OCR → Zeilen/Spalten → strukturierte Felder → Signaturfeldprüfung | Tesseract + OpenCV/Regeln |
-| `ocr_llm` | identische OCR mit Layout → lokale JSON-Extraktion → Signaturfeldprüfung | Qwen3-8B, BF16, Thinking aus |
+| `ocr_llm` | identische OCR mit Layout → lokale JSON-Extraktion → Signaturfeldprüfung | Qwen3-8B, LLM.int8 auf GPU, Thinking aus |
 | `vlm` | Seitenbilder → Teilnehmerdaten inklusive Signaturpräsenz; Seitentext als Fallback bei fehlenden Teilnehmern | Qwen3-VL-4B-Instruct, BF16 |
+| `unlimited_ocr` (optional) | Unlimited-OCR → lokale Zellzuordnung mit LLM → visuelle Signaturprüfung | Unlimited-OCR + Qwen3-8B; [Anleitung](docs/unlimited-assignment.md) |
 
 Bei allen drei Verfahren steht die Teilnehmerextraktion im Vordergrund. Ohne
 strukturierte Teilnehmer bleibt gelesener Text als Fallback zur manuellen Prüfung
@@ -211,18 +233,32 @@ werden als Prüfhinweise gespeichert. Mit `false` bleibt die strengere Prüfung
 ganzer Modellzeilen verfügbar. Handschrift und wechselnde bzw. mehrzeilige
 Tabellen können weiterhin zu fehlenden oder mehrdeutigen Belegen führen.
 
-B verwendet explizites CPU-Offloading, weil 8B-Gewichte plus Aktivierungen
-nicht vollständig in das sichere GPU-Budget passen. C ist wegen der tatsächlichen
-16-GB-GPU die 4B-Variante. Beide starten mit Batch 1, 10 GiB GPU-Budget, 32 GiB
-CPU-Budget, 2 GiB GPU- und 4 GiB RAM-Reserve; tatsächliche Gerätezuordnung und
-Speicherbelegung werden gespeichert. Nur GPU 0 wird budgetiert. Keine Addition
-von VRAM mehrerer GPUs. Modelle werden nacheinander geladen und entladen.
+B lädt denselben Qwen3-8B-Checkpoint mit **LLM.int8** vollständig auf GPU 0.
+Die Parameterzahl und Modellrevision bleiben gleich; die linearen Schichten
+werden beim Laden mit bitsandbytes 0.48.1 quantisiert. Das spart Speicher, kann
+aber einzelne Ergebnisse gegenüber BF16 verändern. C und die gemeinsame
+Unterschriftenprüfung verwenden weiterhin Qwen3-VL-4B in BF16 auf GPU 0.
+Die Modelle werden nacheinander geladen und entladen. Tesseract, PDF-Aufbereitung
+und regelbasierte Nachverarbeitung laufen weiterhin auf der CPU.
+
+`device: cuda` erzwingt jetzt die vollständige GPU-Zuordnung und prüft die
+tatsächlichen Parametergeräte. Bei fehlendem Speicher entsteht ein sichtbarer
+Fehler; es gibt keinen stillen CPU-Offload. `device: auto` erlaubt weiterhin
+eine Aufteilung nach GPU-/CPU-Budget. Die GPU-Prüfung verlangt vor dem Laden das
+konfigurierte Budget plus 2 GiB Reserve (LLM: 11 + 2 GiB, VLM: 10 + 2 GiB).
+Bei fester GPU-Zuordnung begrenzt der CUDA-Allocator zusätzlich den Speicher auf
+den beim Start freien VRAM abzüglich 2 GiB Reserve. Lange OCR-Prompts werden in
+1024-Token-Abschnitten eingelesen, ohne Text abzuschneiden. Das vermeidet große
+Zwischenergebnisse und die beobachtete langsame Windows-RAM-Auslagerung.
+Gerätezuordnung, Quantisierung und
+Modellspeicher stehen in `ocr_llm/resources.json` und im `progress.log`.
+Einrichtung, Rückkehr zu BF16 und Grenzen: [GPU-Ausführung](docs/gpu-inference.md).
 
 PyTorch 2.8.0/torchvision 0.23.0 werden reproduzierbar vom expliziten CUDA-12.6-
 Index bezogen, Transformers ist 4.57.6. CUDA wurde auf dieser GPU verifiziert.
 Diese Paketquelle ist eine bewusste Auswahl für das vorgefundene NVIDIA-System.
 Andere GPU-Backends werden nicht als unterstützt ausgegeben. CPU-Inferenz kann
-ausdrücklich mit `device: cpu` konfiguriert werden; sie kann sehr langsam sein.
+ausdrücklich mit `device: cpu` und `quantization: none` konfiguriert werden; sie kann sehr langsam sein.
 Modelle, Revisionen, Lizenzen und offizielle Quellen: [Entscheidungen](docs/decisions.md).
 
 ## Einmal vorbereiten, anschließend offline vergleichen
@@ -236,7 +272,7 @@ uv run --offline --locked --extra models participant-bench run --input data/raw 
 ```
 
 `--offline` vor `--locked` unterbindet auch Paketdownloads durch **uv**.
-`--offline` nach `run` sperrt aktive API-Backends vor dem Einlesen der PDFs.
+`--offline` nach `run` erzwingt lokale Modellverarbeitung vor dem Einlesen der PDFs.
 Die lokale Inferenz verwendet lokale Pfade und `local_files_only=True`;
 HF-/Transformers-Offlinemodus und optionale Telemetrieabschaltung sind aktiv.
 In der lokalen Konfiguration gibt es keine Inference-Endpunkte, externen

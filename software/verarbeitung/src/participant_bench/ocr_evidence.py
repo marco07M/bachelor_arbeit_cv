@@ -88,7 +88,7 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
         span = same_line[0]
         evidence.update(span)
         observed_value = " ".join(words[i]["text"] for i in span)
-        uncertain = any(words[i]["ocr_confidence"] < 30 for i in span)
+        uncertain = any(words[i]["ocr_confidence"] is not None and words[i]["ocr_confidence"] < 30 for i in span)
         fields[name] = TextField(value=observed_value, state="uncertain" if uncertain else "read", bbox=bounds(words, span))
         if observed_value != value:
             warnings.append({"field": name, "reason": "Originalschreibweise der OCR-Wörter übernommen"})

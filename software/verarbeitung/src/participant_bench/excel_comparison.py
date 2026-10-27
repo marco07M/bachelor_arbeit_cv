@@ -240,11 +240,14 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
     if not set(mapping.values()).intersection(r.class_id for r in references):
         raise ValueError("Keine gemeinsamen Class IDs: PDF-Dateinamen bzw. explizite Kurszuordnung prüfen")
     run_summary = read_json(run / "summary.json")
-    selected = methods or list(run_summary)
+    selected = methods or [name for name, summary in run_summary.items()
+                           if summary.get("output_kind", "structured") == "structured"]
     if not selected or len(selected) != len(set(selected)) or any(m not in run_summary for m in selected):
         raise ValueError("Ungültige oder doppelte Methodenauswahl für diesen Lauf")
     metrics, matches, fields = {}, [], []
     for method in selected:
+        if run_summary[method].get("output_kind") == "ocr_text":
+            raise ValueError("Reiner OCR-Text kann nicht als strukturierte Teilnehmerliste mit Excel verglichen werden")
         predictions, seen = [], set()
         extraction = run / method / "extractions.jsonl"
         for data in read_jsonl(extraction) if extraction.exists() else []:

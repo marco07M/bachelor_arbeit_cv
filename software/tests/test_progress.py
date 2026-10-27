@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+
 from participant_bench.config import load_config
 from participant_bench.io import file_hash, write_json
 from participant_bench.models import Unavailable, local_model_identity

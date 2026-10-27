@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+from PIL import Image
+from pydantic import ValidationError
+
 from participant_bench import runner
 from participant_bench.config import load_config
 from participant_bench.doctor import tesseract_command
@@ -12,8 +15,6 @@ from participant_bench.io import file_hash, read_jsonl
 from participant_bench.models import LocalModel, parse_ocr_response
 from participant_bench.ocr_layout import compact_layout, readable_text
 from participant_bench.rules import extract_rules, find_headers
-from PIL import Image
-from pydantic import ValidationError
 
 
 def word(text, x, y, line=1):

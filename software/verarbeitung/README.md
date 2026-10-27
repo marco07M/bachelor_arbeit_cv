@@ -1,10 +1,18 @@
 # 2. Eigentliche Dokumentenverarbeitung
 
+Für systematische lokale OCR-Experimente steht die
+[Kalibrierungs- und Evaluierungskomponente](../docs/ocr-calibration.md) bereit:
+manuelle Referenzen, gruppierte Datensatzaufteilung, kontrollierte Varianten,
+Konfidenzkalibrierung und eine separate finale Testbewertung. Die Befehle
+`ocr-reference`, `ocr-split`, `ocr-calibrate`, `ocr-final` und `ocr-apply`
+verwenden die bestehenden Verarbeitungsmodule; sie erlauben keine API-Modelle.
+
 Der vorhandene Benchmark liegt jetzt unter `src/participant_bench/` in diesem
 Ordner. Er rendert PDF-Seiten, bereitet die Seiten auf und führt OCR/Regeln,
 OCR mit lokalem Sprachmodell oder ein lokales Vision-Language-Modell aus.
-Alternativ können LLM und VLM getrennt über eine konfigurierte API laufen;
-Einrichtung mit Zugangsdaten in Umgebungsvariablen: [API-Anbindung](../docs/api.md).
+Die API-Verarbeitung wird ausschließlich über das separate
+[Firmen-PC-Projekt](../api_firmen_pc/README.md) gestartet. Hier bleibt der lokale
+Einstieg unabhängig von API-Paketen, Konfigurationen und Zugangsdaten.
 Die Dokumentnummer im Dateinamen ist unabhängig von den Personalnummern,
 die anschließend aus den Teilnehmerlisten extrahiert werden.
 
@@ -103,6 +111,10 @@ Aktualisierung des Repositorys die lokale Paketinstallation einmal anpassen:
 ```powershell
 uv sync --locked --extra models
 ```
+
+Die lokalen Konfigurationen laden Qwen3-8B mit LLM.int8 vollständig auf die GPU;
+die Parameterzahl bleibt 8B. VLM und Unterschriftenprüfung bleiben bei BF16.
+Speicherbedarf, Start und Qualitätsgrenzen: [GPU-Ausführung](../docs/gpu-inference.md).
 
 Die Ausgabe der [Vorverarbeitung](../vorverarbeitung/README.md) direkt verwenden:
 

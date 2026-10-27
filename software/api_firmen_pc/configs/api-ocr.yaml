@@ -1,0 +1,13 @@
+extends: api-bmw.yaml
+methods:
+- ocr_rules
+- ocr_llm
+- vlm
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: true
+signature:
+  backend: vlm
+  inspect_known: true
+  use_ocr_positions: true

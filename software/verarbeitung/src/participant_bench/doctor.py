@@ -157,19 +157,16 @@ def environment(config, check_torch=True):
         except (Unavailable, ValueError, KeyError) as exc:
             info["models"][method] = {"status": "unavailable", "reason": str(exc)}
             info["warnings"].append(f"{method}: {exc}")
-        if model.backend == "api":
-            from .api_models import missing_environment
-
-            missing = missing_environment(model)
-            info["models"][method]["missing_environment"] = missing
+        if model.backend != "local":
             info["models"][method]["connection_verified"] = False
-            if missing:
-                info["models"][method]["status"] = "unconfigured"
             continue
         if model.device != "cpu" and info.get("gpu"):
             free = info["gpu"][0]["free_mib"] / 1024
             if free < model.gpu_memory_gib + 2:
                 info["warnings"].append(f"{method}: GPU-Budget plus 2 GiB Reserve über freiem Speicher")
-        if memory.available < (model.cpu_memory_gib + 4) * 1024**3:
-            info["warnings"].append(f"{method}: CPU-Offload-Budget plus Reserve über verfügbarem RAM")
+        ram_budget_gib = model.cpu_memory_gib + 4 if model.device != "cuda" else 8
+        if memory.available < ram_budget_gib * 1024**3:
+            info["warnings"].append(f"{method}: Lade-/Offload-RAM-Budget über verfügbarem RAM")
+        if model.quantization == "int8" and "bitsandbytes" not in info["packages"]:
+            info["warnings"].append(f"{method}: bitsandbytes fehlt; uv sync --locked --extra models")
     return info

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "participant-bench-api"
+version = "0.1.0"
+description = "Separater API-Betrieb auf dem Firmen-PC ohne lokale Modellgewichte"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = ["participant-bench"]
+
+[project.optional-dependencies]
+legacy-test = ["httpx>=0.28.1", "openai>=3.36.1", "requests>=2.34.2"]
+
+[project.scripts]
+participant-api = "participant_api.cli:main"
+
+[tool.uv.sources]
+participant-bench = { path = "..", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/participant_api"]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["privat", ".venv", "dist"]
+
+[tool.ruff]
+line-length = 110
+extend-exclude = ["privat"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["participant_api"]

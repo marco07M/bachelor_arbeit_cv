@@ -27,7 +27,7 @@ from .models import (
     create_model,
     model_identity,
     require_offline,
-    validate_api_environment,
+    validate_model_environment,
 )
 from .ocr import OCR
 from .ocr_layout import readable_text
@@ -149,7 +149,7 @@ def load_truth(path, manifest, split, scope):
 
 def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None, *, offline=False):
     require_offline(config, offline)
-    validate_api_environment(config)
+    validate_model_environment(config)
     started = time.perf_counter()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     output = Path(resume) if resume else Path(config.output_dir) / stamp
@@ -182,8 +182,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                  f"{sum(p['include'] for p in manifest['pages'])} zur Extraktion enthalten")
     if scope == "curated" and not manifest.get("curated"):
         raise ValueError("Curated evaluation requires manually reviewed manifest with curated=true")
-    if split != "all" and any(p.get("split") not in ("development", "test") for p in manifest["pages"]):
-        raise ValueError("--split requires development/test annotations on every manifest page")
+    if split != "all" and any(p.get("split") not in ("development", "validation", "test") for p in manifest["pages"]):
+        raise ValueError("--split requires development/validation/test annotations on every manifest page")
     progress.log("Modellverfügbarkeit und Laufidentität prüfen")
     identities = {}
     for method in config.methods:
@@ -192,6 +192,12 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                 identities[method] = model_identity(config.models[method])
             except Unavailable as exc:
                 identities[method] = {"unavailable": str(exc)}
+    unlimited_spec = config.models.get("unlimited_ocr")
+    if "unlimited_ocr" in config.methods and unlimited_spec and unlimited_spec.options.get("extraction") == "llm":
+        try:
+            identities["unlimited_assignment_llm"] = model_identity(config.models["ocr_llm"])
+        except Unavailable as exc:
+            identities["unlimited_assignment_llm"] = {"unavailable": str(exc)}
     if config.signature.backend in ("local_vlm", "vlm") and "vlm" in config.models:
         try:
             identities["signature_vlm"] = model_identity(config.models["vlm"])
@@ -254,6 +260,15 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "signature_response_schema": SignatureResponse.model_json_schema(),
         },
     )
+    if "unlimited_ocr" in config.methods and unlimited_spec and unlimited_spec.options.get("extraction") == "llm":
+        from .unlimited_assignment import PROMPT_VERSION as assignment_version
+        from .unlimited_assignment import SYSTEM as assignment_system
+        from .unlimited_assignment import AssignmentResponse
+
+        prompts = read_json(output / "prompts.json")
+        prompts.update(assignment_prompt_version=assignment_version, assignment_system=assignment_system,
+                       assignment_schema=AssignmentResponse.model_json_schema())
+        write_json(output / "prompts.json", prompts)
     page_dir = output / "pages"
     page_dir.mkdir(exist_ok=True)
     # Apply only explicit manual correction to the already metadata/OSD-oriented image.
@@ -347,6 +362,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                         page_id=page["page_id"],
                         method_id=method,
                         status="failed",
+                        output_kind=("ocr_text" if method == "unlimited_ocr" and
+                                     config.models[method].options.get("extraction", "none") == "none" else "structured"),
                     )
                     raw = {"page_id": page["page_id"], "method_id": method}
                     page_start = time.perf_counter()
@@ -363,7 +380,11 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                 if method in ("ocr_rules", "ocr_llm"):
                                     lookup_start = time.perf_counter()
                                     with progress.activity("OCR für die Extraktion"):
-                                        data = ocr.recognize(image, page["run_image_sha256"])
+                                        options = {} if config.ocr.source == "ocr" else {
+                                            "embedded_words": page.get("embedded_words"),
+                                            "rotation_clockwise": (page.get("additional_rotation_clockwise", 0) + page.get("curation_rotation_clockwise", 0)) % 360,
+                                        }
+                                        data = ocr.recognize(image, page["run_image_sha256"], **options)
                                     progress.log("OCR aus Cache übernommen" if data["cache_hit"] else "OCR neu berechnet")
                                     result.timings["ocr_lookup_wall_seconds"] = (
                                         time.perf_counter() - lookup_start
@@ -371,7 +392,23 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                     result.timings["ocr_charged_seconds"] = data["elapsed_seconds"]
                                     result.timings["ocr_cache_hit"] = float(data["cache_hit"])
                                     raw["ocr"] = data
-                                if method == "ocr_rules":
+                                if method == "unlimited_ocr":
+                                    participants, responses, status, elapsed = model.extract(image)
+                                    response = responses[0]
+                                    raw["responses"] = [{key: response[key] for key in
+                                        ("raw_response", "parse_status", "output_kind", "output_tokens", "output_budget_reached")}]
+                                    raw["unlimited_ocr"] = {key: value for key, value in response.items() if key != "raw_response"}
+                                    result.participants, result.status = participants, status
+                                    result.output_kind = response["output_kind"]
+                                    result.page_text = response["plain_text"]
+                                    result.parse_status = response["parse_status"]
+                                    result.review_notes.extend(response.get("review_notes", []))
+                                    result.calls = 1
+                                    result.timings["model_extraction_seconds"] = elapsed
+                                    result.timings.update(response.get("timings", {}))
+                                    if response.get("output_budget_reached"):
+                                        result.review_notes.append("OCR-Ausgabe am Tokenlimit abgeschnitten; Rohtext erhalten")
+                                elif method == "ocr_rules":
                                     progress.log("Tabellenzeilen, Felder und Unterschriftsfelder mit Regeln auswerten")
                                     participants, notes, timings = extract_rules(image, data, config)
                                     result.participants, result.review_notes = participants, notes
@@ -445,7 +482,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                         )
                         progress.log(label + "; OCR-Text als Fallback gesichert")
                     if result.error:
-                        progress.log(label + "; Fehler: " + result.error)
+                        progress.log(label + "; Fehler; Details in den lokalen Rohdaten")
                     result.timings["page_wall_seconds"] = time.perf_counter() - page_start
                     measured_stages = sum(
                         value
@@ -486,6 +523,29 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                 gc.collect()
             # OCR methods finish/unload their extraction model before loading the shared signature VLM.
             # No participant values or assignments are transferred between extraction methods.
+            if method == "unlimited_ocr" and config.models[method].options.get("extraction") == "llm":
+                from .unlimited_assignment import assign_pages
+
+                def persist_assignment():
+                    for result in page_results:
+                        matching = [i for i, attempt in enumerate(history) if attempt.page_id == result.page_id]
+                        if matching:
+                            history[matching[-1]] = result
+                    write_jsonl(history_path, [row.model_dump() for row in history])
+                    write_jsonl(checkpoint_path, [row.model_dump() for row in page_results])
+
+                assignment_resource = assign_pages(
+                    page_results, method_dir, config, progress,
+                    lambda: create_model("ocr_llm", config, progress=progress, local_class=LocalModel),
+                    persist_assignment,
+                )
+                resource["assignment_model"] = assignment_resource
+                for key in ("load_seconds", "load_attempt_wall_seconds", "warmup_seconds", "warmup_calls"):
+                    resource[key] = resource.get(key, 0) + assignment_resource.get(key, 0)
+                for key in ("peak_gpu_allocated_bytes", "peak_gpu_reserved_bytes"):
+                    resource[key] = max(resource.get(key) or 0, assignment_resource.get(key) or 0)
+                errors.extend(dict(method=method, page_id=page.page_id, reason=page.error)
+                              for page in page_results if page.error)
             if method != "vlm" and config.signature.backend in ("local_vlm", "vlm"):
                 pending = [page for page in page_results if page.participants and not
                            read_json(method_dir / f"raw-{page.page_id}.json").get("signature_checks")]
@@ -559,6 +619,13 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         write_jsonl(method_dir / "extractions.jsonl", [r.model_dump() for r in page_results])
         timing_rows = [dict(page_id=r.page_id, status=r.status, **r.timings) for r in page_results]
         write_csv(method_dir / "timings.csv", timing_rows)
+        document_times = {}
+        for page in page_results:
+            entry = document_times.setdefault(page.document_id, dict(document_id=page.document_id, pages=0,
+                                             page_processing_seconds=0.0))
+            entry["pages"] += 1
+            entry["page_processing_seconds"] += page.timings.get("page_wall_seconds", 0.0)
+        write_csv(method_dir / "document_timings.csv", list(document_times.values()))
         write_json(
             method_dir / "resources.json",
             dict(
@@ -576,6 +643,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                     "structure_seconds",
                     "signature_seconds",
                     "model_extraction_seconds",
+                    "assignment_seconds",
                     "page_overhead_seconds",
                 )
             )
@@ -593,7 +661,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         ) + image_preparation_seconds
         full_charge = (preparation_charge + extraction_charge + resource.get("load_attempt_wall_seconds", 0.0)
                        + resource.get("signature_load_attempt_wall_seconds", 0.0))
-        valid_pages = sum(r.parse_status == "valid" for r in page_results)
+        valid_pages = sum(r.parse_status == "valid" or
+                          r.output_kind == "ocr_text" and r.status == "success" for r in page_results)
         output_participants = [p for r in page_results for p in r.participants]
         unknown_fields = sum(
             getattr(p, field).state not in ("read", "empty")
@@ -601,6 +670,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             for field in ("first_name", "last_name", "personnel_number", "department")
         )
         summaries[method] = {
+            "output_kind": ("ocr_text" if method == "unlimited_ocr" and
+                            config.models[method].options.get("extraction", "none") == "none" else "structured"),
             "status": aggregate_status(page_results),
             "selected_pages": len(page_results),
             "text_fallback_pages": sum(r.text_fallback for r in page_results),
@@ -623,6 +694,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "output_signature_fields": len(output_participants),
             "signature_backend": config.signature.backend,
             "model_backend": config.models[method].backend if method in config.models else "ocr_rules",
+            "assignment_backend": ("local_llm" if method == "unlimited_ocr" and
+                                   config.models[method].options.get("extraction") == "llm" else None),
             "signature_model_load_seconds": resource.get("signature_load_attempt_wall_seconds", 0.0),
             "output_unknown_signatures": sum(p.signature_present is None for p in output_participants),
             "generation_calls": sum(r.calls for r in history),
@@ -634,7 +707,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         progress.log(f"{method} abgeschlossen: {summaries[method]['status']}; "
                      f"{valid_pages}/{len(page_results)} Seiten mit gültiger Ausgabe, "
                      f"{len(output_participants)} Einträge; {summaries[method]['actual_method_wall_seconds']:.1f}s")
-        if truths is not None:
+        if truths is not None and summaries[method]["output_kind"] == "structured":
             with progress.activity(f"{method}: Ergebnisse mit der Ground Truth vergleichen"):
                 metrics[method], details = evaluate_groups(page_results, truths)
             write_csv(method_dir / "evaluation_details.csv", details)

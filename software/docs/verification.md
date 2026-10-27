@@ -1,5 +1,250 @@
 # Verifikationsprotokoll
 
+Unlimited-OCR-Zellzuordnung, 27.10.2026: Der bisherige CV-Lauf lieferte OCR,
+aber keine Teilnehmer: verbundene Tabellenzellen auf der ersten Seite und
+fehlende Spaltenüberschriften auf der zweiten Seite verhinderten die bisherige
+regelbasierte Zuordnung. Neue Option `extraction: llm` ergänzt eine lokale
+Zuordnung mit dem vorhandenen Qwen3-8B nach vollständigem Entladen des
+Unlimited-Workers. Explizite Zellnummern, Spaltenpositionen, leere Zellen und
+HTML-Spans bleiben erhalten. Gedruckte eindeutige Überschriften gestatten direkte
+Zellübernahme; `Benutzername` wird als Namensfeld behandelt. Andere Werte müssen
+als vollständige Wörter/Phrasen in derselben Quellzeile belegt sein. Falsche
+Zellnummern werden nur bei eindeutigem Beleg innerhalb dieser Zeile berichtigt.
+Maskierte IDs bleiben unbekannt; die semantische Zuordnung bleibt prüfpflichtig.
+
+`configs/unlimited-ocr-llm.yaml`, Vierervergleich und Unlimited-Starter verwenden
+die Kombination. Reine OCR und Tabellenbaseline bleiben separat konfigurierbar.
+`assign-unlimited --run ... --offline` ordnet gespeicherte OCR zu, ohne die OCR
+zu wiederholen oder den Quelllauf zu verändern. Neue Ergebnisse stehen in einem
+separaten Lauf mit Quellhashes. Antworten werden mit Quell-, Modell-, Parameter-,
+Systemprompt- und Schemafingerprints lokal gecacht und beim Wiederlesen erneut
+gegen die Quellzellen geprüft. Keine API-Übertragung von Dokumentdaten.
+
+**250 lokale Tests und 38 getrennte API-Tests bestanden**; Ruff, Lockprüfung und
+`git diff --check` erfolgreich. 21 neue Testfälle decken zusammengeführte Zellen,
+Namensaufteilung, führende Nullen, leere Benutzerzellen, teilweise maskierte IDs,
+vollständige Wortbelege, falsche/zeilenfremde Referenzen, Kontexttrennung zwischen
+PDFs, leere Markdown-Randzellen, Fehler/Tokenlimit, Cache, Quellimmutabilität,
+Export und GPU-Modellreihenfolge ab. Modell-Doubles prüfen Verträge und messen
+keine OCR-/LLM-Erkennungsqualität. Nach den letzten Provenienz-/Exportergänzungen
+sind 31 gezielte Tests erneut erfolgreich.
+
+**Vollständiger realer lokaler Lauf ausgeführt:**
+`runs/20261027T092255Z-21c3aed0/report.html` auf der bestehenden Test-PDF mit zwei
+Seiten. Unlimited-OCR, danach 8B-LLM (int8, sämtliche Parameter auf cuda:0),
+danach BF16-VLM zur Unterschriftenprüfung; keine gleichzeitige Modellbelegung.
+Ca. 325 Sekunden Gesamtzeit einschließlich Laden, OCR und Signaturprüfung.
+Neun beziehungsweise acht Teilnehmerdatensätze, zusammen 17 statt zuvor null,
+68 buchstäblich durch Zellen belegte Textfelder. Das bestätigt Textvorkommen,
+keine unabhängige semantische Feldgenauigkeit. Eine weitere OCR-Zeile auf Seite 2
+(`t0r0`) bleibt als nicht zugeordnet markiert. 17 visuelle Signatur-Detailprüfungen
+ausgeführt; ohne manuelle Labels kein Qualitätsnachweis. Status bewusst `partial`.
+Die früheren Zuordnungsversuche `090939Z-f590ef0a` und `091706Z-e2ac0160` sind
+Entwicklungsdiagnosen, nicht der abschließend geprüfte Stand. Die Ausgangs-PDF,
+ältere Berichte und Ground Truth wurden nicht verändert.
+
+Bedienung, Grenzen und neue Exporte: [Unlimited-Zuordnung](unlimited-assignment.md).
+
+GPU-Anpassung, 27.10.2026: Qwen3-8B bleibt bei Revision
+`b968826d9c46dd6066d109eabc6255188de91218`. In `local.yaml` (auch über
+`imported.yaml`) und `benchmark-unlimited.yaml` werden seine linearen Schichten
+beim Laden mit bitsandbytes 0.48.1 / LLM.int8 quantisiert. Originalgewichte,
+Parameterzahl, OCR, Prompts und Tokenbudgets bleiben erhalten. `device: cuda`
+erzwingt und prüft vollständige GPU-Zuordnung; CPU-Offload ist nur noch im
+ausdrücklich gewählten `auto`-Modus erlaubt. VLM bleibt in BF16. Modell-
+speicher, Quantisierung und tatsächliche Parametergeräte werden protokolliert.
+
+Abschließend **229 lokale Tests und 38 getrennte API-Tests bestanden**, Ruff und beide
+Lockprüfungen erfolgreich. Fünfzehn zusätzliche Fälle prüfen GPU-/CPU-Zuordnung,
+fehlende CUDA-/8-Bit-Unterstützung, Kompatibilitätsgrenzen und unveränderte
+8B-Checkpointauswahl. Hauptumgebung weiterhin PyTorch 2.8.0+cu126 / Transformers
+4.57.6; die API-Lockdatei wurde ohne Installation von GPU-Paketen aktualisiert.
+
+Echte int8-GPU-Inferenz auf zwei synthetischen Seiten:
+`runs/20261027T082419Z-49a39d0a/report.html`. Alle 8.190.735.360 Parameter auf
+`cuda:0`, Modellbelegung 9.435.703.552 Bytes (8,79 GiB), Peak allocated ca.
+9,85 GiB / reserved ca. 9,92 GiB. Zwei gültige Seitenausgaben mit sechs Zeilen,
+keine technischen Seitenfehler, rund 35–39 Sekunden Generierung je Seite und
+103 Sekunden Gesamtlaufzeit einschließlich Laden. Die separat bewertete
+Textfeldqualität beträgt auf dieser Tesseract-/LLM-Konstruktion nur 12/24
+buchstäblich korrekte Felder; dies belegt die Funktionsfähigkeit des GPU-Pfads,
+keine ausreichende Extraktionsqualität und keinen verlustfreien Ersatz für
+BF16. Ein kontrollierter BF16-Vergleich auf dieser Konstruktion fehlt.
+
+Bei einem anschließenden Versuch auf der bestehenden CV-Test-PDF zeigte sich
+trotz korrekter CUDA-Parameterzuordnung Windows-Speicherauslagerung: 15.477.776.384
+Bytes dedizierter GPU-Speicher und 4.984.930.304 Bytes Shared GPU Memory
+(Windows-GPU-Prozesszähler, nur Prozess-/Speichermetadaten). Dieser eigene
+Diagnoselauf `20261027T082651Z-6eae8b8e` wurde unterbrochen und ist kein
+abgeschlossener Benchmark. Daraufhin die CUDA-Allocator-Grenze mit 2 GiB freier
+Reserve und native Promptaufteilung in 1024-Token-Abschnitte ergänzt. Der Text
+wird nicht gekürzt; KV-Cache und vollständige Eingabetokens bleiben erhalten.
+Drei weitere Tests prüfen vollständige Tokenübergabe und Wiederherstellung der
+vorherigen Speichergrenze nach einem Fehler beim Laden.
+
+Erneuter CV-Lauf `runs/20261027T083827Z-158083d5/report.html`: zwei Seiten ohne
+technischen Extraktionsfehler, vollständige OCR-Eingaben aus demselben Cache
+(5485 beziehungsweise 2396 Eingabetokens). Reine Modellberechnung ca. 160,3 und
+133,6 Sekunden; im früheren Lauf `20261027T074837Z-9a137c33` ca. 916,6 und 541,0
+Sekunden. Die Tokenausgaben unterscheiden sich (828/838 gegenüber 918/838),
+ebenso die übernommenen Einträge (17 gegenüber 19, eine neue Modellzeile ohne
+OCR-Beleg verworfen). Das ist ein beobachteter Laufzeitgewinn, kein kontrollierter
+Nachweis gleicher Feldqualität. Es fehlen manuell geprüfte Referenzen für diese
+PDF. Status bleibt wegen Feld-/Signaturunsicherheit `partial`.
+
+Windows-Zähler im neuen Lauf: ca. 11,62 GB dediziert und 85,98 MB gemeinsam
+genutzter GPU-Speicher; die frühere Auslagerung mehrerer GiB tritt nicht mehr auf.
+CUDA-Peak allocated ca. 10,01 GiB, reserved ca. 10,53 GiB. Beim anschließenden
+Modellwechsel blieb zunächst zusätzlich cuBLAS-Arbeitsspeicher reserviert, sodass
+die Signaturprüfung in diesem Diagnoselauf nicht starten konnte. `close()` gibt
+nun nach Synchronisation auch den Workspace-Cache frei. Dafür wird der in der
+festgelegten PyTorch-2.8-Version vorhandene interne Hook defensiv abgefragt.
+
+**Modellwechsel auf echter GPU erneut erfolgreich geprüft:** 5246 synthetische
+Eingabetokens mit Chunking, danach LLM entladen und VLM im selben Prozess geladen.
+Nach dem LLM sowohl `memory_allocated` als auch `memory_reserved` null; ca. 14,6 GiB
+frei. Alle 4.437.815.808 VLM-Parameter auf `cuda:0`, Warm-up erfolgreich, nach
+VLM-Entladen wieder keine CUDA-Allokationen. Die vorherige Allocator-Grenze wurde
+wiederhergestellt. Messung unter `.cache/gpu-switch-check.json`; reine technische
+Speicherprüfung ohne Dokumentdaten. Signaturnachprüfung der vorhandenen
+Teilnehmerergebnisse anschließend erfolgreich in ca. 38 Sekunden unter
+`runs/20261027T083827Z-158083d5/signature-review/20261027T085402Z-7bac329a/report.html`.
+Die ursprünglichen Textextraktionen bleiben unverändert.
+
+Unlimited-OCR, 22.10.2026: Native lokale Integration mit festgelegter Modellrevision
+`8249d20b2822a7d8a4c22c8d8c9069b5ac36bda3`, ohne Ausführung von Checkpoint-Python-Code.
+Eine referenzierte Safetensors-Datei (6672212480 Gewichtbytes) samt Tokenizer und
+Konfiguration explizit heruntergeladen und per SHA256 inventarisiert. Separates
+uv-Projekt `unlimited_ocr_runtime/`: Transformers 5.20.2, PyTorch 2.8.0+cu126,
+Torchvision 0.23.0+cu126, HF Hub 2.2.0 und Safetensors 0.8.0. Die bestehende
+Hauptumgebung bleibt bei Transformers 4.57.6; die API-Umgebung bleibt getrennt.
+`trust_remote_code=False`, `local_files_only=True`, Offline-/Telemetriesperren
+und reine CUDA-Zuordnung sind im Worker gesetzt.
+
+**214 lokale Tests und 38 API-Tests bestanden.** Zehn neue lokale Testfälle
+prüfen Zellzuordnung, Umlaute/Eigennamen, führende Nullen, leere Benutzerfelder,
+fehlende/verbundene Zellen, Rohtext, PDF-/PNG-/JPEG-Eingaben, Resume, Weiterlauf
+nach Seitenfehlern, Textbewertung und die Abgrenzung reiner OCR von Feldmetriken.
+Zusätzlich trennt `raw_exact_match` buchstäbliche Schreibweise von der bisherigen
+normalisierten Feldbewertung. Nach abschließenden Berichts-/Provenienzänderungen
+sind 39 gezielte OCR-/Evaluierungstests und erneut alle 38 API-Tests erfolgreich.
+Ruff, beide lokalen Lockprüfungen und `git diff --check` sind erfolgreich.
+
+**Echte GPU-Inferenz durchgeführt:** `runs/20261022T122134Z-405f63e7/report.html`.
+Zwei synthetische PDF-Seiten mit je denselben drei vorab festgelegten Personen;
+die zweite Seite hat PDF-Rotation 90 Grad und wurde durch OSD zusätzlich um
+270 Grad korrigiert. Beide Seiten wurden einzeln auf der RTX 4090 Laptop GPU
+verarbeitet: Batch 1, BF16, SDPA, dynamische Bildausschnitte, maximal 4096 neue
+Tokens, ein Warm-up, ein Modellladen und zwei produktive Modellaufrufe.
+Ergebnis: sechs korrekt zugeordnete Zeilen, **24/24 Textfelder sowohl buchstäblich
+als auch normalisiert korrekt**, darunter leere Benutzer und Personalnummern
+mit führenden Nullen. CER/WER auf unabhängig aus der Konstruktion erstellten
+Seitentranskripten: normalisiert 0 auf 364 Zeichen beziehungsweise 50 Wörtern.
+Textmetriken mit Referenz- und Vorhersagehashes unter `unlimited_ocr/text_evaluation/`.
+Signaturreferenzen bleiben unbekannt; keine Signaturqualität wird daraus behauptet.
+
+Gemessene CUDA-Peaks: ca. 7,90 GiB allocated, 9,00 GiB reserved. Im letzten Lauf
+ca. 51 Sekunden produktive Seitenverarbeitung und ca. 81 Sekunden Gesamtlaufzeit
+einschließlich Vorbereitung, Prüfsummen, Initialisierung und Berichten.
+Ein früherer Funktionslauf (`20261022T121441Z-5b53c550`) war schneller; dies waren
+keine kontrollierten Performance-Wiederholungen und begründet keinen Laufzeitvergleich.
+Die Tesseract-/Regelbaseline lieferte auf derselben Konstruktion 16/24 Felder,
+unter anderem wegen fehlender Benutzer-Headerzuordnung. Das ist ein Vergleich
+ganzer Pipelines auf einem kleinen technischen Beispiel, kein unabhängiger
+Nachweis besserer OCR für reale Vorlagen.
+
+Separater echter PNG-/OCR-only-Lauf: `runs/20261022T121545Z-7237ac00/report.html`,
+lokal und erfolgreich, ohne künstliche Teilnehmerdatensätze. Normalisierte CER/WER
+jeweils 0 auf 182 Zeichen/25 Wörtern. Die ursprüngliche Zeichen-CER beträgt wegen
+unterschiedlicher Tabs und Zeilenumbrüche 26/184; diese Differenz wird nicht versteckt.
+JPEG ist in der automatisierten Bildverarbeitung getestet, nicht zusätzlich als
+echte Modellinferenz. Handschrift und reale Unternehmensdokumente wurden mit dem
+neuen Modell nicht evaluiert. Keine Dokumentinhalte an externe Dienste übertragen.
+
+Anleitung, Grenzen und Einzel-/Benchmarkbefehle: [Unlimited-OCR](unlimited-ocr.md).
+Der neue Starter `start_unlimited_cv_test.cmd` verwendet ausschließlich den
+vorhandenen CV-Testordner; bisherige Starter und Standardmodelle bleiben erhalten.
+
+Ergänzung zum CV-Teststart am 22.10.2026: `start_lokal_cv_test.cmd` verarbeitet
+nur `data/cv-test-20261020-093337/` mit lokaler Konfiguration und `--offline`.
+Die Eingabeprüfung wurde aus dem Repository-Hauptordner gestartet und findet
+genau eine PDF, ohne diese zu analysieren. Die API-Startdatei liegt separat unter
+`api_firmen_pc/start_api_cv_test.cmd` und verwendet den gleich benannten Ordner
+im API-Projekt. Bei leerem API-Ordner stoppt sie vor dem Laden von Zugangsdaten.
+Vier gezielte Start-/Exporttests und Ruff sind erfolgreich. Das aktualisierte
+Quellpaket mit API-Startdatei heißt `api_firmen_pc/dist/firmen-pc-cv-test.zip`;
+es enthält weiterhin keine Dokumente, privaten Beispiele oder Modellgewichte.
+
+Stand nach der Trennung am 22.10.2026: Der API-Betrieb liegt vollständig im
+eigenen uv-Projekt `api_firmen_pc/`. API-Adapter, Verbindungskonfiguration,
+Starthelfer und Tests sind aus dem lokalen Einstieg entfernt. Gemeinsame
+Analysefunktionen besitzen nur explizit registrierbare, backendneutrale
+Erweiterungspunkte. Der lokale CLI-Import funktioniert bei gesperrtem Import des
+Firmen-PC-Pakets; unbekannte externe Backends scheitern vor dem Lesen der PDFs.
+Die lokalen Modellpakete wurden beim Synchronisieren mit `--extra models` erhalten.
+
+**204 lokale Tests und 38 separate API-Tests erfolgreich.** Die API-Tests prüfen
+unter anderem OAuth-Basic/Formular-Anmeldung, Tokenwiederverwendung, Gateway-Key,
+PDF-Extraktion, Signaturprüfung, Resume, Exporte und den neuen `main.py smoke`-
+Ablauf gegen einen lokalen Loopback-Server. Zugangsdaten und Dokumente sind
+ausschließlich synthetisch. Keine interne Firmen-API wurde kontaktiert.
+Die neue API-Umgebung enthält weder PyTorch noch Transformers. Ruff-Prüfungen,
+`git diff --check` und beide Lockdateiprüfungen sind erfolgreich.
+
+`api_firmen_pc/dist/firmen-pc.zip` wurde aus einer expliziten Quellenauswahl
+erzeugt und separat unter `.cache/fc-bundle-check/` entpackt. Installation mit
+`uv sync --locked --offline --no-dev` und Start von `main.py --help` in einer
+neuen Umgebung sind erfolgreich; auch dort fehlen GPU-Modellpakete. Der Export
+enthält keine PDFs, Modellgewichte, Zugangsdaten-Dateien, Runs oder privaten
+Testskripte. Die bisherigen `test_url`-Dateien liegen unverändert unter
+`api_firmen_pc/privat/test_url/` und sind von Git, Tests und Export ausgeschlossen.
+Die echte OAuth-Registrierung und deren Netzwerkvoraussetzungen bleiben auf
+dem Firmen-PC zu prüfen. Aktuelle Anleitung: [Firmen-PC-Projekt](../api_firmen_pc/README.md).
+
+Ergänzung 22.10.2026: Das separate API-Testskript `test_url/main.py` prüft
+Client-ID, Client-Secret und Modellkennung vor dem Verbindungsaufbau. Es akzeptiert
+`CLIENT_ID`/`CLIENT_SECRET` und alternativ `BMW_AI_CLIENT_ID`/`BMW_AI_CLIENT_SECRET`;
+der Header verwendet die geprüfte ID. Fehlende Werte erzeugen eine Meldung mit
+Variablennamen statt des HTTPX-Fehlers über einen `None`-Header. **44 gezielte Tests
+erfolgreich**, davon zwölf neue Startprüfungen ausschließlich mit synthetischen
+Werten und ersetzten Clients/Tokenhelfern. Keine realen Zugangsdaten gelesen und
+keine interne API aufgerufen. Die bestehenden API-/Starthelfertests bleiben erfolgreich.
+
+Stand 22.10.2026: Lokale OCR-Kalibrierung unter
+`verarbeitung/src/participant_bench/calibration/` integriert. **233 Tests erfolgreich**,
+darunter 19 neue Fälle für Referenzzuordnung, gruppierte Aufteilung, CER/WER,
+ECE/Brier, Sigmoid/Isotonic, Audit-Sperren, Koordinatentransformationen,
+PDF-Text und hybride PDFs, Exporte, Resume und Anwendung ohne Ground Truth.
+Vorhandene 214 Regressionstests bleiben erfolgreich. `ruff check` und
+`git diff --check` sind ebenfalls erfolgreich.
+
+Vollständiger synthetischer CLI-Lauf: `runs/c-smoke22/report.html`. 20 einseitige
+PDFs in zehn unterschiedlichen Layoutfamilien, je zwei verwandte Kopien in
+derselben Gruppe. Aufteilung: zwölf Entwicklungsdokumente, zwei für die
+Schwellenwertsuche, zwei für das unabhängige Audit und vier für den finalen Test.
+Baseline mit echtem lokalem Tesseract und Variante mit direktem PDF-Text wurden
+verglichen. Entwicklung: jeweils 96/96 Textfelder, Audit: jeweils 16/16.
+Die schnellere PDF-Text-Variante wurde vorgeschlagen, wegen unzureichender
+unabhängiger Auditgruppen jedoch nicht übernommen. Alle vier Feldregeln blieben
+`review_only`; es wurde keine Kalibrierungsqualität aus der kleinen fehlerfreien
+Stichprobe abgeleitet.
+
+Der anschließend getrennt gestartete finale Test liegt unter
+`runs/c-smoke22/test/report.html`: vier Dokumente, acht Teilnehmer, 32/32 Textfelder,
+keine fehlenden/zusätzlichen Personen, normalisierte Text-CER/WER jeweils 0 auf
+616 Referenzzeichen bzw. 88 Wörtern. Selbstständige SVG-/PNG-Reliability-Diagramme
+und CSV-/JSON-Ausgaben sind erzeugt. Der komplette Entwicklungslauf dauerte etwa
+15 Sekunden; der finale Benchmark-Unterlauf etwa 3,6 Sekunden, ohne manuelle
+Annotation und ohne externe Inferenz. Kein Beleg für Qualität echter Scans oder
+Handschrift. Echte geprüfte Referenzen stehen für diesen Kalibrierungslauf nicht
+zur Verfügung; Standardparameter wurden nicht automatisch geändert.
+
+Neue Befehle: `ocr-reference`, `ocr-split`, `ocr-calibrate`, `ocr-final`, `ocr-apply`.
+Anleitung und wissenschaftliche Grenzen: [OCR-Kalibrierung](ocr-calibration.md).
+Matplotlib wurde über uv installiert und in `uv.lock` festgelegt; die bestehende
+lokale Modellumgebung wurde erhalten. Dokumente, Referenzen und OCR-Ergebnisse
+wurden an keine externen Dienste übertragen.
+
 Stand 21.10.2026, `participant-json-v10-empty-user-cells`: VLM-Anweisung und
 Feldbeschreibungen trennen Benutzer/User ID von Kurzzeichen nach Spaltenposition.
 Sichtbar leere Benutzer bleiben `""/empty`; die Person und ihr Kurzzeichen bleiben

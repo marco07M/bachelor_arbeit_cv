@@ -196,6 +196,7 @@
     "split": {
       "enum": [
         "development",
+        "validation",
         "test"
       ],
       "title": "Split",

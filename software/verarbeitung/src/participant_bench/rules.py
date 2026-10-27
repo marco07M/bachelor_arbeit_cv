@@ -165,7 +165,7 @@ def extract_rules(image, data, config):
             words.sort(key=lambda w: (round(w["bbox"]["y0"], 2), w["bbox"]["x0"]))
             value = " ".join(w["text"] for w in words)
             state = "read" if value else "empty"
-            if words and any(w["ocr_confidence"] < 30 for w in words):
+            if words and any(w["ocr_confidence"] is not None and w["ocr_confidence"] < 30 for w in words):
                 state = "uncertain"
             fields[name] = TextField(value=value if value else None, state=state, bbox=box)
         if not any(f.value for f in fields.values()):

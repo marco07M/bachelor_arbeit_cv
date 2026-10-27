@@ -45,10 +45,13 @@ models:
     revision: b968826d9c46dd6066d109eabc6255188de91218
     path: models/qwen3-8b
     dtype: bfloat16
-    device: auto
-    gpu_memory_gib: 10
+    # Same 8B checkpoint; int8 linear layers let it fit wholly on a 16 GiB GPU.
+    quantization: int8
+    device: cuda
+    gpu_memory_gib: 11
     cpu_memory_gib: 32
     max_input_tokens: 12000
+    prefill_chunk_size: 1024
     max_new_tokens: 2048
     do_sample: false
     temperature: 0.7
@@ -59,7 +62,7 @@ models:
     revision: ebb281ec70b05090aa6165b016eac8ec08e71b17
     path: models/qwen3-vl-4b
     dtype: bfloat16
-    device: auto
+    device: cuda
     gpu_memory_gib: 10
     cpu_memory_gib: 32
     max_input_tokens: 12000

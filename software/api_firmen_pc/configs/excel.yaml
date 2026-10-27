@@ -1,0 +1,12 @@
+# Separater Abgleich nach der Extraktion; diese Werte werden keinem Modell übergeben.
+columns:
+  class_id: Class ID
+  user_id: User ID
+  first_name: First Name
+  last_name: Last Name
+  short_code: Organization
+sheet: null  # null = aktives Excel-Blatt
+header_row: 1
+# Sichtbar maskierte oder fehlende IDs werden nicht als lesbare IDs bewertet.
+masked_user_id_pattern: '(?i)([*#?●█■•×]|x{2,}|geschwärzt|geschwaerzt|redacted|masked|unkenntlich)'
+missing_user_ids: [n/a, na, 'null', unknown, unbekannt, '-']

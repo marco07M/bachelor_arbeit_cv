@@ -18,7 +18,7 @@ def compact_layout(data: dict) -> str:
     words = [
         [index, word["text"],
          *(round(word["bbox"][axis] * 1000) for axis in ("x0", "y0", "x1", "y1")),
-         round(word["ocr_confidence"])]
+         round(word["ocr_confidence"]) if word["ocr_confidence"] is not None else None]
         for index, word in enumerate(data["words"])
     ]
     return json.dumps({

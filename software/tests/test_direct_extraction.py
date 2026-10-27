@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+
 from participant_bench import runner
 from participant_bench.config import load_config
 from participant_bench.io import file_hash, read_json, read_jsonl, write_json

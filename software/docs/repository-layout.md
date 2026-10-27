@@ -1,4 +1,19 @@
-# Umstellung auf zwei Projektordner
+# Repository-Struktur
+
+## Getrennter API-Betrieb seit 22.10.2026
+
+`software/` bleibt das lokale uv-Projekt für OCR, LLM, VLM, Kalibrierung und
+Evaluation. `software/api_firmen_pc/` ist ein zweites uv-Projekt mit eigener
+virtueller Umgebung, Lockdatei, API-Konfiguration und `main.py`. Es bindet die
+neutralen Analysefunktionen als lokale Quelldependenz ein, ohne das Extra `models`.
+Nur der Firmen-PC-Einstieg aktiviert den separat installierten Adapter.
+
+Der alte Ordner `software/test_url/` wurde unverändert nach
+`software/api_firmen_pc/privat/test_url/` verschoben. Private Beispiele werden
+weder paketiert noch getestet oder exportiert. Vorhandene Runs, PDFs und
+Modellgewichte wurden nicht verschoben. Die Ergebnisformate bleiben gemeinsam.
+Details und übertragbares Quellpaket: [Firmen-PC-Anleitung](../api_firmen_pc/README.md).
+
 
 ## Softwarebereiche seit 15.10.2026
 

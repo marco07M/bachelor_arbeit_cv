@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+
 from participant_bench.config import load_config
 from participant_bench.pdf import inventory
-
 from vorverarbeitung import vorbereiten
 
 

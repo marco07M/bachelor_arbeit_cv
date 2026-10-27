@@ -6,14 +6,15 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+from PIL import Image
+from pydantic import ValidationError
+
 from participant_bench import runner
 from participant_bench.config import load_config
 from participant_bench.io import read_jsonl, write_json
 from participant_bench.models import LocalModel
 from participant_bench.report import report
 from participant_bench.schema import PageResult, VisualPageResponse
-from PIL import Image
-from pydantic import ValidationError
 
 
 def response_data():

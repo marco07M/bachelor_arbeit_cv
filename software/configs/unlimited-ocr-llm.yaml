@@ -1,0 +1,9 @@
+# Unlimited-OCR -> unload -> local Qwen3-8B cell assignment -> visual signature inspection.
+extends: benchmark-unlimited.yaml
+methods: [unlimited_ocr]
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: true
+  osd_min_confidence: 5
+  include_images: true

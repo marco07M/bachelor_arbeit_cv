@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+
 from participant_bench.config import load_config
 from participant_bench.doctor import tesseract_command
 from participant_bench.io import file_hash, read_json, write_json

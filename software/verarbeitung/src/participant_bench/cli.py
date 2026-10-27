@@ -25,9 +25,9 @@ from .schema import (
 from .synthetic import generate
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Teilnehmerlisten auslesen: lokale Modelle oder explizit konfigurierte API"
+        description="Teilnehmerlisten auslesen: lokale Modelle und lokale OCR"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("doctor", "download-models", "prepare", "run"):
@@ -36,33 +36,35 @@ def main():
         if name == "doctor":
             sub.add_argument("--output", type=Path)
         if name == "download-models":
-            sub.add_argument("--method", choices=["ocr_llm", "vlm"], action="append")
+            sub.add_argument("--method", choices=["ocr_llm", "vlm", "unlimited_ocr"], action="append")
             sub.add_argument("--transport", choices=["hub", "range"], default="hub")
         if name in ("prepare", "run"):
             sub.add_argument("--input", type=Path, required=True)
         if name == "prepare":
             sub.add_argument("--output", type=Path)
         if name == "run":
-            sub.add_argument("--offline", action="store_true", help="API-Inferenz sperren; nur lokale Modelle erlauben")
+            sub.add_argument("--offline", action="store_true", help="Nur lokale Modelle erlauben")
             sub.add_argument("--manifest", type=Path)
             sub.add_argument("--ground-truth", type=Path)
             sub.add_argument("--scope", choices=["curated", "end-to-end"], default="end-to-end")
-            sub.add_argument("--split", choices=["development", "test", "all"], default="all")
+            sub.add_argument("--split", choices=["development", "validation", "test", "all"], default="all")
             sub.add_argument("--resume", type=Path)
     synthetic = commands.add_parser("synthetic")
     synthetic.add_argument("--output", type=Path, default=Path("data/synthetic"))
     commands.add_parser("schemas")
     refresh = commands.add_parser("report", help="Bericht und OCR-Klartext aus gespeicherten Ergebnissen aktualisieren")
     refresh.add_argument("--run", type=Path, required=True)
+    assign = commands.add_parser("assign-unlimited", help="Gespeicherten Unlimited-OCR-Text lokal mit LLM zuordnen")
+    assign.add_argument("--run", type=Path, required=True)
+    assign.add_argument("--config", type=Path, default=Path("configs/unlimited-ocr-llm.yaml"))
+    assign.add_argument("--output", type=Path)
+    assign.add_argument("--offline", action="store_true", help="Zuordnung verwendet immer ein lokales LLM")
     signatures = commands.add_parser("signatures", help="Nur Unterschriften vorhandener Ergebnisse nachprüfen")
     signatures.add_argument("--run", type=Path, required=True)
     signatures.add_argument("--config", type=Path, default=Path("configs/local.yaml"))
-    signatures.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm"], action="append")
+    signatures.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"], action="append")
     signatures.add_argument("--output", type=Path)
-    signatures.add_argument("--offline", action="store_true", help="API-Inferenz sperren")
-    api_check = commands.add_parser("api-check", help="API-Umgebungsvariablen prüfen; optional Anmeldung/Modellliste testen")
-    api_check.add_argument("--config", type=Path, default=Path("configs/api-bmw.yaml"))
-    api_check.add_argument("--connect", action="store_true", help="Konfigurierte API kontaktieren; keine Dokumente senden")
+    signatures.add_argument("--offline", action="store_true", help="Nur lokale Modelle erlauben")
     clean = commands.add_parser("clean-cache")
     clean.add_argument("--config", type=Path, default=Path("configs/local.yaml"))
     clean.add_argument("--apply", action="store_true", help="Delete generated OCR JSON cache only")
@@ -72,11 +74,59 @@ def main():
     excel.add_argument("--config", type=Path, default=Path("configs/excel.yaml"))
     excel.add_argument("--sheet", help="Excel-Blatt; überschreibt die Konfiguration")
     excel.add_argument("--course-map", type=Path, help="Optionale CSV mit document_id,class_id")
-    excel.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm"], action="append")
+    excel.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"], action="append")
     excel.add_argument("--output", type=Path)
-    args = parser.parse_args()
+    reference = commands.add_parser("ocr-reference", help="Manuelle CSV-Referenzstruktur ohne Modellvorschläge anlegen")
+    reference.add_argument("--input", type=Path, required=True)
+    reference.add_argument("--output", type=Path, required=True)
+    reference.add_argument("--sample-documents", type=int)
+    reference.add_argument("--seed", type=int, default=42)
+    split = commands.add_parser("ocr-split", help="Geprüfte Dokumentgruppen in Entwicklung/Validierung/Test einfrieren")
+    split.add_argument("--dataset", type=Path, required=True)
+    split.add_argument("--seed", type=int, default=42)
+    calibrate = commands.add_parser("ocr-calibrate", help="Lokale OCR-Varianten und Feldkonfidenzen anhand Referenzen prüfen")
+    calibrate.add_argument("--dataset", type=Path, required=True)
+    calibrate.add_argument("--config", type=Path, default=Path("configs/calibration.yaml"))
+    calibrate.add_argument("--output", type=Path)
+    calibrate.add_argument("--resume", action="store_true")
+    final = commands.add_parser("ocr-final", help="Eingefrorene Auswahl einmal auf unabhängigem Testset evaluieren")
+    final.add_argument("--experiment", type=Path, required=True)
+    final.add_argument("--resume", action="store_true", help="Nur abgebrochenen unveränderten finalen Lauf fortsetzen")
+    apply_ocr = commands.add_parser("ocr-apply", help="Eingefrorene lokale OCR und Prüfregeln ohne Referenzlabels anwenden")
+    apply_ocr.add_argument("--experiment", type=Path, required=True)
+    apply_ocr.add_argument("--input", type=Path, required=True)
+    apply_ocr.add_argument("--output", type=Path)
+    text_eval = commands.add_parser("evaluate-ocr", help="OCR-Text nachträglich mit geprüften Seitentranskripten vergleichen")
+    text_eval.add_argument("--run", type=Path, required=True)
+    text_eval.add_argument("--references", type=Path, required=True)
+    text_eval.add_argument("--method", default="unlimited_ocr")
+    args = parser.parse_args(argv)
     try:
-        if args.command == "compare-excel":
+        if args.command == "evaluate-ocr":
+            from .ocr_evaluation import evaluate_text
+
+            print(evaluate_text(args.run, args.references, args.method))
+        elif args.command == "ocr-reference":
+            from .calibration.dataset import initialize
+
+            print(initialize(args.input, args.output, args.sample_documents, args.seed))
+        elif args.command == "ocr-split":
+            from .calibration.dataset import split_dataset
+
+            print(split_dataset(args.dataset, args.seed))
+        elif args.command == "ocr-calibrate":
+            from .calibration.experiment import experiment
+
+            print(experiment(args.dataset, args.config, args.output, args.resume) / "report.html")
+        elif args.command == "ocr-final":
+            from .calibration.experiment import final_test
+
+            print(final_test(args.experiment, args.resume) / "report.html")
+        elif args.command == "ocr-apply":
+            from .calibration.apply import apply_frozen
+
+            print(apply_frozen(args.experiment, args.input, args.output) / "report.html")
+        elif args.command == "compare-excel":
             from .excel_comparison import compare_run
             from .excel_reference import load_excel_config
 
@@ -85,32 +135,10 @@ def main():
                 config.sheet = args.sheet
             compare_run(args.run, args.excel, config, output=args.output,
                         mapping_file=args.course_map, methods=args.method)
-        elif args.command == "api-check":
-            from .api_models import APIConnection, api_identity, missing_environment
+        elif args.command == "assign-unlimited":
+            from .unlimited_reassign import reassign_run
 
-            config = load_config(args.config)
-            checks = {}
-            for name, spec in config.models.items():
-                if spec.backend != "api":
-                    continue
-                missing = missing_environment(spec)
-                checks[name] = {"configured": not missing, "missing_environment": missing,
-                                "network_contacted": False, "inference_verified": False}
-                if args.connect and not missing_environment(spec, include_model=False):
-                    connection = None
-                    try:
-                        connection = APIConnection(spec, require_model=False)
-                        checks[name]["network_contacted"] = True
-                        checks[name]["available_models"] = connection.list_models()
-                    except (ValueError, OSError, RuntimeError) as exc:
-                        checks[name]["error"] = str(exc)
-                    finally:
-                        if connection:
-                            connection.close()
-                elif not missing:
-                    checks[name]["identity"] = api_identity(spec)
-            print(json.dumps(checks, ensure_ascii=False, indent=2))
-            return 0 if checks and all(item["configured"] and not item.get("error") for item in checks.values()) else 1
+            print(reassign_run(args.run, load_config(args.config), args.output).resolve())
         elif args.command == "signatures":
             from .signature_review import recheck_run
 

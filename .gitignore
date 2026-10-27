@@ -7,6 +7,15 @@
 /software/data/
 /software/runs/
 /software/prepared/
+/software/api_firmen_pc/.venv/
+/software/api_firmen_pc/.cache/
+/software/api_firmen_pc/runs/
+/software/api_firmen_pc/data/
+/software/api_firmen_pc/prepared/
+/software/api_firmen_pc/privat/
+/software/api_firmen_pc/dist/
+/software/unlimited_ocr_runtime/.venv/
+/software/unlimited_ocr_runtime/.cache/
 /dateien/**
 !/dateien/README.md
 /software/vorverarbeitung/ausgabe/

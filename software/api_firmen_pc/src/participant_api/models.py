@@ -13,13 +13,14 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from participant_bench.config import Config, ModelConfig
+from participant_bench.models import LocalModel, Unavailable, build_system
+from participant_bench.progress import Progress
+from participant_bench.schema import OCRPageResponse, VisualPageResponse
 from PIL import Image
 from pydantic import BaseModel
 
-from .config import Config, ModelConfig
-from .models import LocalModel, Unavailable, build_system
-from .progress import Progress
-from .schema import OCRPageResponse, VisualPageResponse
+from .config import connection_config
 
 
 def env_value(name: str | None, fallback: str | None = None, required: bool = True) -> str | None:
@@ -48,7 +49,7 @@ def checked_url(value: str) -> str:
 
 
 def api_identity(spec: ModelConfig, require_model: bool = True) -> dict[str, str | None]:
-    api = spec.api
+    api = connection_config(spec)
     base = checked_url(env_value(api.base_url_env, api.base_url))
     model = env_value(api.model_env, api.model, required=require_model)
     path = env_value(api.chat_path_env, api.chat_path)
@@ -71,7 +72,7 @@ def api_identity(spec: ModelConfig, require_model: bool = True) -> dict[str, str
 
 
 def missing_environment(spec: ModelConfig, include_model: bool = True) -> list[str]:
-    api = spec.api
+    api = connection_config(spec)
     required = [(api.base_url_env, api.base_url), (api.chat_path_env, api.chat_path)]
     if include_model:
         required.append((api.model_env, api.model))
@@ -101,7 +102,7 @@ class APIConnection:
     def __init__(
         self, spec: ModelConfig, progress: Progress | None = None, require_model: bool = True
     ) -> None:
-        self.spec, self.api = spec, spec.api
+        self.spec, self.api = spec, connection_config(spec)
         self.identity = api_identity(spec, require_model=require_model)
         self.progress = progress or Progress(enabled=False)
         missing = missing_environment(spec, include_model=require_model)
@@ -124,8 +125,13 @@ class APIConnection:
         self.token_url = (
             checked_url(env_value(api.token_url_env, api.token_url)) if api.auth == "oauth2" else None
         )
+        ca_bundle = env_value(api.ca_bundle_env, required=False)
+        # Accept the remote launcher's spelling without changing existing local configurations.
+        if not ca_bundle and api.ca_bundle_env in ("BMW_AI_CA_BUNDLE", "BMW_CA_BUNDLE"):
+            alternate = "BMW_CA_BUNDLE" if api.ca_bundle_env == "BMW_AI_CA_BUNDLE" else "BMW_AI_CA_BUNDLE"
+            ca_bundle = env_value(alternate, required=False)
         try:
-            context = ssl.create_default_context(cafile=env_value(api.ca_bundle_env, required=False))
+            context = ssl.create_default_context(cafile=ca_bundle or None)
         except (OSError, ssl.SSLError):
             raise Unavailable(
                 "Firmen-CA konnte nicht geladen werden; konfigurierte CA-Umgebungsvariable prüfen"
@@ -286,19 +292,19 @@ class APIModel(LocalModel):
                     "type": "image_url",
                     "image_url": {
                         "url": "data:image/png;base64," + encoded,
-                        "detail": self.spec.api.image_detail,
+                        "detail": self.client.api.image_detail,
                     },
                 }
             )
         payload = {
             "model": self.identity["model"],
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-            self.spec.api.max_tokens_parameter: max_new_tokens or self.spec.max_new_tokens,
+            self.client.api.max_tokens_parameter: max_new_tokens or self.spec.max_new_tokens,
             "stream": False,
         }
-        if self.spec.api.response_format == "json_object":
+        if self.client.api.response_format == "json_object":
             payload["response_format"] = {"type": "json_object"}
-        elif self.spec.api.response_format == "json_schema":
+        elif self.client.api.response_format == "json_schema":
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -307,7 +313,7 @@ class APIModel(LocalModel):
                     "strict": False,
                 },
             }
-        if self.spec.api.send_temperature:
+        if self.client.api.send_temperature:
             payload["temperature"] = self.spec.temperature if self.spec.do_sample else 0
         started = time.perf_counter()
         with self.progress.activity(f"{self.method}: API-Antwort anfordern"):
