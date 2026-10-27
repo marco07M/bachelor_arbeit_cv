@@ -80,21 +80,32 @@ function Set-BenchmarkApiVariable {
     $apiInputValue = $null
 }
 
-Set-BenchmarkApiVariable 'BMW_AI_API_KEY' 'API-Key' -Secret
-Set-BenchmarkApiVariable 'BMW_AI_CLIENT_ID' 'Client-ID' -Secret
-Set-BenchmarkApiVariable 'BMW_AI_CLIENT_SECRET' 'Client-Secret' -Secret
-Set-BenchmarkApiVariable 'BMW_AI_BASE_URL' 'Interne API-Basisadresse, ohne /chat/completions'
-Set-BenchmarkApiVariable 'BMW_AI_TOKEN_URL' 'OAuth-Token-URL'
-Set-BenchmarkApiVariable 'BMW_AI_API_KEY_HEADER' 'Headername fuer den API-Key (Standard in dieser Vorlage: x-apikey)'
-Set-BenchmarkApiVariable 'BMW_LLM_MODEL' 'LLM-Modellname'
-Set-BenchmarkApiVariable 'BMW_VLM_MODEL' 'VLM-Modellname mit Bildunterstuetzung'
-Set-BenchmarkApiVariable 'BMW_AI_CHAT_PATH' 'Optionaler Anfragepfad, Standard chat/completions'
-Set-BenchmarkApiVariable 'BMW_AI_SCOPE' 'Optionaler OAuth-Scope'
-Set-BenchmarkApiVariable 'BMW_AI_RESOURCE' 'Optionale OAuth-Resource'
+function Set-BenchmarkApiDefault {
+    param([string]$Name, [string]$Value)
+    if (-not [Environment]::GetEnvironmentVariable($Name, 'Process')) {
+        [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
+    }
+}
+
+$certificatePath = [IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\certificates\BMW_Trusted_Certificates_Latest.pem')
+)
 if (-not [Environment]::GetEnvironmentVariable('BMW_AI_CA_BUNDLE', 'Process') -and
     [Environment]::GetEnvironmentVariable('BMW_CA_BUNDLE', 'Process')) {
     [Environment]::SetEnvironmentVariable(
         'BMW_AI_CA_BUNDLE', [Environment]::GetEnvironmentVariable('BMW_CA_BUNDLE', 'Process'), 'Process')
 }
-Set-BenchmarkApiVariable 'BMW_AI_CA_BUNDLE' 'Optionaler lokaler Pfad zum Firmen-CA-Bundle (PEM)'
-Write-Host 'Pruefen: .venv/Scripts/participant-api.exe check --config configs/api-bmw.yaml'
+Set-BenchmarkApiDefault 'BMW_AI_BASE_URL' 'https://api.int.gcp.cloud.bmw/llmapi/v1'
+Set-BenchmarkApiDefault 'BMW_AI_TOKEN_URL' 'https://emea.int.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token'
+Set-BenchmarkApiDefault 'BMW_AI_API_KEY_HEADER' 'x-apikey'
+Set-BenchmarkApiDefault 'BMW_AI_CHAT_PATH' 'chat/completions'
+Set-BenchmarkApiDefault 'BMW_AI_SCOPE' 'machine2machine'
+if (Test-Path -LiteralPath $certificatePath -PathType Leaf) {
+    Set-BenchmarkApiDefault 'BMW_AI_CA_BUNDLE' $certificatePath
+}
+
+Set-BenchmarkApiVariable 'BMW_AI_API_KEY' 'API-Key' -Secret
+Set-BenchmarkApiVariable 'BMW_AI_CLIENT_ID' 'Client-ID' -Secret
+Set-BenchmarkApiVariable 'BMW_AI_CLIENT_SECRET' 'Client-Secret' -Secret
+Set-BenchmarkApiVariable 'BMW_VLM_MODEL' 'VLM-Modellname mit Bildunterstuetzung'
+Write-Host 'Pruefen: .venv\Scripts\python.exe .\main.py check --config configs\api-bmw.yaml'

@@ -1,0 +1,10 @@
+extends: local.yaml
+methods: [vlm]
+pdf:
+  # Same rendered page images on both laptops; no OCR-based rotation.
+  recursive: true
+  auto_orient: false
+signature:
+  # The signature pass uses the same VLM, locally or through the API.
+  backend: local_vlm
+  use_ocr_positions: false

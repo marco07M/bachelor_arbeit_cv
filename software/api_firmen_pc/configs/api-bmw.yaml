@@ -1,40 +1,12 @@
-# Company PC: OAuth Basic token -> Bearer token plus gateway key -> model.
-methods:
-- vlm
-seed: 42
-output_dir: runs
+# API counterpart to ../configs/vlm-comparison.yaml.
+# Processing settings are inherited; only the VLM inference backend changes.
+extends: ../../configs/vlm-comparison.yaml
 cache_dir: .cache/participant-api
-pdf:
-  dpi: 220
-  recursive: true
-  auto_orient: false
-signature:
-  backend: vlm
-  inspect_known: true
-  use_ocr_positions: false
 models:
-  ocr_llm:
-    backend: api
-    max_new_tokens: 4096
-    options:
-      auth: oauth2
-      base_url_env: BMW_AI_BASE_URL
-      model_env: BMW_LLM_MODEL
-      chat_path_env: BMW_AI_CHAT_PATH
-      api_key_env: BMW_AI_API_KEY
-      api_key_header: x-apikey
-      api_key_header_env: BMW_AI_API_KEY_HEADER
-      api_key_prefix: ''
-      token_url_env: BMW_AI_TOKEN_URL
-      client_id_env: BMW_AI_CLIENT_ID
-      client_secret_env: BMW_AI_CLIENT_SECRET
-      scope_env: BMW_AI_SCOPE
-      resource_env: BMW_AI_RESOURCE
-      token_auth_method: basic
-      ca_bundle_env: BMW_AI_CA_BUNDLE
   vlm:
     backend: api
     max_new_tokens: 8192
+    max_pixels: 1048576
     options:
       auth: oauth2
       base_url_env: BMW_AI_BASE_URL
@@ -51,3 +23,13 @@ models:
       resource_env: BMW_AI_RESOURCE
       token_auth_method: basic
       ca_bundle_env: BMW_AI_CA_BUNDLE
+signature:
+  backend: vlm
+  inspect_known: true
+  use_ocr_positions: false
+  context_height: 0.12
+  row_padding: 0.008
+  max_row_height: 0.18
+  max_new_tokens: 192
+  blank_ink_fraction: 0.0005
+  component_min_area: 8

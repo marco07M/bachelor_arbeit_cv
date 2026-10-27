@@ -81,6 +81,30 @@ Write-Output 'Synthetic process inheritance OK'
     assert expected_literal not in result.stdout + result.stderr
 
 
+def test_defaults_match_test_script_and_only_model_and_credentials_need_input(tmp_path):
+    result = run_shell(
+        tmp_path,
+        f"""
+$env:BMW_AI_API_KEY = 'synthetic-api-key'
+$env:BMW_AI_CLIENT_ID = 'synthetic-client-id'
+$env:BMW_AI_CLIENT_SECRET = 'synthetic-client-secret'
+$env:BMW_VLM_MODEL = 'synthetic-vision-model'
+. {ps_literal(SCRIPTS / "set-api-environment.ps1")} -NoPrompt
+if ($env:BMW_AI_BASE_URL -cne 'https://api.int.gcp.cloud.bmw/llmapi/v1') {{ throw 'API base URL default mismatch' }}
+if ($env:BMW_AI_TOKEN_URL -cne 'https://emea.int.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token') {{ throw 'Token URL default mismatch' }}
+if ($env:BMW_AI_API_KEY_HEADER -cne 'x-apikey') {{ throw 'API key header default mismatch' }}
+if ($env:BMW_AI_SCOPE -cne 'machine2machine') {{ throw 'OAuth scope default mismatch' }}
+if ($env:BMW_AI_CHAT_PATH -cne 'chat/completions') {{ throw 'Chat path default mismatch' }}
+if (-not (Test-Path -LiteralPath $env:BMW_AI_CA_BUNDLE -PathType Leaf)) {{ throw 'Bundled CA certificate was not selected' }}
+if ($env:BMW_LLM_MODEL) {{ throw 'The unused text model should not be requested' }}
+Write-Output 'Defaults and required inputs OK'
+""",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Defaults and required inputs OK" in result.stdout
+    assert "synthetic-" not in result.stdout + result.stderr
+
+
 @pytest.mark.parametrize(
     "content",
     [f"INVALID {FAKE_KEY}", f"PATH={FAKE_KEY}", f"BMW_AI_API_KEY={FAKE_KEY}\nBMW_AI_API_KEY=duplicate"],

@@ -15,10 +15,13 @@ installiert. Der API-Adapter wird ausschließlich durch diesen Einstieg aktivier
 4. LLM mit OCR-Text oder VLM mit Seitenbildern aufrufen.
 5. Ergebnisse und Berichte vor Ort speichern und bei Bedarf mit Excel vergleichen.
 
-Die Token-URL, API-Basisadresse, Modellkennungen, der exakte Scope und der
-Gateway-Header müssen zu eurem Firmenzugang passen. Ein erfolgreicher echter
-BMW-Zugang wurde hier nicht verifiziert. Die Umstrukturierung behebt kein
-serverseitiges `401 invalid_client`.
+Der Helfer setzt die nicht-geheimen Verbindungsdaten aus dem früheren Testskript
+als EU-QA/INT-Vorgaben: API-Basisadresse, WebEAM-Token-URL, `machine2machine`,
+`x-apikey`, Chat-Pfad und das mitgelieferte CA-Bundle. Er fragt nur nach
+Client-ID, Client-Secret, API-Key und VLM-Modellname. Diese Vorgaben müssen zu
+deiner Freischaltung passen; ein erfolgreicher echter BMW-Zugang wurde hier
+nicht verifiziert. Die Umstrukturierung behebt kein serverseitiges
+`401 invalid_client`.
 
 Die aus dem Remote-Stand übernommenen Angaben zu EU/US, QA/PROD, Token-Endpunkten
 und Onboarding stehen unter [GATE-Zugang](docs/gate-zugang.md).
@@ -35,6 +38,61 @@ Python 3.12 wird über uv verwaltet. Kein `--extra models` verwenden.
 Das Standardverfahren `configs/api-bmw.yaml` verarbeitet alle manuell ausgewählten
 PDF-Seiten mit dem VLM; es setzt weder Tesseract noch CUDA/PyTorch voraus.
 Die zusätzliche Signaturprüfung nutzt ebenfalls die konfigurierte VLM-API.
+
+## Schnellstart von Grund auf (Windows)
+
+Die folgenden Befehle in einer **separaten PowerShell außerhalb der IDE** ausführen.
+Zuerst in den Ordner `software\api_firmen_pc` wechseln. Den Pfad gegebenenfalls an
+den Speicherort auf deinem Rechner anpassen:
+
+```powershell
+Set-Location "C:\PFAD\ZUM\REPOSITORY\software\api_firmen_pc"
+uv sync --locked
+New-Item -ItemType Directory -Force .\data\pdfs_eingabe | Out-Null
+```
+
+`uv sync --locked` richtet die Umgebung beim ersten Start ein und kann nach
+Projektupdates erneut ausgeführt werden. Danach:
+
+1. Die zu verarbeitenden PDFs in `data\pdfs_eingabe` oder einen Unterordner kopieren.
+2. In derselben PowerShell Zugangsdaten laden. Client-ID, Client-Secret und
+   API-Key werden verdeckt abgefragt; der Modellname wird normal abgefragt:
+
+   ```powershell
+   . .\scripts\set-api-environment.ps1
+   ```
+
+3. Vor dem Modellstart sicherstellen, dass PDFs gefunden werden. `Count` muss
+   größer als `0` sein:
+
+   ```powershell
+   Get-ChildItem .\data\pdfs_eingabe -Recurse -File -Filter *.pdf | Measure-Object
+   ```
+
+4. Konfiguration prüfen und mit einer kleinen Anfrage testen. Der Smoke-Test
+   sendet keine PDF-Inhalte:
+
+   ```powershell
+   .\.venv\Scripts\python.exe .\main.py check --config configs/api-bmw.yaml
+   .\.venv\Scripts\python.exe .\main.py smoke --method vlm --config configs/api-bmw.yaml
+   ```
+
+5. Verarbeitung starten:
+
+   ```powershell
+   .\.venv\Scripts\python.exe .\main.py run --input data\pdfs_eingabe --config configs/api-bmw.yaml
+   ```
+
+Der Bericht und die Ergebnisdateien liegen anschließend unter
+`runs\<RUN_ID>\`; den Bericht `report.html` öffnen. Darin sollten „Seiten zur
+Extraktion“ und „Antworten mit gültigem Format“ größer als `0` sein. Sind
+„Seiten zur Extraktion“ gleich `0`, wurden keine PDFs verarbeitet: Eingabeordner
+und PDF-Zählung prüfen. Nach dem Schließen der PowerShell müssen die Zugangsdaten
+für die nächste Sitzung erneut geladen werden.
+
+Für einen anderen PDF-Ordner den Pfad bei `--input` ersetzen. Die PDFs bleiben
+lokal; ihre Seitenbilder werden für die Inferenz an den konfigurierten API-Dienst
+gesendet.
 
 Im Repository braucht das Projekt die gemeinsamen Quellen im übergeordneten
 `software/`. Zum Übertragen ohne Gewichte, Dokumente, Ergebnisse und private
@@ -64,11 +122,11 @@ außerhalb einer IDE-/Codex-Sitzung:
 `check --connect` fordert ein Token an und ruft die Modellliste ab, ohne PDFs
 oder OCR-Ergebnisse zu senden. Unterstützt das Gateway `/models` nicht, kann
 die eigentliche Inferenz trotzdem verfügbar sein. Ein bewusst gestarteter
-kleiner Modelltest sendet ausschließlich die Anfrage „Reply with OK.“:
+kleiner VLM-Modelltest sendet ausschließlich die Anfrage „Reply with OK.“:
 
 ```powershell
 .\.venv\Scripts\python.exe .\main.py check --connect
-.\.venv\Scripts\python.exe .\main.py smoke --method ocr_llm
+.\.venv\Scripts\python.exe .\main.py smoke --method vlm --config configs/api-bmw.yaml
 ```
 
 Die zuvor geladenen Variablen gelten für diese Sitzung und ihre Kindprozesse.
@@ -82,23 +140,18 @@ als PowerShell-Code ausgeführt. `.gitignore` allein ist keine Zugriffssperre.
 | `BMW_AI_CLIENT_ID` | OAuth-Client-ID |
 | `BMW_AI_CLIENT_SECRET` | Zugehöriges Client-Secret, nicht der Gateway-Key |
 | `BMW_AI_API_KEY` | Separater Gateway-Key |
-| `BMW_AI_BASE_URL` | Modell-API-Basisadresse mit benötigtem Präfix, ohne `/chat/completions` |
-| `BMW_AI_TOKEN_URL` | Vollständiger OAuth-Token-Endpunkt |
-| `BMW_AI_API_KEY_HEADER` | Exakter Gateway-Header laut Dokumentation; Vorlage: `x-apikey` |
-| `BMW_LLM_MODEL` | Textmodell für OCR/LLM und den Standard-Smoke-Test |
 | `BMW_VLM_MODEL` | Modell mit Bildunterstützung |
-| `BMW_AI_SCOPE` | Exakter Scope aus dem bisherigen Test beziehungsweise der internen Dokumentation |
-| `BMW_AI_RESOURCE` | Optionale OAuth-Resource |
-| `BMW_AI_CHAT_PATH` | Optionaler relativer Anfragepfad; Standard: `chat/completions` |
-| `BMW_AI_CA_BUNDLE` | Optionaler lokaler PEM-Pfad zur Firmen-CA; kein automatischer Download |
-| `BMW_CA_BUNDLE` | Alternativer Name aus dem Remote-Starthelfer; `BMW_AI_CA_BUNDLE` hat in der Standardkonfiguration Vorrang |
+| `BMW_AI_BASE_URL`, `BMW_AI_TOKEN_URL` | Automatische EU-QA/INT-Defaults; bei Bedarf in der Sitzung überschreibbar |
+| `BMW_AI_API_KEY_HEADER`, `BMW_AI_SCOPE`, `BMW_AI_CHAT_PATH` | Automatische Defaults: `x-apikey`, `machine2machine`, `chat/completions` |
+| `BMW_AI_CA_BUNDLE` | Standardmäßig das mitgelieferte PEM; ein extern aktualisierter Pfad kann überschreiben |
+| `BMW_AI_RESOURCE` | Optional; wird nicht abgefragt |
 
 Die beiden identischen Zertifikatsdateien aus dem Remote-Stand liegen zusammengeführt
 unter `certificates/BMW_Trusted_Certificates_Latest.pem`. Das Transferpaket enthält
-diese Datei ebenfalls. Sie wird ausschließlich verwendet, wenn du ihren Pfad in
-`BMW_AI_CA_BUNDLE` oder `BMW_CA_BUNDLE` setzt. Prüfe auf dem Firmen-PC, ob der
-Stand noch aktuell und für deinen Zugang vorgesehen ist; ein neueres Bundle kannst
-du außerhalb des Repositories speichern und über dieselbe Variable auswählen.
+diese Datei ebenfalls. Der Eingabehelfer verwendet sie automatisch, sofern sie
+vorhanden ist. Prüfe auf dem Firmen-PC, ob der Stand noch aktuell und für deinen
+Zugang vorgesehen ist; ein neueres Bundle kannst du außerhalb des Repositories
+speichern und über `BMW_AI_CA_BUNDLE` oder `BMW_CA_BUNDLE` auswählen.
 
 Es werden keine Zertifikate automatisch heruntergeladen und die TLS-Prüfung wird
 nicht abgeschaltet. Ein Firmen-VPN kann erforderlich sein. Bei `invalid_client`
@@ -155,21 +208,40 @@ Danach `run --config configs/api-ocr.yaml ...`. CPU-OCR ist erforderlich, lokale
 LLM-/VLM-Gewichte sind es nicht. `configs/api.yaml` bleibt eine alternative
 Key-only-Vorlage mit `LLM_API_*`/`VLM_API_*`-Variablen.
 
-## Lokaler Laptop und Vergleich
+## Lokaler Laptop und fairer Modellvergleich
 
-Auf dem leistungsfähigen Laptop weiterhin aus `software/` arbeiten:
+Für den direkten Vergleich denselben PDF-Ordner auf beide Rechner kopieren und
+auf beiden Seiten dieselbe Version des Projekts verwenden. Die Vergleichsprofile
+`../configs/vlm-comparison.yaml` (lokal) und `configs/api-bmw.yaml` (API) erben
+gemeinsame PDF-Auflösung, DPI, Seitenauswahl, Prompts, Antwortschema und
+Signaturparameter. Beide verarbeiten nur `vlm`; OCR-basierte Seitendrehung ist
+auf beiden deaktiviert. Der jeweilige Modell-Backend und das Modell selbst sind
+der beabsichtigte Unterschied. Das API-Profil sendet die gerenderte PNG-Seite
+als Base64-Bild zusammen mit dem Prompt an GATE. Die zusätzliche
+Signaturauswertung verwendet ebenfalls das jeweilige VLM.
+
+Die Modellausgaben müssen nicht identisch sein; sie sind das Ergebnis, das
+verglichen werden soll. Die Eingabeseiten sollten identisch sein: Vergleiche
+`source_sha256` und `image_sha256` in den jeweiligen `manifest.json`-Dateien.
+Dateien werden nicht automatisch zwischen Rechnern synchronisiert.
+
+Auf dem leistungsfähigen Laptop aus `software/`:
 
 ```powershell
 uv sync --locked --extra models
-.\.venv\Scripts\participant-bench.exe run --input vorverarbeitung/ausgabe/pdfs --config configs/local.yaml --offline
+.\.venv\Scripts\participant-bench.exe run --input PFAD_ZUM_GLEICHEN_PDF_ORDNER --config configs/vlm-comparison.yaml --offline
 ```
 
-Beide Wege verwenden dieselben Antwortschemata und Bewertungsregeln. Reports
-kennzeichnen das Modellbackend; API-Hardwarekosten und GPU-Speicher werden nicht
-als lokal gemessen ausgegeben. OCR-Kalibrierung mit Referenzdaten bleibt lokal.
-Bereits eingefrorene Kalibrierungsläufe behalten ihre ursprünglichen Hashes;
-nach dieser Quellcodeänderung ist für neue Kalibrierungen ein neuer Lauf nötig.
-Es werden keine Daten automatisch zwischen Rechnern synchronisiert.
+Auf dem Firmen-PC mit API-Zugangsdaten:
+
+```powershell
+.\.venv\Scripts\python.exe .\main.py run --input PFAD_ZUM_GLEICHEN_PDF_ORDNER --config configs/api-bmw.yaml
+```
+
+Berichte und strukturierte Ergebnisse verwenden dasselbe Schema. Die Berichte
+halten Backend/Modell getrennt fest; API-Hardwarekosten und GPU-Speicher werden
+nicht als lokal gemessen ausgegeben. Die bestehende lokale Mehrmethoden-Auswertung
+und OCR-Kalibrierung bleiben separat verfügbar.
 
 ## Bisherige Testskripte
 

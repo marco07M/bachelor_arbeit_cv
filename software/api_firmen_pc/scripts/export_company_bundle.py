@@ -9,7 +9,10 @@ def bundle_files(software: Path):
     api = software / "api_firmen_pc"
     paths = [software / name for name in ("pyproject.toml", "uv.lock", ".python-version", "README.md")]
     paths += [software / "scripts" / "setup_ocr.py"]
-    paths += [software / "configs" / name for name in ("local.yaml", "smoke.yaml")]
+    paths += [
+        software / "configs" / name
+        for name in ("local.yaml", "smoke.yaml", "vlm-comparison.yaml")
+    ]
     paths += sorted((software / "verarbeitung" / "src" / "participant_bench").rglob("*.py"))
     paths += sorted((software / "vorverarbeitung").glob("*.py"))
     paths += [software / "vorverarbeitung" / "README.md"]

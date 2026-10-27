@@ -121,12 +121,16 @@ die PDFs, ohne Modelle zu starten.
 
 | Rechner | Projektordner | Einstieg |
 | --- | --- | --- |
-| Laptop mit GPU | `software/` | `.venv/Scripts/participant-bench.exe run --input vorverarbeitung/ausgabe/pdfs --config configs/local.yaml --offline` |
-| Firmen-PC | `software/api_firmen_pc/` | `.venv/Scripts/python.exe main.py run --input data/pdfs_eingabe` |
+| Laptop mit GPU (Vergleichslauf) | `software/` | `.venv/Scripts/participant-bench.exe run --input PFAD_ZUM_GLEICHEN_PDF_ORDNER --config configs/vlm-comparison.yaml --offline` |
+| Firmen-PC (Vergleichslauf) | `software/api_firmen_pc/` | `.venv/Scripts/python.exe main.py run --input PFAD_ZUM_GLEICHEN_PDF_ORDNER --config configs/api-bmw.yaml` |
 
 Der [Firmen-PC-Ordner](api_firmen_pc/README.md) enthält API-Code, OAuth-Konfiguration,
 Starthelfer, eigene Lockdatei und Tests. Er installiert keine lokalen LLM-/VLM-Gewichte.
 Ein gezielter ZIP-Export überträgt die benötigten Quellen ohne Daten und Modelle.
+Für Vergleichsläufe verwenden beide Rechner dieselben PDFs und die beiden
+VLM-only Profile; `configs/local.yaml` bleibt für den normalen lokalen
+Mehrmethodenlauf vorgesehen. Details und Hash-Prüfung der Eingabeseiten stehen
+in der Anleitung zum [fairen Modellvergleich](api_firmen_pc/README.md#lokaler-laptop-und-fairer-modellvergleich).
 Das frühere `test_url/` liegt unverändert und von Git ausgeschlossen unter
 `api_firmen_pc/privat/test_url/`; die neue Startdatei verwendet nur Umgebungsvariablen.
 Die Ergebnisformate, Berichte und der Excel-Abgleich sind in beiden Wegen identisch.

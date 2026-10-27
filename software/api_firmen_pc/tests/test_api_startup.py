@@ -31,8 +31,16 @@ def test_default_config_uses_main_sequence_without_ocr():
     from participant_api.config import connection_config, load_config
 
     config = load_config(DEFAULT_CONFIG)
-    assert config.methods == ["vlm"] and not config.pdf.auto_orient
-    assert not config.signature.use_ocr_positions
+    local_config = load_config(Path("../configs/vlm-comparison.yaml"))
+    assert config.methods == local_config.methods == ["vlm"]
+    assert config.pdf.model_dump() == local_config.pdf.model_dump()
+    assert config.signature.model_dump(exclude={"backend"}) == local_config.signature.model_dump(
+        exclude={"backend"}
+    )
+    assert config.signature.backend == "vlm"
+    assert local_config.signature.backend == "local_vlm"
+    assert config.models["vlm"].max_pixels == local_config.models["vlm"].max_pixels
+    assert config.models["vlm"].max_new_tokens == local_config.models["vlm"].max_new_tokens
     for model in config.models.values():
         options = connection_config(model)
         assert options.auth == "oauth2" and options.token_auth_method == "basic"
@@ -53,6 +61,7 @@ def test_export_contains_shared_sources_but_no_private_data(tmp_path):
     assert "software/api_firmen_pc/uv.lock" in names
     assert "software/api_firmen_pc/certificates/BMW_Trusted_Certificates_Latest.pem" in names
     assert "software/api_firmen_pc/docs/gate-zugang.md" in names
+    assert "software/configs/vlm-comparison.yaml" in names
     assert not any(
         name.endswith(".pdf") or {"privat", ".venv", "models", "runs", ".cache"} & set(Path(name).parts)
         for name in names
