@@ -125,6 +125,32 @@ def test_all_unsubstantiated_rows_are_excluded_and_reported():
     assert len(rejected) == 1 and rejected[0]["output_index"] == 0
 
 
+@pytest.mark.parametrize("malformed", ["missing_field", "numeric_id", "not_an_object"])
+def test_one_malformed_model_row_does_not_discard_supported_rows(malformed):
+    payload = json.loads(model_response())
+    invalid = dict(payload["participants"][0])
+    if malformed == "missing_field":
+        invalid.pop("last_name")
+    elif malformed == "numeric_id":
+        invalid["personnel_number"] = 123
+    else:
+        invalid = "not a participant object"
+    payload["participants"].append(invalid)
+    raw = json.dumps(payload)
+    rejected = []
+    people = parse_ocr_response(raw, ocr_data(), rejected_rows=rejected, preserve_partial_fields=True)
+    assert len(people) == 1 and people[0].personnel_number.value == "00123"
+    assert rejected[0]["output_index"] == 1 and rejected[0]["stage"] == "schema"
+    assert json.loads(raw) == payload
+
+
+@pytest.mark.parametrize("payload", ['{"participants": []', '{"participants": [], "unexpected": true}',
+                                    '{"participants": "wrong type"}'])
+def test_row_isolation_does_not_repair_invalid_json_or_top_level_schema(payload):
+    with pytest.raises(ValueError):
+        parse_ocr_response(payload, ocr_data(), rejected_rows=[])
+
+
 def test_fallback_preserves_reading_order_and_line_breaks():
     data = ocr_data()
     data["words"].append(word("Hinweise", 0.1, 0.5, line=2))

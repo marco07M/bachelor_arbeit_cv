@@ -1,0 +1,14 @@
+# Explicit experiment: native PDF text is recognized again. Never a hidden handwriting fallback.
+extends: benchmark.yaml
+methods: [docling]
+structures:
+  docling:
+    models_dir: models/docling
+    extraction: table
+    device: cuda
+    table_mode: accurate
+    do_cell_matching: true
+    force_full_page_ocr: true
+    ocr_scale: 3.0
+    mapping: structured
+    scan_input: rendered

@@ -1,0 +1,19 @@
+# Before the organization/native-grid changes; old recognition options remain explicit.
+extends: benchmark.yaml
+methods: [docling, paddle_llm]
+structures:
+  docling:
+    models_dir: models/docling
+    extraction: table
+    device: cuda
+    table_mode: accurate
+    do_cell_matching: true
+    force_full_page_ocr: false
+    ocr_scale: 3.0
+    mapping: legacy_html
+    scan_input: rendered
+  paddle_llm:
+    models_dir: models/paddle-structure
+    extraction: llm
+    device: cuda
+    assignment_format: legacy_v13

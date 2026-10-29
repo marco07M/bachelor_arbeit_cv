@@ -1,0 +1,28 @@
+# Paths are relative to this file. No reference data enter OCR/LLM/VLM prompts.
+input_dir: eingabe_pdfs
+reference_dir: referenz
+reference_file: null  # null: use the only CSV/XLSX in reference_dir
+extraction_config: ../configs/benchmark.yaml
+output_dir: ergebnisse
+# The roster has no signature ground truth; avoid extra visual detail calls by default.
+signature_detail_checks: false
+reference:
+  columns:
+    class_id: Class ID
+    user_id: User ID  # this column may be absent or contain masked IDs
+    first_name: First Name
+    last_name: Last Name
+    short_code: Organization
+  sheet: null
+  header_row: 1
+  encoding: utf-8-sig
+  delimiter: null  # detect comma, semicolon or tab; alternatively ';'
+  merge_identical_duplicates: false
+matching:
+  ignore_leading_user_id_zeros: true
+  mode: best_fit
+  minimum_similarity: 0.80
+  minimum_name_similarity: 0.70
+  ambiguity_margin: 0.02
+  case_sensitive: false
+  score_uncertain_values: true

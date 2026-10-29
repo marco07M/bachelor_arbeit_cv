@@ -12,6 +12,7 @@ from pydantic import Field, field_validator
 
 from .config import ConfigModel
 from .evaluation import normalized
+from .excel_columns import resolve_columns
 
 
 class ExcelColumns(ConfigModel):
@@ -89,7 +90,7 @@ def cell_text(cell, *, identifier: bool = False) -> str:
     raise ValueError(f"Nicht unterstützter Zelltyp in {cell.coordinate}; bitte als Text exportieren")
 
 
-def read_reference(path: Path, config: ExcelConfig) -> tuple[list[ReferencePerson], str]:
+def read_reference(path: Path, config: ExcelConfig, *, column_names=None) -> tuple[list[ReferencePerson], str]:
     if path.suffix.lower() != ".xlsx":
         raise ValueError("Excel-Referenz bitte im Format .xlsx bereitstellen")
     try:
@@ -101,13 +102,9 @@ def read_reference(path: Path, config: ExcelConfig) -> tuple[list[ReferencePerso
             raise ValueError(f"Excel-Blatt fehlt: {config.sheet}; vorhanden: {workbook.sheetnames}")
         sheet = workbook[config.sheet] if config.sheet else workbook.active
         headers = next(sheet.iter_rows(min_row=config.header_row, max_row=config.header_row), ())
-        names = [normalized(str(cell.value or ""), "name") for cell in headers]
-        indices = {}
-        for field, title in config.columns.model_dump().items():
-            matches = [i for i, name in enumerate(names) if name == normalized(title, "name")]
-            if len(matches) != 1:
-                raise ValueError(f"Excel-Spalte {title!r} muss genau einmal vorhanden sein")
-            indices[field] = matches[0]
+        indices, labels = resolve_columns([cell.value for cell in headers], config.columns.model_dump())
+        if column_names is not None:
+            column_names.update(labels)
         records = []
         for number, row in enumerate(sheet.iter_rows(min_row=config.header_row + 1), config.header_row + 1):
             values = {

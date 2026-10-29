@@ -95,7 +95,7 @@ def test_masked_excel_id_is_not_compared():
 
 
 def test_wrong_user_id_is_detected_via_independent_name_code_assignment():
-    scores, rows, _ = evaluate([prediction(person(user="007"))], [ref()])
+    scores, rows, _ = evaluate([prediction(person(user="008"))], [ref()])
     assert rows[0]["matching_source"] == "name_short_code"
     assert scores["fields"]["user_id"]["exact_match"] == {"numerator": 0, "denominator": 1, "value": 0.0}
     assert scores["independent_user_id_exact_match"]["value"] == 0

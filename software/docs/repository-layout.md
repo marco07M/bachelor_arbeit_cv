@@ -1,6 +1,32 @@
 # Repository-Struktur
 
+## Isolierte Strukturmodelle seit 28.10.2026
+
+`paddle_structure_runtime/` und `docling_runtime/` besitzen jeweils ein eigenes
+uv-Projekt für PaddleOCR beziehungsweise Docling/TableFormer. Die Workerquellen
+liegen gemeinsam unter `structure_runtime/`; das Hauptpaket bindet sie lokal
+über `participant_bench/structure.py` ein. Die bestehenden Qwen-, Unlimited-
+und Firmen-PC-Umgebungen bleiben getrennt. Einrichtung und Start:
+[Sechs lokale Verfahren](local-methods.md).
+
+Im Hauptprofil nutzt `paddle_llm` Qwen3-4B-Instruct-2507 nach Entladen des
+OCR-Workers. Docling verwendet `table_mapping.py` ohne LLM anhand gedruckter
+Überschriften. `structure_assignment.py` bereitet native OCR-/Zellpositionen auf;
+`unlimited_assignment.py` prüft die wortgetreue LLM-Zuordnung.
+`hybrid.py` bereitet Paddle-Belege für `ocr_vlm` vor; `hybrid_evaluation.py`
+vergleicht denselben Referenzteilnehmer zwischen VLM und Hybrid.
+`attention.py` stellt die alternative SDPA-Berechnung bereit.
+`assign-structures` ist für gespeicherte LLM-Zuordnungen verfügbar, nicht für
+Docling im deterministischen Hauptvergleich. `image_preprocessing.py` wird
+von Haupt-OCR und Doclings isolierter Tesseract-Komponente gemeinsam verwendet.
+
 ## Getrennter API-Betrieb seit 22.10.2026
+
+Das Firmen-PC-Projekt besitzt seit dem 28.10.2026 auch ein eigenes
+`testframework/` mit PDF-Eingaben, Excel-/CSV-Referenz und Ergebnissen.
+`participant_api/benchmark.py` aktiviert die API für den gemeinsam verwendeten
+Benchmark-Runner; die Zuordnung und Bewertung bleiben lokal. Der Starthelfer ist
+`start_api_testframework.cmd`. Der ursprüngliche GPU-Einstieg bleibt offline.
 
 `software/` bleibt das lokale uv-Projekt für OCR, LLM, VLM, Kalibrierung und
 Evaluation. `software/api_firmen_pc/` ist ein zweites uv-Projekt mit eigener

@@ -133,11 +133,14 @@ def test_line_reference_disambiguates_repeated_names_without_using_other_persons
     assert rows[0].bbox.y0 == 0.5
 
 
-def test_unknown_ocr_line_reference_is_rejected():
-    rejected = []
-    assert parse_ocr_response(prediction(ocr_line_id=3), evidence(), rejected,
-                              preserve_partial_fields=True) == []
-    assert "unbekannte OCR-Zeilenkennung" in rejected[0]["error"]
+def test_unknown_ocr_line_reference_is_recovered_only_with_unique_identity_evidence():
+    rejected, warnings = [], []
+    people = parse_ocr_response(prediction(ocr_line_id=3), evidence(), rejected,
+                               preserve_partial_fields=True, field_warnings=warnings)
+    assert not rejected and len(people) == 1
+    assert people[0].first_name.value == "Anna" and people[0].last_name.value == "Weber"
+    assert people[0].personnel_number.value == "00123" and people[0].bbox.y0 == .3
+    assert any(warning["field"] == "ocr_line_id" for warning in warnings)
 
 
 @pytest.mark.parametrize("matching_prompt", [True, False])

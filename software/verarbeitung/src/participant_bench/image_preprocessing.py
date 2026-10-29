@@ -5,6 +5,24 @@ import numpy as np
 from PIL import Image, ImageEnhance
 
 
+def binary(image):
+    gray = np.asarray(image.convert("L"))
+    return cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+
+
+def grid_masks(image):
+    ink = binary(image)
+    h, w = ink.shape
+    horizontal = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, max(30, w // 12)), np.uint8))
+    vertical = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((max(30, h // 15), 1), np.uint8))
+    return ink, horizontal, vertical
+
+
+def remove_grid_lines(image):
+    ink, horizontal, vertical = grid_masks(image)
+    return Image.fromarray(255 - cv2.subtract(ink, cv2.bitwise_or(horizontal, vertical)))
+
+
 def preprocess(image: Image.Image, spec):
     width, height = image.size
     region = spec.crop or (0, 0, 1, 1)

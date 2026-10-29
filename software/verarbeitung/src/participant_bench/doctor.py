@@ -169,4 +169,12 @@ def environment(config, check_torch=True):
             info["warnings"].append(f"{method}: Lade-/Offload-RAM-Budget über verfügbarem RAM")
         if model.quantization == "int8" and "bitsandbytes" not in info["packages"]:
             info["warnings"].append(f"{method}: bitsandbytes fehlt; uv sync --locked --extra models")
+    for method in config.structures:
+        from .models import Unavailable
+        from .structure import structure_identity
+
+        try:
+            info["models"][method] = dict(status="available", **structure_identity(method, config))
+        except (Unavailable, ValueError) as exc:
+            info["models"][method] = dict(status="unavailable", reason=str(exc))
     return info

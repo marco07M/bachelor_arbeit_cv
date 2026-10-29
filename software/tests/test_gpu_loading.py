@@ -1,4 +1,4 @@
-"""Keep the 8B checkpoint while enforcing the configured CUDA placement."""
+"""Enforce explicit CUDA placement and the smaller default text model."""
 
 import sys
 from pathlib import Path
@@ -74,14 +74,20 @@ def test_int8_does_not_change_vlm_precision():
         model_load_kwargs(spec(device="cuda", quantization="int8"), torch_double(), "vlm")
 
 
-@pytest.mark.parametrize("filename", ["local.yaml", "imported.yaml", "benchmark-unlimited.yaml"])
-def test_active_configs_keep_eight_billion_parameter_model_with_gpu_loading(filename):
+@pytest.mark.parametrize("filename", [
+    "local.yaml", "imported.yaml", "benchmark-unlimited.yaml", "ocr-sparse.yaml",
+    "unlimited-ocr-llm.yaml", "paddle-structure.yaml", "docling.yaml", "structure-models.yaml",
+])
+def test_active_configs_use_unified_four_b_instruct_with_gpu_loading(filename):
     config = load_config(Path("configs") / filename)
     llm, vlm = config.models["ocr_llm"], config.models["vlm"]
-    assert llm.repo == "Qwen/Qwen3-8B" and llm.path == "models/qwen3-8b"
-    assert llm.revision == "b968826d9c46dd6066d109eabc6255188de91218"
-    assert llm.quantization == "int8" and llm.device == "cuda"
+    assert llm.repo == "Qwen/Qwen3-4B-Instruct-2507" and llm.path == "models/qwen3-4b-instruct-2507"
+    assert llm.revision == "cdbee75f17c01a7cc42f958dc650907174af0554"
+    assert llm.quantization == "none" and llm.dtype == "bfloat16" and llm.device == "cuda"
     assert llm.prefill_chunk_size == 1024
+    assert llm.max_new_tokens == 8192
+    assert vlm.repo == "Qwen/Qwen3-VL-4B-Instruct" and vlm.path == "models/qwen3-vl-4b"
+    assert vlm.revision == "ebb281ec70b05090aa6165b016eac8ec08e71b17"
     assert vlm.quantization == "none" and vlm.device == "cuda"
 
 

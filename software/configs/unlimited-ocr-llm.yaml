@@ -1,9 +1,130 @@
-# Unlimited-OCR -> unload -> local Qwen3-8B cell assignment -> visual signature inspection.
-extends: benchmark-unlimited.yaml
-methods: [unlimited_ocr]
+# Optional legacy adapter, outside the main comparison.
+methods:
+- unlimited_ocr
+seed: 42
+output_dir: runs
+cache_dir: .cache/participant-bench
+cache_max_gb: 2
 pdf:
   dpi: 220
   recursive: true
   auto_orient: true
   osd_min_confidence: 5
-  include_images: true
+ocr:
+  command: auto
+  languages: deu+eng
+  psm: 6
+  timeout_seconds: 120
+  remove_grid_lines: true
+rules:
+  header_aliases:
+    row_ref:
+    - nr
+    - nummer
+    - lfd
+    first_name:
+    - vorname
+    - vornamen
+    - firstname
+    last_name:
+    - nachname
+    - familienname
+    - zuname
+    - lastname
+    - surname
+    personnel_number:
+    - personalnummer
+    - personalnr
+    - persnr
+    - mitarbeiternummer
+    department:
+    - abteilung
+    - department
+    - bereich
+    - kurzzeichen
+    - kuerzel
+    - kürzel
+    - organization
+    - organisation
+    signature:
+    - unterschrift
+    - signature
+  columns: {}
+  body_top: null
+  body_bottom: 0.96
+  row_tolerance: 0.008
+signature:
+  backend: opencv
+  inspect_known: true
+  context_height: 0.12
+  row_padding: 0.008
+  max_row_height: 0.18
+  max_new_tokens: 192
+  blank_ink_fraction: 0.0005
+  component_min_area: 8
+models:
+  ocr_llm:
+    repo: Qwen/Qwen3-4B-Instruct-2507
+    revision: cdbee75f17c01a7cc42f958dc650907174af0554
+    path: models/qwen3-4b-instruct-2507
+    dtype: bfloat16
+    quantization: none
+    device: cuda
+    gpu_memory_gib: 9
+    cpu_memory_gib: 32
+    max_input_tokens: 12000
+    prefill_chunk_size: 1024
+    max_new_tokens: 8192
+    do_sample: false
+    temperature: 0.7
+    warmup: true
+    preserve_partial_fields: true
+  vlm:
+    repo: Qwen/Qwen3-VL-4B-Instruct
+    revision: ebb281ec70b05090aa6165b016eac8ec08e71b17
+    path: models/qwen3-vl-4b
+    dtype: bfloat16
+    device: cuda
+    gpu_memory_gib: 10
+    cpu_memory_gib: 32
+    max_input_tokens: 12000
+    max_new_tokens: 8192
+    do_sample: false
+    temperature: 0.7
+    min_pixels: 65536
+    max_pixels: 1048576
+    tile_height: null
+    tile_overlap: 0
+    warmup: true
+  unlimited_ocr:
+    backend: local
+    repo: baidu/Unlimited-OCR
+    revision: 8249d20b2822a7d8a4c22c8d8c9069b5ac36bda3
+    path: models/unlimited-ocr
+    device: cuda
+    dtype: bfloat16
+    gpu_memory_gib: 8
+    cpu_memory_gib: 16
+    max_new_tokens: 4096
+    warmup: true
+    options:
+      extraction: llm
+      precision: auto
+      crop_to_patches: true
+      attention: sdpa
+      min_free_gib: 9
+      timeout_seconds: 600
+      assignment_max_new_tokens: 4096
+costs:
+  kind: scenario
+  volume: null
+  hourly_rate_eur: null
+  manual_minutes_per_page: null
+  review_minutes_per_page: null
+  local_operating_eur_per_page: null
+  development_hours: null
+  energy_kwh_per_page: null
+  energy_basis: null
+  electricity_eur_per_kwh: null
+main_comparison: false
+structures: {}

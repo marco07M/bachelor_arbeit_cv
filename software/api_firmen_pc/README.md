@@ -6,6 +6,13 @@ Die gemeinsamen PDF-, Extraktions-, Signatur-, Export- und Excel-Funktionen
 werden als Quellpaket eingebunden; hier werden **keine GPU-Modellgewichte**
 installiert. Der API-Adapter wird ausschließlich durch diesen Einstieg aktiviert.
 
+Die aktuelle API-Version verwendet dieselbe Spaltenzuordnung wie die lokale
+VLM-Auswertung: vollständige Tabellenzeilen einschließlich leerer Benutzerfelder,
+getrennte Kurzzeichen und Prüfhinweise bei mehrdeutigen Spalten. Dafür müssen auch
+die gemeinsamen Quellen unter `software/verarbeitung/` aktualisiert werden; ältere
+ZIP-Pakete enthalten diese Änderung nicht. Der API-Modellname wird über
+`BMW_VLM_MODEL` gewählt. Die lokale Umstellung auf Qwen3-4B ändert kein API-Modell.
+
 ## Ablauf wie beim bisherigen Testskript
 
 1. Einstellungen und Zugangsdaten aus der Prozessumgebung prüfen.
@@ -160,6 +167,15 @@ Registrierung Formularanmeldung verlangt, in beiden Modellkonfigurationen
 `options.token_auth_method: body` setzen; Standard hier ist `basic`.
 
 ## PDFs verarbeiten
+
+Für einen vollständigen Lauf **mit anschließendem Excel-/CSV-Testframework** gibt
+es den eigenen Starthelfer `start_api_testframework.cmd`. PDFs nach
+`testframework/eingabe_pdfs/` und genau eine Referenzdatei nach
+`testframework/referenz/` legen. Der API-Aufruf und der anschließende lokale
+Levenshtein-/Exact-Match-Abgleich laufen automatisch nacheinander. Anleitung:
+[API-Testframework](testframework/README.md). `main.py benchmark check` prüft nur
+die Eingaben, `main.py benchmark run` startet beides, `benchmark compare --run ...`
+bewertet vorhandene Ausgaben ohne neue API-Aufrufe.
 
 Für den CV-Test die PDFs auf dem Firmen-PC unter
 `data/cv-test-20261020-093337/` ablegen und

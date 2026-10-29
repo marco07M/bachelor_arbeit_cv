@@ -60,18 +60,34 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
     preferred = None
     if row.ocr_line_id is not None:
         groups = line_groups(data)
-        if row.ocr_line_id > len(groups):
-            raise ValueError("Modell nennt eine unbekannte OCR-Zeilenkennung")
-        preferred = set(groups[row.ocr_line_id - 1])
-    anchor = None
-    for name in ("personnel_number", "last_name", "first_name"):
+        preferred = set(groups[row.ocr_line_id - 1]) if row.ocr_line_id <= len(groups) else set()
+    anchor, recovered_line = None, False
+    for name in ("last_name", "first_name", "personnel_number"):
         candidates = [span for span in matches[name] if preferred is None or set(span).issubset(preferred)]
         if len(candidates) == 1:
             anchor = candidates[0]
             break
+    if anchor is None and preferred is not None:
+        # A model line number is only a reference. Recover it only when at least
+        # two independently observed identity fields identify one physical row.
+        supported = []
+        for name in ("last_name", "first_name", "personnel_number"):
+            for span in matches[name]:
+                support = sum(any(same_row(words, span, other) for other in matches[field])
+                              for field in ("first_name", "last_name", "personnel_number") if field != name)
+                if support:
+                    supported.append(span)
+        rows = []
+        for span in supported:
+            if not any(same_row(words, span, other) for other in rows):
+                rows.append(span)
+        if len(rows) == 1:
+            anchor, recovered_line = rows[0], True
     if anchor is None:
         raise ValueError("Keine eindeutig lokalisierbare Personalnummer oder Namensangabe im OCR-Text")
     fields, evidence, warnings = {}, set(anchor), []
+    if recovered_line:
+        warnings.append(dict(field="ocr_line_id", reason="Falsche Zeilenreferenz anhand mehrerer eindeutiger Feldbelege derselben Quellzeile berichtigt"))
     for name in TEXT_FIELDS:
         value = getattr(row, name)
         if value is None:
@@ -86,6 +102,13 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
             warnings.append({"field": name, "reason": reason})
             continue
         span = same_line[0]
+        columns = data.get("physical_columns", [])
+        occupied = {index for index, (left, right) in enumerate(zip(columns, columns[1:]))
+                    for i in span if left <= (words[i]["bbox"]["x0"] + words[i]["bbox"]["x1"]) / 2 < right}
+        if name in ("first_name", "last_name") and len(occupied) > 1:
+            fields[name] = TextField(state="failed")
+            warnings.append(dict(field=name, reason="Namensvorschlag überschreitet mehrere physische Tabellenzellen; kein gesamter Zeilentext als Name übernommen"))
+            continue
         evidence.update(span)
         observed_value = " ".join(words[i]["text"] for i in span)
         uncertain = any(words[i]["ocr_confidence"] is not None and words[i]["ocr_confidence"] < 30 for i in span)
@@ -110,4 +133,5 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
         raise ValueError("Keine belegbaren Teilnehmerfelder in der OCR-Zeile")
     notes = [f"{warning['field']}: {warning['reason']}" for warning in warnings]
     return Participant(row_ref=row_ref, bbox=bounds(words, sorted(evidence)),
+                       person_role=row.person_role, role_evidence=row.role_evidence,
                        **fields, review_notes=notes), warnings

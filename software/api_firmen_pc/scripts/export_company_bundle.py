@@ -9,6 +9,7 @@ def bundle_files(software: Path):
     api = software / "api_firmen_pc"
     paths = [software / name for name in ("pyproject.toml", "uv.lock", ".python-version", "README.md")]
     paths += [software / "scripts" / "setup_ocr.py"]
+    paths += [software / "testframework" / "config.yaml"]
     paths += [
         software / "configs" / name
         for name in ("local.yaml", "smoke.yaml", "vlm-comparison.yaml")
@@ -18,6 +19,8 @@ def bundle_files(software: Path):
     paths += [software / "vorverarbeitung" / "README.md"]
     paths += [api / name for name in ("pyproject.toml", "uv.lock", ".python-version", "README.md", "main.py")]
     paths += sorted(api.glob("*.cmd"))
+    paths += [api / "testframework" / name for name in ("main.py", "config.yaml", "README.md")]
+    paths += [api / "testframework" / folder / "README.md" for folder in ("eingabe_pdfs", "referenz")]
     paths += sorted((api / "src" / "participant_api").rglob("*.py"))
     paths += sorted((api / "configs").glob("*.yaml"))
     paths += sorted((api / "scripts").glob("*.ps1"))

@@ -1,0 +1,9 @@
+extends: local.yaml
+methods: [ocr_raw]
+pdf:
+  dpi: 220
+  recursive: true
+  auto_orient: true
+  osd_min_confidence: 5
+signature:
+  backend: opencv

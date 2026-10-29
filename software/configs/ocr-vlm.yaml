@@ -1,0 +1,2 @@
+extends: benchmark.yaml
+methods: [ocr_vlm]

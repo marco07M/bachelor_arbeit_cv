@@ -4,10 +4,10 @@ import sys
 import uuid
 from pathlib import Path
 
-from .config import load_config
+from .config import ALL_METHODS, Config, load_config, structure_settings
 from .doctor import environment
 from .io import write_json
-from .models import download_models
+from .models import download_models, generation_schema
 from .ocr import OCR, generated_cache_files
 from .pdf import prepare
 from .progress import Progress
@@ -17,9 +17,12 @@ from .schema import (
     GroundTruthPage,
     ModelResponse,
     OCRPageResponse,
+    OCRRecordResponse,
+    OCRTextPageResponse,
     PageResult,
     SignatureLocations,
     SignatureResponse,
+    VisualCellPageResponse,
     VisualPageResponse,
 )
 from .synthetic import generate
@@ -43,6 +46,7 @@ def main(argv=None):
         if name == "prepare":
             sub.add_argument("--output", type=Path)
         if name == "run":
+            sub.add_argument("--method", choices=list(ALL_METHODS), action="append")
             sub.add_argument("--offline", action="store_true", help="Nur lokale Modelle erlauben")
             sub.add_argument("--manifest", type=Path)
             sub.add_argument("--ground-truth", type=Path)
@@ -52,6 +56,21 @@ def main(argv=None):
     synthetic = commands.add_parser("synthetic")
     synthetic.add_argument("--output", type=Path, default=Path("data/synthetic"))
     commands.add_parser("schemas")
+    structures = commands.add_parser("setup-structures", help="Lokale Paddle-/Docling-Gewichte prüfen oder explizit laden")
+    structures.add_argument("--config", type=Path, default=Path("configs/benchmark.yaml"))
+    structures.add_argument("--method", choices=["paddle_llm", "paddle_structure", "docling"], action="append")
+    structures.add_argument("--download", action="store_true", help="Festgeschriebene öffentliche Modellgewichte herunterladen")
+    diagnose = commands.add_parser("diagnose-structures", help="Gespeicherte OCR-/Tabellenstufen lokal untersuchen; keine Inferenz")
+    diagnose.add_argument("--run", type=Path, required=True)
+    diagnose.add_argument("--output", type=Path, required=True)
+    diagnose.add_argument("--method", choices=["docling", "paddle_llm", "paddle_structure"], action="append")
+    diagnose.add_argument("--max-pages", type=int)
+    experiment = commands.add_parser("structure-experiment", help="Docling FAST/ACCURATE und Cell Matching auf Entwicklungsdaten vergleichen")
+    experiment.add_argument("--input", type=Path, required=True)
+    experiment.add_argument("--config", type=Path, default=Path("configs/benchmark.yaml"))
+    experiment.add_argument("--output", type=Path, required=True)
+    experiment.add_argument("--ground-truth", type=Path)
+    experiment.add_argument("--include-full-page-ocr", action="store_true")
     refresh = commands.add_parser("report", help="Bericht und OCR-Klartext aus gespeicherten Ergebnissen aktualisieren")
     refresh.add_argument("--run", type=Path, required=True)
     assign = commands.add_parser("assign-unlimited", help="Gespeicherten Unlimited-OCR-Text lokal mit LLM zuordnen")
@@ -59,10 +78,16 @@ def main(argv=None):
     assign.add_argument("--config", type=Path, default=Path("configs/unlimited-ocr-llm.yaml"))
     assign.add_argument("--output", type=Path)
     assign.add_argument("--offline", action="store_true", help="Zuordnung verwendet immer ein lokales LLM")
+    structure_assign = commands.add_parser("assign-structures", help="Gespeicherte Paddle-/Docling-Belege lokal zuordnen")
+    structure_assign.add_argument("--run", type=Path, required=True)
+    structure_assign.add_argument("--config", type=Path, default=Path("configs/benchmark.yaml"))
+    structure_assign.add_argument("--method", choices=["paddle_llm", "paddle_structure", "docling"], action="append")
+    structure_assign.add_argument("--output", type=Path)
+    structure_assign.add_argument("--offline", action="store_true", help="Immer lokal; keine erneute OCR")
     signatures = commands.add_parser("signatures", help="Nur Unterschriften vorhandener Ergebnisse nachprüfen")
     signatures.add_argument("--run", type=Path, required=True)
     signatures.add_argument("--config", type=Path, default=Path("configs/local.yaml"))
-    signatures.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"], action="append")
+    signatures.add_argument("--method", choices=[name for name in ALL_METHODS if name != "ocr_raw"], action="append")
     signatures.add_argument("--output", type=Path)
     signatures.add_argument("--offline", action="store_true", help="Nur lokale Modelle erlauben")
     clean = commands.add_parser("clean-cache")
@@ -74,7 +99,7 @@ def main(argv=None):
     excel.add_argument("--config", type=Path, default=Path("configs/excel.yaml"))
     excel.add_argument("--sheet", help="Excel-Blatt; überschreibt die Konfiguration")
     excel.add_argument("--course-map", type=Path, help="Optionale CSV mit document_id,class_id")
-    excel.add_argument("--method", choices=["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"], action="append")
+    excel.add_argument("--method", choices=list(ALL_METHODS), action="append")
     excel.add_argument("--output", type=Path)
     reference = commands.add_parser("ocr-reference", help="Manuelle CSV-Referenzstruktur ohne Modellvorschläge anlegen")
     reference.add_argument("--input", type=Path, required=True)
@@ -102,7 +127,21 @@ def main(argv=None):
     text_eval.add_argument("--method", default="unlimited_ocr")
     args = parser.parse_args(argv)
     try:
-        if args.command == "evaluate-ocr":
+        if args.command == "diagnose-structures":
+            from .structure_diagnostics import diagnose_run
+
+            if args.max_pages is not None and args.max_pages < 1:
+                raise ValueError("max-pages muss positiv sein")
+            print(diagnose_run(args.run, args.output, args.method, args.max_pages) / "report.html")
+        elif args.command == "structure-experiment":
+            from .structure_experiment import experiment
+
+            print(experiment(args.input, args.config, args.output, args.ground_truth, args.include_full_page_ocr) / "report.html")
+        elif args.command == "setup-structures":
+            from .structure_setup import setup_structures
+
+            print(json.dumps(setup_structures(load_config(args.config), args.method, args.download), indent=2))
+        elif args.command == "evaluate-ocr":
             from .ocr_evaluation import evaluate_text
 
             print(evaluate_text(args.run, args.references, args.method))
@@ -139,6 +178,16 @@ def main(argv=None):
             from .unlimited_reassign import reassign_run
 
             print(reassign_run(args.run, load_config(args.config), args.output).resolve())
+        elif args.command == "assign-structures":
+            from .unlimited_reassign import reassign_run
+
+            settings = load_config(args.config)
+            methods = args.method or [method for method in ("paddle_llm", "paddle_structure", "docling")
+                                      if (args.run / method / "extractions.jsonl").is_file() and
+                                      structure_settings(settings, method).extraction == "llm"]
+            if not methods:
+                raise ValueError("Keine gespeicherten Paddle-/Docling-Ergebnisse im Lauf")
+            print(reassign_run(args.run, settings, args.output, methods=methods).resolve())
         elif args.command == "signatures":
             from .signature_review import recheck_run
 
@@ -152,16 +201,22 @@ def main(argv=None):
             for name, cls in (
                 ("ground_truth", GroundTruthPage),
                 ("model_response", ModelResponse),
-                ("ocr_response", OCRPageResponse),
-                ("vlm_response", VisualPageResponse),
+                ("ocr_response", OCRRecordResponse),
+                ("ocr_page_response", OCRTextPageResponse),
+                ("ocr_legacy_response", OCRPageResponse),
+                ("vlm_response", VisualCellPageResponse),
+                ("vlm_legacy_response", VisualPageResponse),
                 ("signature_response", SignatureResponse),
                 ("signature_locations", SignatureLocations),
                 ("page_result", PageResult),
             ):
-                write_json(root / f"{name}.schema.json", cls.model_json_schema())
+                schema = generation_schema(cls) if name in ("ocr_response", "ocr_page_response", "vlm_response") else cls.model_json_schema()
+                write_json(root / f"{name}.schema.json", schema)
             print(root)
         else:
             config = load_config(args.config)
+            if args.command == "run" and args.method:
+                config = Config.model_validate(dict(config.model_dump(), methods=args.method))
             if args.command == "doctor":
                 info = environment(config)
                 print(json.dumps(info, ensure_ascii=False, indent=2))

@@ -1,5 +1,546 @@
 # Verifikationsprotokoll
 
+## Aktueller Hauptvergleich: sechs Verfahren, 29.10.2026
+
+Implementiert sind `ocr_raw`, `ocr_llm`, `paddle_llm`, `docling`, `vlm` und
+`ocr_vlm` im vorhandenen Runner. Hauptprofil: `configs/benchmark.yaml`.
+Installation, Modellrevisionen, Architektur und bekannte Grenzen:
+[local-methods.md](local-methods.md).
+
+Automatisierte Prüfung nach der Vereinheitlichung: **509 lokale Tests und
+48 Tests des getrennten API-Projekts bestanden**. Ruff und `git diff --check`
+sind ohne Befund. Alle 20 YAML-Profile wurden mit ihrem jeweiligen
+Konfigurationsschema eingelesen, außerdem das lokale Testframework-Profil.
+Geprüft werden unter anderem wechselnde Spalten, verbundene und mehrzeilige
+Zellen, unbekannte Namen, fehlende Modelle, identische VLM-Parameter und Bilder,
+OCR-Cache-Kosten, Hybrid-Feldübergänge sowie die numerische Gleichwertigkeit der
+SDPA-Variante einschließlich kausaler Masken und Ein-Token-Decoding.
+
+Ein tatsächlicher lokaler GPU-Lauf mit unabhängig erzeugter synthetischer PDF
+und Referenz liegt unter `runs/20261029T140802Z-2246a68b/`. Die Seite enthält zwei
+Personen mit acht Textfeldern. Automatische Ausrichtung wurde für diesen
+aufrechten Funktionstest ausgeschaltet; die Ausgabegrenze war bei beiden
+VLM-Varianten identisch auf 2048 Token gesetzt. Das reguläre Hauptprofil hat
+8192 Token. Es gab keine Modell-Downloads oder externen Inferenzaufrufe.
+
+| Verfahren | Ergebnis dieses Funktionstests |
+| --- | --- |
+| ocr_raw | OCR erfolgreich; keine Teilnehmerfeldmetrik |
+| ocr_llm | unavailable: exakte Instruct-2507-Gewichte fehlen |
+| paddle_llm | Paddle tatsächlich ausgeführt; LLM-Zuordnung unavailable wegen derselben fehlenden Gewichte |
+| docling | Zwei Teilnehmer, 8/8 Textfelder exakt, ohne Qwen; weiterhin Prüffälle |
+| vlm | Zwei Teilnehmer, 8/8 Textfelder exakt |
+| ocr_vlm | Zwei Teilnehmer, 4/8 Textfelder exakt; Vor-/Nachnamensrollen vertauscht |
+
+Der Hybrid verbessert dieses Beispiel nicht: vier Namensfelder verschlechtern
+sich, kein Feld wird korrigiert. Die Fehler werden ausdrücklich erhalten und
+feldweise ausgewiesen. Beide Varianten verwenden nach geprüfter eingefrorener
+Konfiguration dieselben Gewichte, Parameter, Seitenbild-Hashes und die gleiche
+Grundpromptversion. Gemessene PyTorch-Spitzenbelegung: etwa 8,99 GiB beim VLM
+und 9,16 GiB beim Hybrid. Ein vorausgegangener Versuch mit normalem SDPA und
+umfangreicher OCR-Serialisierung scheiterte am Speicherlimit; dessen Ergebnisse
+bleiben getrennt erhalten. Die kompakte Serialisierung und Repeated-KV-SDPA
+wurden anschließend erfolgreich auf der GPU ausgeführt.
+
+Ein zusätzlicher, unabhängig protokollierter CSV-Abgleich desselben Quelllaufs
+liegt unter `testframework/ergebnisse/unified-smoke-20261029-2246a68b/`.
+Er enthält `hybrid_analysis.html`, acht Feldvergleiche, vier Verschlechterungen
+und bestätigte Vergleichsbedingungen. Seine `identity.json` enthält die tatsächlich
+verwendeten gemeinsamen Evaluationsmodule mit Dateihashes. Dieser separate
+Abgleich wurde nach Abschluss der Implementierung ausgeführt.
+
+Ein lokaler Funktionstest mit der vorhandenen realen PDF (zwei Seiten) liegt
+unter `runs/20261029T142016Z-3b7d7722/`: Tesseract erfolgreich, Docling technisch
+lesbar, aber **keine zuverlässig zuordenbaren Teilnehmer**. Die Seiten bleiben
+`partial`; Rohtext und Tabellen sind erhalten. Das ist keine Qualitätsmessung,
+da hierfür keine manuell geprüfte Ground Truth übergeben wurde. Insbesondere
+Doclings konservatives Mapping benötigt ausreichend erkannte Überschriften.
+
+Die neuen Text-LLM-Wege konnten wegen fehlender Modellgewichte noch nicht mit
+echter Instruct-2507-Inferenz abgenommen werden. Direkter VLM und Hybrid wurden
+bei dieser Überarbeitung tatsächlich auf synthetischen Daten ausgeführt; ein
+neuer VLM-/Hybrid-Lauf auf den realen Dokumenten steht noch aus. Frühere
+Echtläufe bleiben historische Ergebnisse ihrer damaligen Konfiguration.
+
+Während des GPU-Tests war der Laptop im Akkubetrieb, bei ungefähr 140 MHz und
+14 W GPU-Leistung unter Last. Die rund 652 Sekunden Gesamtlaufzeit sind deshalb
+kein allgemeiner Durchsatznachweis und keine Hochrechnung für 6000 PDFs.
+Der kleine synthetische Datensatz belegt ausschließlich Softwarefunktion;
+Prompt-/Parameteroptimierung und finale Bewertung benötigen getrennte,
+manuell gelabelte Entwicklungs-, Validierungs- und Testdaten.
+
+## Frühere Prüfschritte
+
+Dokumentweite Zuordnung der Vor-/Nachnamensrollen, 29.10.2026:
+Die Modellantwort enthält `name_order` mit `given_family`, `family_given` oder
+`unknown` und einer dokumentbezogenen Begründung. `generation_schema` verlangt
+diese Angabe bei neuen OCR-/VLM-/Zellantworten; die Leseschemas akzeptieren ältere
+Antworten ohne sie. Promptversionen: `participant-json-v14-required-document-name-order`
+und `ocr-cell-assignment-v9-document-name-order`. Die API verwendet dasselbe
+Generationsschema und denselben Nachverarbeitungspfad.
+
+Die erste belegbare Entscheidung wird pro PDF und Verfahren gespeichert und auf
+Folgeantworten übertragen. Die Zuordnung vertauscht ausschließlich bereits
+beobachtete komplette Namensfelder anhand von OCR-Positionen oder physischen
+Zellen; sie erhält Schreibweise, Feldstatus und Bounding-Boxes. Für Zellverfahren
+erfolgt die Namenszuordnung schon vor der strikten Feld-/Spaltenprüfung. Spätere
+Überschriften können frühere Seiten ohne weitere Inferenz auflösen. Widersprüche
+markieren das gesamte Dokument zur Kontrolle. Resume stellt den Kontext wieder
+her. Andere PDFs, andere Verfahren und Referenzdaten liefern keine Namenswerte.
+
+Provenienz: `document_name_order` in den Seitenrohdaten, ursprüngliche Modellantwort,
+Vorvalidierungsänderungen bei Zellverfahren sowie `document_name_orders.csv`
+und eine eigene Tabelle im HTML-Report. Ursprungsseite, Begründung, korrigierte
+Namenspaare und Prüffälle sind sichtbar. Es gibt keine zusätzlichen Modellaufrufe.
+
+Automatisierte Abnahme: **434 lokale Volltests und 48 API-Tests bestanden**.
+Die insgesamt 18 neuen Fälle prüfen vertauschte und bereits richtige Zeilen, PDF-Grenzen,
+zusammengesetzte Namen, leere IDs, Feldpositionen, widersprüchliche Seiten,
+spätere Überschriften, alte Antworten, Resume, alle drei Zellwege, den
+vollständigen Parser-/Exportablauf und das verpflichtende Generationsschema.
+Fehlt die Pflichtangabe in einer neuen Modellantwort trotzdem, bleiben die
+gelesenen Namen als Prüffall erhalten. Alte gespeicherte Antworten werden bei
+reinen Vergleichen nicht nachträglich umgeordnet.
+Der API-Test bestätigt richtig zugeordnete Namen aus absichtlich vertauschten
+Modellfeldern bei unverändert zwei Seitenanfragen für zwei PDFs.
+
+Echter lokaler VLM-Funktionstest mit zwei selbst erstellten PDF-Seiten:
+`runs/20261029T094637Z-5f57d043/report.html`. Vier Teilnehmer mit 8/8 richtigen
+Vor-/Nachnamensfeldern, einschließlich zusammengesetzter Namen. Seite 2 besitzt
+keine Spaltenüberschriften und übernimmt `family_given` von Seite 1. Genau zwei
+reguläre Modellaufrufe, Laufzeit rund 49,5 Sekunden. Die manuelle Referenz wurde
+vor dem Modelllauf erstellt; sie war kein Modelleingang. Audit:
+`document_names_validation.json`. Dies ist ein Funktionsnachweis, kein
+unabhängiger Qualitätsnachweis auf Unternehmensdaten. Der vorherige Versuch
+`20261029T094305Z-c4cdfc42` ist erhalten: Das Modell ließ die damals optionale
+Namensentscheidung weg. Deshalb ist die Angabe jetzt im Generationsschema und
+im Prompt ausdrücklich verpflichtend.
+
+Kursleiter aus Teilnehmerdaten ausgeschlossen, 29.10.2026:
+Alle strukturierten lokalen Verfahren und der gemeinsame API-Runner verwenden
+die explizite Rollenangabe `person_role` mit wörtlichem `role_evidence`.
+Promptversionen sind `participant-json-v12-attendees-only` und
+`ocr-cell-assignment-v8-attendees-only`; bestehende Cacheantworten werden damit
+nicht als neue Rollenentscheidungen wiederverwendet. Kursleiter/Trainer/Dozenten
+werden vor Teilnehmerexport, Namenszuordnung und anschließender VLM-Signaturprüfung
+ausgeschlossen. OCR- und Zellverfahren verlangen einen Rollenbeleg in der eigenen
+Quellzeile; getrennte Zeilen, bloße Berufs-/Namenswerte und ungesicherte
+Modellvermutungen führen nicht zum Ausschluss. Unbestätigte Kursleiterangaben
+werden als unbekannt mit Prüfhinweis erhalten. Der Prüfhinweis `role_unconfirmed`
+bleibt auch bei vollständiger Excel-Übereinstimmung im Namensvergleich sichtbar.
+
+Die Seite speichert `excluded_instructors`, die Rohdaten `person_role_filter`
+einschließlich ursprünglicher Ausgabeindizes. Der Extraktionsbericht enthält
+`excluded_instructors.csv` und einen getrennten Abschnitt. Der Vergleichsreport
+weist die Ausschlussanzahl separat aus. Referenzdateien und alte Ergebnisse
+werden nicht automatisch angepasst. Reiner OCR-Text bleibt vollständig erhalten.
+
+**414 lokale Tests und 48 Firmen-PC-Tests bestanden.** Insgesamt 21 neue lokale
+Fälle prüfen Rollenlabels, leere IDs, Personen mit Nachnamen „Trainer“, fehlende
+Belege, Negation, gleiche Namen in unterschiedlichen Zeilen, beide OCR-Parser,
+VLM-Zellantworten, die drei Zell-/Layoutverfahren, Legacy-Regeln sowie Ausschluss
+vor Signaturprüfung, Export und Excel-Bewertung. Die API-Integration prüft
+Kursleiterausschlüsse auf mehreren PDFs bei unveränderter Anzahl API-Anfragen.
+Nach Ergänzung der Vergleichsanzeige und der Weitergabe unklarer Rollen sind
+weitere 93 lokale und 34 API-Tests erfolgreich. Zwei zusätzliche Fälle prüfen
+den Rollen-Prüfhinweis im konservativen und im Best-Fit-Modus bei exaktem
+Referenztreffer. Der Firmen-PC-Export enthält das neue gemeinsame Rollenmodul;
+alle sechs Export-/Starttests sind ebenfalls erfolgreich.
+
+Echter lokaler CUDA-Test mit selbst erstellter PDF und manuell vorab festgelegter
+Referenz: `runs/20261029T091750Z-d68f927a/report.html`. Das VLM erhält beide
+Teilnehmer mit 8/8 richtigen Textfeldern und schließt den explizit gekennzeichneten
+Kursleiter aus. Das OCR-LLM schließt diesen ebenfalls anhand des Quellbelegs aus,
+verliert aber beide Teilnehmer bereits bei der OCR-Feldprüfung wegen falscher
+Modell-Zeilenreferenzen. Dieser Fehler bleibt separat in `rejected_rows` sichtbar;
+der gelesene Seitentext bleibt als Fallback erhalten. Die Rollenprüfung repariert
+keine Feld- oder Zeilenfehler. Der Funktionslauf mit Qwen3-1.7B und Qwen3-VL-4B
+dauerte zusammen rund 60 Sekunden; dies ist kein unabhängiger Qualitäts- oder
+Geschwindigkeitsvergleich. Audit: `instructor_filter_validation.json` im Laufordner.
+
+Text-LLM weiter auf Qwen3-1.7B verkleinert, 29.10.2026:
+Auf Benutzerwunsch verwenden `local.yaml` und `benchmark-unlimited.yaml` jetzt
+`Qwen/Qwen3-1.7B` statt Qwen3-4B, fest auf Revision
+`70d244cc86ccca08cf5af4e1e306ecf908b1ad5e` und `models/qwen3-1.7b`.
+Die abgeleiteten Profile übernehmen diese Einstellung für Tesseract/LLM,
+Unlimited-OCR/LLM, Paddle und Docling. BF16, vollständig auf CUDA, keine
+Quantisierung, deaktiviertes Thinking sowie 12000 Eingabe- und 8192 Ausgabetokens
+bleiben explizit konfiguriert. Das VLM und die visuellen Signaturmodelle behalten
+ihre bisherige Revision. Remote-API-Modellnamen werden nicht verändert.
+
+Die zwei öffentlichen Gewichtedateien wurden heruntergeladen: zusammen
+4063515592 Bytes. Alle elf Manifestdateien wurden per SHA-256 geprüft;
+keine Teildownloads sind übrig. Tokenizer und Modellarchitektur lassen sich
+offline ohne Remote-Code laden. Die Architektur wurde ohne Gewichtsspeicher
+aufgebaut und nach konfigurierter Gewichtsteilung mit 1720574976 Parametern
+geprüft. **395 lokale Tests bestanden**, einschließlich der Prüfung aller acht
+betroffenen Profile und unveränderter VLM-Identität. Ruff und `git diff --check`
+sind ohne Befund.
+
+Die GPU war durch einen vorhandenen Benutzerlauf belegt. Deshalb wurden für
+diese Änderung keine zusätzliche GPU-Inferenz, Laufzeitmessung oder
+Qualitätsmessung durchgeführt. Weniger Modellparameter allein belegen keine
+gleichbleibende Genauigkeit oder bestimmte Beschleunigung. Neue Modellläufe
+erhalten die neue Identität; vorhandene Ergebnisse und 4B-/8B-Gewichte bleiben
+erhalten. Einrichtungsnachweis: `data/model-validation/qwen3-1.7b-20261029.json`.
+
+Feste Klassen-ID-Grenze beim Referenzvergleich, 29.10.2026:
+Die bestehende Gruppierung nach Klassen-ID wurde gezielt für beide Zuordnungsmodi
+geprüft. PDF-Dateinamen bestimmen die Schulung; nur Referenzzeilen mit derselben
+`Class ID` werden an die Zuordnung übergeben. Auch eine exakt passende ID oder
+ein identischer Name in einer anderen aktiven Schulung wird nicht herangezogen.
+PDFs ohne passende Referenzklasse bleiben separat unbewertet. Führende Nullen
+der Klassen-ID bleiben erhalten. Die vorhandene Schutzprüfung in `course_metrics`
+weist gemischte Referenzklassen ab.
+
+Der Namensreport nennt jetzt pro Zeile die Klassen-ID und die Anzahl passender
+Referenzeinträge. Auch die Kandidatentabellen zeigen den Filter ausdrücklich.
+Sieben zusätzliche Testfälle prüfen Best-Fit und konservative Zuordnung,
+CSV-/XLSX-Eingaben, exakte Gegenkandidaten in einer anderen aktiven Klasse und
+fehlende Referenzklassen. **60 gezielte lokale Tests und 40 Firmen-PC-Tests
+bestanden**, einschließlich des gemeinsamen Report- und API-Einstiegs. Ruff und
+`git diff --check` sind ohne Befund.
+
+Die vier zuvor ergänzten Vergleiche wurden erneut geprüft und ihre Darstellung
+aktualisiert. Alle 2573 Referenzzeilenprüfungen in Teilnehmer-, Feld- und
+Kandidatenexporten bestätigen dieselbe Klassen-ID wie die jeweilige PDF-Zuordnung.
+Root-CSV-/JSON-/XLSX-Artefakte und Quellvorhersagen blieben per Hashvergleich
+unverändert. Es gab keine erneute Inferenz oder echte API-Anfrage.
+
+Separater Namenszuordnungsreport, 29.10.2026:
+`zuordnungen.html` zeigt gespeicherte erkannte Namen und Referenznamen direkt
+nebeneinander, einschließlich Quelle, tatsächlicher Paarung, Entscheidungsgrund,
+Feldbelegen, Levenshtein-Distanzen, Kandidatenrang und globalem Alternativabstand.
+Die vollständige Kandidatenliste weist aus, welche Referenz bereits einer anderen
+Ausgabe gehört. Fehlende und zusätzliche Namen bleiben getrennt sichtbar. Die
+lokalen Browserfilter führen keine Anfragen aus. Namen werden als Text maskiert;
+der feste Filterscript ist durch einen CSP-Hash freigegeben.
+
+Neue Vergleiche erzeugen den Report automatisch. `assignments --report ...`
+ergänzt vorhandene Vergleiche lokal; auf dem Firmen-PC lautet der Einstieg
+`main.py benchmark assignments --report ...`. Weder aktuelle Referenzdateien,
+Zugangsdaten noch Modellaufrufe werden dafür benötigt. Es werden keine Paarungen
+neu berechnet oder Werte korrigiert. Gespeicherte Rohvorhersagen werden nur bei
+passender Quellprüfsumme zur Darstellung herangezogen.
+
+Abnahme: **388 lokale Tests und 48 Firmen-PC-Tests bestanden**. Sechs neue Fälle
+prüfen die direkte Namensdarstellung, ein globales Optimum mit lokal zweitbester
+Namenspaarung, unsichere Namen, fehlende/veränderte Quellen, unveränderte Daten,
+den unabhängigen CLI-Einstieg sowie HTML-Maskierung und CSP. Die API-Integration
+prüft den zusätzlichen Report und dessen Aufruf ohne Zugangsdaten. Vier vorhandene
+Vergleiche wurden ergänzt: `20261029T074406Z-197ec7bd`,
+`20261028T124935Z-14c7ff83`, `20261028T112226Z-05f9323c` und
+`20261028T091240Z-22b73d6a`. HTML-Zeilenzahlen stimmen mit `participants.csv`
+überein; sämtliche Nicht-HTML-Artefakte und Quellvorhersagen blieben per Hashvergleich
+unverändert. Es gab keine erneute Inferenz und keine API-Aufrufe.
+
+OCR-Ausgabelimit und globale Best-Fit-Bewertung, 29.10.2026:
+Die lokalen OCR-LLM-Profile und das Remote-OCR-LLM verwenden 8192 statt 2048 bzw.
+4096 Ausgabetokens. Die Eingabegrenze, Modellrevision und VLM-Parameter bleiben
+unverändert. Schematisch ungültige einzelne OCR-Teilnehmerzeilen werden separat
+protokolliert; andere Zeilen durchlaufen weiter die strikte Prüfung gegen echte
+OCR-Wortbelege. JSON-Syntaxfehler werden nicht repariert, numerische IDs nicht
+stillschweigend in Strings umgewandelt und fehlende Personen nicht erfunden.
+
+Die ausgelieferten Testframework-Profile verwenden `matching.mode: best_fit`.
+Der ungarische Algorithmus maximiert zuerst die Anzahl lesbarer Eins-zu-eins-
+Paarungen innerhalb eines Kurses und dann die Summe bewertbarer Feldähnlichkeiten.
+Lesbare ungefähre IDs zählen mit. Die bisherigen Mindestgrenzen markieren jetzt
+schwache Paarungen; Mehrdeutigkeit, Duplikate und Identitätswidersprüche werden
+explizit ausgewiesen. Eine Paarung ist keine bestätigte Identität. Der alte
+konservative Modus und sein Score stehen separat zur Verfügung. Historische
+Konfigurationen ohne Modus behalten konservative Semantik. Metrikversion v2
+und Konfiguration dokumentieren die geänderte Auswertungsregel.
+
+Abnahme: **382 Hauptprojekttests und 48 Firmen-PC-Tests bestanden**. Neue Tests
+prüfen das globale Optimum gegen vollständiges Durchprobieren kleiner echter
+Levenshtein-Matrizen, Permutationen, niedrige/Nullähnlichkeiten, ungefähre IDs,
+fehlende/maskierte Werte, Mengenunterschiede, Duplikate, Mehrdeutigkeit,
+Identitätskonflikte, unveränderte Feldrollen und die konservative Vergleichszahl.
+Weitere Fälle prüfen zeilenweise Schemafehler und weiterhin abgewiesene ungültige
+JSON-/Umschlagstrukturen. Ruff und `git diff --check` sind ohne Befund.
+
+Neue Bewertung derselben unveränderten Vorhersagen wie im Vergleich
+`20261028T124935Z-14c7ff83`: `20261029T074406Z-197ec7bd`. OCR/LLM erhält
+10 Paarungen statt 0, VLM 18 statt 2. Der VLM-Best-Fit-Score beträgt
+52,131646131646136 %, die konservative Vergleichszahl unverändert
+7,707231040564374 %. Die höheren Werte entstehen durch die Zuordnungsregel,
+nicht durch bessere oder korrigierte Modellwerte. Alte Berichte und
+Quellvorhersagen blieben per Hashvergleich unverändert.
+
+Lokaler GPU-Nachtest des 8192-Limits: `runs/20261029T074005Z-793451f1/`.
+Die Antworten endeten nach 4063 bzw. 835 Tokens ohne Tokenabschneidung.
+Die erste Antwort enthält jedoch drei Schemafehler und 92 weitere nicht
+hinreichend mit OCR-Zeilen belegbare Ausgaben; auch die neue zeilenweise Prüfung
+findet dort keinen belastbaren Teilnehmerdatensatz. Der höhere Grenzwert behebt
+den Budgetabbruch, nicht diese verbleibende Erkennungs-/Belegschwäche des Modells.
+Die zweite Seite enthält zehn akzeptierte Zeilen mit 25 Feldprüfhinweisen.
+Original-PDF, ursprüngliche Vorhersagen und Rohantworten wurden nicht verändert.
+Diese Einzelprüfung ist keine unabhängige Qualitätskalibrierung.
+
+HTML-Detailvergleich und Fehlerdiagnose, 28.10.2026:
+Neue Vergleiche enthalten `details.html` mit Unterseiten pro Verfahren/Schulung.
+Die Ansicht zeigt tatsächliche Referenz-/Ausgabepaare, Originalwerte, normalisierte
+Werte, Status, Levenshtein-Distanzen, Nennerbeiträge und sämtliche Referenzkandidaten
+mit Zulassungsgrenzen. Einzelbeiträge werden gegen gespeicherte Gesamtscores geprüft.
+Suche und Filter verwenden ein festes lokales Skript mit CSP-SHA256-Freigabe; alle
+Dokumentwerte werden HTML-escaped. Ein Herkunftsexport trennt Darstellungs- von
+Bewertungsimplementierung. `details --report ...` funktioniert ohne Modell-/API-
+Aufrufe, ohne aktuelle Excel-Datei und ohne erneute Bewertung. Die mathematisch
+unveränderten Kandidatengrenzen werden für Zuordnung und Erklärung gemeinsam genutzt.
+
+Abnahme: **363 Hauptprojekttests und 48 Firmen-PC-Tests bestanden**, Ruff und
+`git diff --check` ohne Befund. Neun neue Fälle prüfen fehlende/zusätzliche Personen,
+maskierte Referenzwerte, Bruchteile, eingefrorene Referenzen, unveränderte Scores,
+unsichere Originalwerte, verschobene/fehlende Quellen, Manipulationserkennung,
+Namensreihenfolge als reine Diagnose, HTML-Injektionen/CSP und abgeschnittene
+Modellantworten. API-Integrationstests prüfen die automatische Detailausgabe und
+deren Aktualisierung ohne Zugangsdaten oder zusätzliche Requests.
+
+Die Vergleiche `20261028T124935Z-14c7ff83` und `20261028T112226Z-05f9323c`
+wurden um die Detailansicht ergänzt. Sämtliche bisherigen JSON-/CSV-/XLSX-Dateien
+und Quellvorhersagen blieben per Hashvergleich unverändert. Eine Berechnung im
+Speicher aus den eingefrorenen Referenzen bestätigt für beide Vergleiche dieselben
+Paarungsanzahlen und Scores nach dem Refactoring der Kandidatenprüfung.
+Im aktuellen Vergleich werden von 18 VLM-Ausgaben nur 2 zugeordnet; der Feld-F1
+beträgt 7,707231040564374 %. Es bestehen zehn Diagnosehinweise auf vertauschte
+Vor-/Nachnamen, ohne automatische Korrektur oder Zusatzpunkte. OCR/LLM-Seite 1
+ist bei 2048 Ausgabetokens abgeschnitten. Paddle liefert auf Seite 2 nach einem
+Zuordnungsfehler keine Teilnehmer. Diese konkreten Befunde erklären niedrige
+Werte; sie belegen keine allgemeine Modellqualität und ersetzen keine unabhängig
+gelabelte Evaluation. Keine Modellgewichte, Schwellenwerte oder Extraktionsregeln
+wurden zur Verbesserung dieser gespeicherten Scores verändert.
+
+Vollständiges API-Testframework, 28.10.2026:
+`api_firmen_pc/start_api_testframework.cmd` verarbeitet PDFs über den API-Adapter
+und führt anschließend dieselbe lokale, kursbezogene Levenshtein-/Exact-Match-
+Bewertung wie das GPU-Testframework aus. Eigene Eingabe-, Referenz- und
+Ergebnisordner liegen unter `api_firmen_pc/testframework/`. Referenzen bleiben
+vor der Inferenz eingefroren und werden nicht an die Extraktion weitergegeben.
+Der lokale Einstieg bleibt standardmäßig offline; nur der explizite Firmen-PC-
+Einstieg setzt die interne API-Freigabe. `benchmark check` und `benchmark compare`
+benötigen keine Zugangsdaten und keine Modellaufrufe. Das vorhandene OCR/API-Profil
+enthält nun sowohl die Remote-LLM- als auch die Remote-VLM-Konfiguration.
+
+Abnahme: **354 Hauptprojekttests und 48 Firmen-PC-Tests bestanden**. Die neuen
+Integrationstests verarbeiten jeweils zwei synthetische PDFs über einen lokalen
+OAuth-/Chat-Testserver, vergleichen CSV und XLSX ohne identische Zeilenreihenfolge
+und ergeben den erwarteten Levenshtein-Feld-F1 von 93,75 %. Ein zusätzlicher Kurs
+bleibt außerhalb des Nenners; exklusive Referenzwerte fehlen in allen Requests.
+Originaldateien bleiben per Hashvergleich unverändert. Erneuter Abgleich ohne
+Zugangsdaten erzeugt keine Requests. PowerShell-Syntax, CLI-Einstiege, Ruff und
+`git diff --check` sind geprüft.
+
+Transferpaket: `api_firmen_pc/dist/firmen-pc-20261028-api-testframework.zip`,
+94 ausgewählte Dateien ohne Dokumente, Referenzdaten, Schlüssel, Gewichte oder
+virtuelle Umgebungen. Nach dem Entpacken wurden die enthaltenen Python-Quellen
+explizit importiert; alle 40 API-Integrations- und Starttests bestanden mit diesen
+Paketquellen in der bestehenden Umgebung ohne PyTorch/Transformers. Die acht
+Tests für private PowerShell-Starts bestanden im installierten Firmen-PC-Projekt.
+Kein echter Unternehmensdienst wurde kontaktiert. Onboarding, freigeschaltete
+Modelle und die tatsächliche Anmeldung müssen auf dem Firmen-PC geprüft werden.
+
+VLM-Spaltenzuordnung bei leeren Benutzerfeldern, 28.10.2026:
+Prompt v11 gibt die vollständigen physischen Tabellenüberschriften und pro Person
+eine gleich lange Zellenliste aus. Der Parser leitet Benutzer und Kurzzeichen aus
+eindeutigen gedruckten Überschriften ab; Namens-, Nummern- und leere Zellen bleiben
+an ihrer Position. Fehlende oder mehrdeutige Spalten sowie nicht passende
+Zellenanzahlen erzeugen unbekannte Felder und Prüfhinweise. Kein Vertauschen allein
+anhand eines vermeintlichen Unternehmensformats. Normale und API-VLMs verwenden
+dasselbe neue Schema; alte Antworten bleiben lesbar und unverändert gespeichert.
+
+Abnahme: **352 Hauptprojekttests und 42 Firmen-PC-Tests bestanden**, Ruff und
+`git diff --check` ohne Befund. Die zusätzlichen Fälle prüfen komplette und
+umgekehrte Spaltenreihenfolgen, durchgehend leere IDs, fehlende ID-Spalten,
+Benutzername gegenüber Benutzer, numerische Kurzzeichen/alphanumerische IDs,
+mehrdeutige Überschriften, kompaktierte Zellen, Legacy-Prüfhinweise, den
+Excel-Export und den unveränderten Seitentext-Fallback.
+
+Lokaler GPU-Nachtest: `runs/20261028T122806Z-b9d65921/report.html` liest dieselben
+zwei Seiten wie `20261028T110616Z-ffb47309`. Weiterhin 9 + 9 = 18 Teilnehmer.
+Auf Seite 2 stehen jetzt 9 Benutzerfelder auf `empty` und alle 9 Kurzzeichen auf
+`read` in der richtigen Zielspalte; zuvor standen sechs Kurzzeichen in Benutzer.
+Die erste reduzierte Zellvariante las dagegen Vornamen als IDs und wurde verworfen;
+deshalb enthält das endgültige Schema auch die Namens- und übrigen Tabellenspalten.
+Der erfolgreiche Nachtest benötigt zwei Seitenaufrufe und einen Warm-up-Aufruf,
+keine zusätzliche OCR-/VLM-Stufe. Modellrevision und Bildauflösung blieben gleich.
+Quell-PDF, Originalmanifest, Quellvorhersagen und Rohantworten wurden vor/nach dem
+Lauf per Hash auf Unverändertheit geprüft. Der Export enthält dieselbe korrekte
+Spaltenzuordnung. Dies prüft den gemeldeten Einzelfall und ist keine unabhängige
+Evaluation der Namensgenauigkeit oder sämtlicher Vorlagen.
+
+Kleineres Textmodell, 28.10.2026:
+`local.yaml` und `benchmark-unlimited.yaml` verwenden jetzt Qwen3-4B mit Revision
+`1cfa9a7208912126459214e8b04321603b3df60c`, eigenem Pfad `models/qwen3-4b`,
+BF16 und `quantization: none`. Davon erben auch die Profile für Import, Tesseract,
+Unlimited-Zuordnung, Paddle, Docling und das separate Testframework. Tokenbudgets,
+Feldbelege und das Qwen3-VL-4B bleiben unverändert. Alte 8B-Gewichte und Ergebnisse
+wurden erhalten; laufende Prozesse behalten ihre eingelesene Konfiguration.
+
+Abnahme: **334 Hauptprojekttests bestanden**, Ruff und `git diff --check` ohne
+Befund. Die Profilprüfung deckt acht Einstiegskonfigurationen ab und bestätigt
+das unveränderte VLM. Die drei neuen Gewichtedateien (8.044.982.000 Bytes) wurden
+explizit heruntergeladen und per SHA256 geprüft. Offline-Tokenizer, deaktiviertes
+Thinking sowie die native Transformers-Architektur mit 4.022.468.096 Parametern
+wurden lokal geprüft; die Architekturerstellung verwendete ausschließlich
+Meta-Tensoren. Keine zusätzlichen Dokumente verarbeitet und keine GPU-Inferenz
+parallel zum bereits laufenden Benutzerprozess gestartet. Ein kontrollierter
+Laufzeit- und Qualitätsvergleich zwischen 8B und 4B steht noch aus.
+
+Excel-Spaltennamen, 28.10.2026:
+Die Referenzleser erhalten die tatsächlichen Überschriften einschließlich ihrer
+Schreibweise und Reihenfolge. HTML-Berichte zeigen diese Bezeichnungen;
+`participants.xlsx` enthält je Verfahren ein Blatt sowie ein Quellenblatt und
+beim Referenzvergleich die verglichenen Referenzzeilen. Die internen Feldkennungen
+bleiben kompatibel. Leere Benutzerfelder, führende Nullen und als Text erkannte
+Formelzeichen bleiben im Excel-Export erhalten.
+
+Abnahme: **329 Hauptprojekttests und 42 Firmen-PC-Tests bestanden**; Ruff und
+`git diff --check` ohne Befund. Elf neue synthetische Fälle prüfen Überschriften,
+mehrdeutige Zuordnungen, beide Referenzleser, Zelltypen, fehlende Kurs-IDs,
+Berichtserneuerung und beide Vergleichsverfahren. Die fertigen Läufe
+`20261028T103543Z-60f2dd65` und `20261028T101534Z-099e06b9` wurden ohne OCR-/
+Modellaufrufe aktualisiert. Referenzdatei, Manifeste, Konfigurationen,
+Zusammenfassungen und modellseitige `extractions.jsonl` blieben per Hashvergleich
+unverändert. Keine neue Abhängigkeit und keine Änderung von Modellvorhersagen.
+
+Teilnehmerzuordnung für Paddle und Docling, 28.10.2026:
+Das Standardprofil verwendet jetzt nach Entladen des jeweiligen OCR-Workers das
+vorhandene lokale Qwen3-8B für die Feldzuordnung. Native OCR-/Textpositionen bleiben
+auch bei verbundenen Zellen oder fehlender Tabellenerkennung erhalten. Werte müssen
+wortgetreu in aktuellen Zeilen belegt sein; eindeutig erkannte Spalten verhindern
+eine Verschiebung von Kurzzeichen in Benutzerfelder. Komma-Namen werden nach der
+expliziten Konvention `Nachname, Vorname` getrennt. Fortsetzungsseiten erhalten nur
+Überschriften/Positionen derselben PDF, keine vorherigen Teilnehmerwerte.
+
+Docling erhält textlose, gekachelte Scans als verlustfreies Seitenbild; digitale
+Text-PDFs bleiben nativ. Die Boxen vor dem Zusammenführen durch TableFormer werden
+zusätzlich gespeichert. Tesseract-Zeilenmodus und konfigurierte Linienentfernung
+gelten auch innerhalb Doclings OCR-Komponente; das Layoutbild behält seine Linien.
+Die bereits vorhandenen Bildfunktionen werden gemeinsam verwendet. Eine Änderung
+der OCR-Konfiguration ist keine kalibrierte Qualitätsaussage auf unabhängigen Daten.
+
+Abnahme: **318 Tests im Hauptprojekt und 42 im Firmen-PC-Projekt bestanden**,
+Ruff und `git diff --check` ohne Befund. Die zusätzlichen synthetischen Fälle prüfen
+verbundene/fehlende Tabellen, native Einzelboxen, leere IDs, Kurzzeichenverschiebung,
+mehrteilige Namen und Textoffsets, Kontextgrenzen, Fortsetzung, GPU-Modellreihenfolge,
+unveränderte Quellläufe, verlustfreie Scan-Pixel und die ausschließlich temporäre
+OCR-Linienentfernung. Keine neuen Paketabhängigkeiten oder Modellgewichte.
+
+Lokale GPU-Nachtests auf den gespeicherten Unternehmensbelegen:
+
+- Paddle: `runs/20261028T093935Z-ba08a554/report.html`, 9 + 9 = 18 zugeordnete
+  Teilnehmerzeilen gegenüber zuvor 0. Auf Seite 2 bleiben die neun Benutzer-IDs
+  unbekannt; Kurzzeichen werden nicht als Ersatz übernommen.
+- Docling mit aktualisierter OCR-Eingabe und Positionskontext:
+  `runs/20261028T100721Z-3e1d2b31/report.html`, 9 + 7 = 16 zugeordnete
+  Teilnehmerzeilen gegenüber zuvor 0. Grundlage des OCR-Nachlaufs ist
+  `runs/20261028T100047Z-b34e4856/`; dessen reiner Strukturdiagnoselauf verwendet
+  ausdrücklich `extraction: table` und zeigt selbst noch keine LLM-Teilnehmer.
+
+Die Anzahlen sind **keine bestätigten richtigen Treffer**. Es gibt keine manuell
+gelabelte Referenz für diese Dokumente; OCR-Fehler, unbekannte Felder, nicht zugeordnete
+Zeilen und mögliche zusätzliche/falsch zugeordnete Personen erfordern Prüfung mit
+dem separaten Excel-/CSV-Testframework. Beide Nachberichte tragen `partial`, führen
+keine neue Unterschriftenbewertung durch und verändern ihre Quellläufe nicht.
+`assignment_recheck.json` enthält die Quellprüfsummen und die verwendete Code-/
+Promptversion. Für die Scan-Korrektur ist ein neuer `run` notwendig; `assign-structures`
+kann nur vorhandene OCR-Belege neu zuordnen. Nur beide Verfahren starten:
+`run --input data/cv-test-20261020-093337 --config configs/structure-models.yaml --offline`.
+
+Separates Testframework für Schulungsreferenzen, 28.10.2026:
+`testframework/main.py` mit eigenen PDF-/Referenzordnern, YAML-Konfiguration und
+`start_testframework.cmd` ergänzt die bestehende Extraktion. XLSX-/CSV-Leser nutzen
+die vorhandenen Regeln für String-IDs, Maskierungen und Excel-Zellenformate.
+Der Vergleich gruppiert nach Schulungs-ID aus PDF-Dateinamen über alle Seiten und
+Dateien hinweg. Globale optimale Eins-zu-eins-Zuordnung mit Levenshtein-Namen/
+Kurzzeichen, eindeutigen exakten ID-Ankern, Dummy-Zuordnungen und globaler
+Alternativenprüfung verhindert Mehrfachgutschriften und beliebige Paarungen.
+Konflikte und mehrdeutige Identitäten erhalten konservativ keine automatische
+Zuordnung. Die Werte werden nicht zur Reparatur von Modelltexten verwendet.
+
+Der Hauptscore ist ein Levenshtein-Feld-F1 mit dokumentierten Zählern/Nennern;
+exakter Feld-F1, exakte Referenztrefferquote und Originalschreibweise stehen
+daneben. Fehlende Felder zählen null, zusätzliche/duplizierte vorhergesagte Werte
+vergrößern den Nenner. Referenzausschlüsse und explizite Maskierungsprüffälle
+bleiben sichtbar. Unbekannte Modellwerte bei lesbarer Referenz zählen als Fehler.
+Reiner OCR-Text wird nicht als strukturierte Teilnehmerextraktion bewertet.
+Die Referenzdaten werden vor der Inferenz eingefroren und niemals an den Runner
+übergeben; ein Editieren der Quelldatei während der Inferenz wird im Vergleich
+sichtbar. Nur fünf relevante Referenzspalten werden im Audit-Snapshot gespeichert.
+
+Abnahme: **300 lokale Tests und 42 Tests des getrennten Firmen-PC-Projekts
+bestanden**, Ruff ohne Befund. Darin 35 neue Prüfungen für Edit-Distanz,
+Teilpunkte, alle Reihenfolgepermutationen, globale gegenüber gieriger Zuordnung,
+Duplikate, Fehlstellen, leere/maskierte IDs, unsichere Literalwerte, führende
+Nullen, CSV-Trennzeichen/BOM, Excel-Formate/Formeln, Schulungsgrenzen, mehrere
+PDFs/Seiten pro Kurs, widersprüchliche Hash-/Kurszuordnung, Referenzfreeze,
+Read-only-Quellläufe, Offline-Auswertung und CLI. Es kamen keine neuen
+Paketabhängigkeiten hinzu. Nur Referenzübereinstimmung wird gemessen;
+Zuordnungsfelder sind keine unabhängige Identitätsprüfung.
+
+Echter lokaler GPU-Integrationslauf mit zwei synthetischen PDFs und bewusst anders
+sortierter Referenz: `runs/20261028T085805Z-610f3ceb/report.html`, Qwen3-VL-4B,
+drei Personen, zwei Schulungen, 11/11 bewertbare Textfelder exakt; der leere
+Referenzbenutzer ist ausgeschlossen. Keine zusätzlichen Signaturdetailaufrufe,
+weil die Referenz keine Signaturlabels enthält. Extraktion etwa 28,5 s.
+Aktueller Post-hoc-Vergleich ohne neue Inferenz:
+`testframework/ergebnisse/20261028T091240Z-22b73d6a/report.html`.
+Ein zusätzlicher CSV-Kurs ohne Eingabe-PDF bleibt außerhalb des Nenners.
+
+Die davon getrennte, ausdrücklich künstliche Vorhersagefixture enthält einen
+Schreibfehler und eine Doppelzeile. Ihr erwarteter Levenshtein-Feld-F1 ist
+82,69 %, exakter Feld-F1 76,92 %, zehn von elf Referenzfeldern exakt, eine
+zusätzliche Person. Aktueller Demobericht:
+`testframework/ergebnisse/20261028T091241Z-757eb697/report.html`.
+Dies prüft ausschließlich die Bewertungslogik und wird im Bericht als synthetisch
+markiert; es ist kein Nachweis einer Modellqualität auf Unternehmensdaten.
+
+Sechs lokale Verfahren, 28.10.2026: Der Standardvergleich enthält jetzt
+`ocr_raw`, `ocr_llm`, `unlimited_ocr`, `vlm`, `paddle_structure` und `docling`.
+`ocr_raw` erzeugt ausschließlich Tesseract-Rohtext; keine Teilnehmer-, Feld-,
+Excel- oder Unterschriftenbewertung. Historische `ocr_rules` und eingefrorene
+Kalibrierungen bleiben verfügbar. PaddleOCR 3.7.0/PaddleX 3.7.2/Paddle CUDA 3.3.1
+und Docling 2.143.1/TableFormer laufen in getrennten uv-Umgebungen. Die neuen
+Worker blockieren Netzwerkzugriffe und verwenden ausschließlich vorab geladene,
+festgeschriebene Modellartefakte mit SHA-256-Manifesten. Tatsächliche
+Laufzeit-Paketversionen gehen zusätzlich zu Lockdateien in die Laufidentität ein.
+
+Abnahme: **265 lokale Tests und 42 Firmen-PC-Tests bestanden**, Ruff ohne Befund.
+Alle fünf uv-Lockdateien offline geprüft: Hauptprojekt 71, Firmen-PC 54,
+Unlimited 55, Paddle 117 und Docling 121 aufgelöste Pakete. Der neue Starter
+`start_alle_lokalen_modelle.cmd --pruefen` findet den vorhandenen CV-Eingabeordner,
+ohne Modelle zu starten oder Zugangsdaten zu lesen. Zusätzliche Tests prüfen
+Rohtext ohne Feld-/Signaturmodell, native Seitenauswahl, zusätzliche Rotation,
+Originalerhalt, leere IDs und führende Nullen, Netzwerksperre, Paket-/Modell-
+Provenienz, Cache, beschädigte Cacheeinträge, Cachebegrenzung, Einzel-Seitenfehler
+und inerte Tabellenexporte. Die Adapter-Testdoubles sind kein Qualitätsnachweis.
+
+Echter lokaler GPU-Test mit synthetischen Daten:
+`runs/20261028T080613Z-6ff616dc/report.html`, drei Seiten (Deckblatt, digitale
+Teilnehmertabelle, Scan mit PDF-Rotation 90° und zusätzlicher Analysekorrektur
+270°). SHA-256 der synthetischen Original-PDF:
+`266c352cbc58a4679a7ad0d5961f061aa27e694c9bc95e98e2a1276ea330793f`.
+Beide Strukturverfahren liefern 0/3/3 Teilnehmende und jeweils 24/24 exakt
+übereinstimmende Textfelder gegenüber den bekannten Konstruktionswerten,
+einschließlich leerem Benutzerfeld, führenden Nullen, Umlauten und Bindestrich.
+Paddle-Peak etwa 3,26 GiB, Docling etwa 0,56 GiB GPU-Allocator-Speicher;
+gesamter Dreierlauf etwa 31,7 s. Reine Tesseract-Ausgabe hat erwartungsgemäß
+keine Teilnehmer und wird nicht als fehlgeschlagene Feldextraktion bewertet.
+Die Original-PDF blieb unverändert. Die spätere Ergänzung der installierten
+Paketversionen betrifft die Identität, nicht die Inferenz dieser Modelle.
+
+Separater Paddle-Lauf `runs/20261028T080234Z-defb9174/report.html` prüft zusätzlich
+das vollständige Entladen des Paddle-Workers vor der lokalen Qwen-VLM-
+Unterschriftenstufe. Die Windows-DLL-Suche wurde dafür im Worker auf die
+vorhandenen CUDA-/cuDNN-Dateien des Hauptprojekts eingestellt; kein systemweiter
+PATH-Eingriff und kein PyTorch-Import im Paddle-Worker. Keine externen Anfragen
+mit Dokumentinhalten. Ergebnisse bleiben `partial`, weil OCR und gedruckte
+Spaltenüberschriften die korrekte Semantik nicht beweisen. Auf echten PDFs
+und Handschrift ist die Zuverlässigkeit der neuen Baselines noch nicht evaluiert.
+
+Die folgenden Abschnitte dokumentieren ältere Entwicklungsstände.
+
 Unlimited-OCR-Zellzuordnung, 27.10.2026: Der bisherige CV-Lauf lieferte OCR,
 aber keine Teilnehmer: verbundene Tabellenzellen auf der ersten Seite und
 fehlende Spaltenüberschriften auf der zweiten Seite verhinderten die bisherige

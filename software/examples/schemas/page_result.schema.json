@@ -40,6 +40,31 @@
     "Participant": {
       "additionalProperties": false,
       "properties": {
+        "person_role": {
+          "default": "unknown",
+          "description": "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. Never infer the role from a name, department, signature or row position.",
+          "enum": [
+            "participant",
+            "instructor",
+            "unknown"
+          ],
+          "title": "Person Role",
+          "type": "string"
+        },
+        "role_evidence": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. Use null when no explicit role label exists; never copy a label belonging to another person.",
+          "title": "Role Evidence"
+        },
         "row_ref": {
           "anyOf": [
             {
@@ -246,6 +271,13 @@
         "$ref": "#/$defs/Participant"
       },
       "title": "Participants",
+      "type": "array"
+    },
+    "excluded_instructors": {
+      "items": {
+        "$ref": "#/$defs/Participant"
+      },
+      "title": "Excluded Instructors",
       "type": "array"
     },
     "parse_status": {

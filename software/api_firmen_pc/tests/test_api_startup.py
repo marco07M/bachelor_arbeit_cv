@@ -58,6 +58,16 @@ def test_export_contains_shared_sources_but_no_private_data(tmp_path):
         names = set(archive.namelist())
     assert "software/api_firmen_pc/main.py" in names
     assert "software/verarbeitung/src/participant_bench/runner.py" in names
+    assert "software/verarbeitung/src/participant_bench/vlm_cells.py" in names
+    assert "software/verarbeitung/src/participant_bench/person_roles.py" in names
+    assert "software/verarbeitung/src/participant_bench/document_names.py" in names
+    assert "software/verarbeitung/src/participant_bench/roster_benchmark/detail_report.py" in names
+    assert "software/verarbeitung/src/participant_bench/roster_benchmark/assignment_report.py" in names
+    assert "software/api_firmen_pc/start_api_testframework.cmd" in names
+    assert "software/api_firmen_pc/testframework/main.py" in names
+    assert "software/api_firmen_pc/testframework/config.yaml" in names
+    assert "software/testframework/config.yaml" in names
+    assert "software/api_firmen_pc/testframework/referenz/README.md" in names
     assert "software/api_firmen_pc/uv.lock" in names
     assert "software/api_firmen_pc/certificates/BMW_Trusted_Certificates_Latest.pem" in names
     assert "software/api_firmen_pc/docs/gate-zugang.md" in names
@@ -68,3 +78,27 @@ def test_export_contains_shared_sources_but_no_private_data(tmp_path):
     )
     with pytest.raises(FileExistsError):
         module.build_bundle(output)
+
+
+def test_api_framework_uses_api_vlm_and_same_matching_settings_as_local():
+    from participant_bench.roster_benchmark.config import load_config as load_benchmark
+
+    from participant_api.benchmark import DEFAULT_CONFIG
+    from participant_api.config import load_config
+
+    config = load_benchmark(DEFAULT_CONFIG)
+    local = load_benchmark(Path("../testframework/config.yaml"))
+    assert config.matching == local.matching and config.reference == local.reference
+    extraction = load_config(DEFAULT_CONFIG.parent / config.extraction_config)
+    assert extraction.methods == ["vlm"] and not extraction.pdf.auto_orient
+    assert extraction.models["vlm"].backend == "api"
+    assert not config.signature_detail_checks
+
+
+def test_api_ocr_profile_has_separate_configured_remote_llm_and_vlm():
+    from participant_api.config import connection_config, load_config
+
+    config = load_config(Path("configs/api-ocr.yaml"))
+    assert config.models["ocr_llm"].backend == config.models["vlm"].backend == "api"
+    assert connection_config(config.models["ocr_llm"]).model_env == "BMW_LLM_MODEL"
+    assert connection_config(config.models["vlm"]).model_env == "BMW_VLM_MODEL"

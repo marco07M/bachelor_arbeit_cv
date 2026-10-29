@@ -5,6 +5,7 @@ param(
     [string]$Config = 'configs/api-bmw.yaml',
     [string]$EnvFile,
     [switch]$CheckOnly,
+    [switch]$Testframework,
     [switch]$NoPrompt
 )
 
@@ -21,11 +22,24 @@ try {
     if (-not (Test-Path -LiteralPath $benchmarkExecutable -PathType Leaf)) {
         throw 'Die Projektumgebung fehlt. Bitte zuerst uv sync --locked im Ordner software/api_firmen_pc ausfuehren.'
     }
-    & (Join-Path $PSScriptRoot 'set-api-environment.ps1') -EnvFile $EnvFile -NoPrompt:$NoPrompt
-    if ($CheckOnly) {
-        & $benchmarkExecutable check --config $Config
+    if ($Testframework) {
+        $frameworkConfig = if ($PSBoundParameters.ContainsKey('Config')) { $Config } else { 'testframework/config.yaml' }
+        $frameworkCommand = if ($CheckOnly) { 'check' } else { 'run' }
+        $frameworkArguments = @('benchmark', $frameworkCommand, '--config', $frameworkConfig)
+        if ($PSBoundParameters.ContainsKey('InputFolder')) {
+            $frameworkArguments += @('--input', $InputFolder)
+        }
+        if (-not $CheckOnly) {
+            & (Join-Path $PSScriptRoot 'set-api-environment.ps1') -EnvFile $EnvFile -NoPrompt:$NoPrompt
+        }
+        & $benchmarkExecutable @frameworkArguments
     } else {
-        & $benchmarkExecutable run --input $InputFolder --config $Config
+        & (Join-Path $PSScriptRoot 'set-api-environment.ps1') -EnvFile $EnvFile -NoPrompt:$NoPrompt
+        if ($CheckOnly) {
+            & $benchmarkExecutable check --config $Config
+        } else {
+            & $benchmarkExecutable run --input $InputFolder --config $Config
+        }
     }
     $apiExitCode = $LASTEXITCODE
 } finally {

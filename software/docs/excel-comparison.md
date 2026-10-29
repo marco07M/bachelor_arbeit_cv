@@ -56,6 +56,18 @@ zur Bewertung herangezogen. Spaltennamen lassen sich in der Konfiguration änder
 Groß-/Kleinschreibung und Rand-Leerzeichen der Überschriften sind unerheblich.
 `header_row` wählt die Kopfzeile, `sheet: null` das aktive Excel-Blatt.
 
+Der Bericht und der Teilnehmerexport übernehmen die tatsächliche Schreibweise
+der zugeordneten Überschriften direkt aus der XLSX. `participants.xlsx` enthält
+die fünf verwendeten Spalten in ihrer ursprünglichen Reihenfolge: je ein Blatt
+pro Verfahren, ein Blatt `Referenz` mit den verglichenen Kursen und `Quellen`
+mit PDF-Seiten und ursprünglichen Referenzzeilen. Leere IDs bleiben leer;
+führende Nullen und als Text erkannte Werte werden unverändert gespeichert.
+Für Zuordnung und Bewertung werden führende Nullen numerischer User IDs jedoch
+ignoriert: `0047285` und `47285` gelten als gleich. Die Normalisierung betrifft
+ausschließlich den Vergleich, keine Originalwerte und keine Class IDs.
+Die Referenzdatei selbst wird nur gelesen. Technische Feldkennungen in JSON/CSV
+bleiben erhalten; `field_label` enthält zusätzlich die Originalüberschrift.
+
 Das bestehende Extraktionsschema speichert das Kurzzeichen im Feld `department`.
 `configs/local.yaml` erkennt dafür zusätzlich die Überschriften Kurzzeichen,
 Kürzel und Organization. Bei abweichenden Formularen die Spaltenzuordnung bzw.
@@ -119,6 +131,7 @@ Fehlermeldung; die Referenz als feste Werte exportieren.
 | Datei | Inhalt |
 | --- | --- |
 | `report.html` | Lokaler Bericht mit Zusammenfassung, ungeklärten Einträgen und Feldabweichungen |
+| `participants.xlsx` | Teilnehmer je Verfahren und Referenz mit Original-Spaltennamen; Quellenblatt mit Seitenzuordnung |
 | `summary.csv` | Kennzahlen je Verfahren, einschließlich Precision, Recall und F1 der Personenzuordnung |
 | `matches.csv` | Gefundene, fehlende, zusätzliche, doppelte oder mehrdeutige Personen; Excel-Zeile und PDF-Seite |
 | `field_comparison.csv` | Soll-/Ist-Werte je Referenzfeld, Lesbarkeit, Ausschlussgrund und Zuordnungsquelle |

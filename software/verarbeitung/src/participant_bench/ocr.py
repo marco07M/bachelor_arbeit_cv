@@ -5,13 +5,11 @@ import subprocess
 import time
 from pathlib import Path
 
-import cv2
-import numpy as np
 import pytesseract
 from PIL import Image
 
 from .doctor import tesseract_command
-from .image_preprocessing import preprocess, rotate_box
+from .image_preprocessing import binary, grid_masks, preprocess, remove_grid_lines, rotate_box  # noqa: F401
 from .io import digest, file_hash, read_json, write_json
 
 
@@ -29,17 +27,19 @@ def generated_cache_files(root):
     return files
 
 
-def binary(image):
-    gray = np.asarray(image.convert("L"))
-    return cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-
-
-def grid_masks(image):
-    ink = binary(image)
-    h, w = ink.shape
-    horizontal = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, max(30, w // 12)), np.uint8))
-    vertical = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((max(30, h // 15), 1), np.uint8))
-    return ink, horizontal, vertical
+def raw_transcript(data):
+    """Observed Tesseract words in its original block/paragraph/line order, without field assignment."""
+    lines, current, previous = [], [], None
+    for word in data["words"]:
+        line = tuple(word.get("line", []))
+        if current and line != previous:
+            lines.append(" ".join(current))
+            current = []
+        current.append(word["text"])
+        previous = line
+    if current:
+        lines.append(" ".join(current))
+    return "\n".join(lines)
 
 
 class OCR:
@@ -98,9 +98,7 @@ class OCR:
                 return result
         source, original_box, preprocessing = preprocess(image, self.config.ocr.preprocessing)
         if self.config.ocr.remove_grid_lines:
-            ink, horizontal, vertical = grid_masks(source)
-            lines = cv2.bitwise_or(horizontal, vertical)
-            cleaned = Image.fromarray(255 - cv2.subtract(ink, lines))
+            cleaned = remove_grid_lines(source)
             source.close()
             source = cleaned
         try:

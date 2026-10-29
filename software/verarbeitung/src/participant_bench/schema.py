@@ -13,6 +13,17 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class PersonRole(StrictModel):
+    person_role: Literal["participant", "instructor", "unknown"] = Field(default="unknown", description=(
+        "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. "
+        "Never infer the role from a name, department, signature or row position."
+    ))
+    role_evidence: str | None = Field(default=None, max_length=120, description=(
+        "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. "
+        "Use null when no explicit role label exists; never copy a label belonging to another person."
+    ))
+
+
 class Box(StrictModel):
     x0: float = Field(ge=0, le=1)
     y0: float = Field(ge=0, le=1)
@@ -42,7 +53,7 @@ class TextField(StrictModel):
         return self
 
 
-class Participant(StrictModel):
+class Participant(PersonRole):
     row_ref: str | None = None
     bbox: Box | None = None
     first_name: TextField
@@ -70,7 +81,7 @@ class ModelResponse(StrictModel):
     participants: list[Participant]
 
 
-class VisualParticipant(StrictModel):
+class VisualParticipant(PersonRole):
     """Compact VLM output; empty strings and unknown nulls remain distinguishable."""
 
     row_ref: str | None = None
@@ -96,6 +107,7 @@ class VisualParticipant(StrictModel):
             state = "uncertain" if value is None else "empty" if not value.strip() else "read"
             fields[name] = TextField(value=value, state=state)
         return Participant(
+            person_role=self.person_role, role_evidence=self.role_evidence,
             row_ref=self.row_ref,
             **fields,
             signature_present=self.signature_present,
@@ -135,7 +147,19 @@ class SignatureLocations(StrictModel):
     rows: list[SignatureRowLocation]
 
 
+class NameOrderDecision(StrictModel):
+    order: Literal["given_family", "family_given", "unknown"] = Field(description=(
+        "Physical reading order of the two name parts in this document: given_family means first name "
+        "before surname; family_given means surname before first name. Use unknown if not defensible."
+    ))
+    evidence: str = Field(description=(
+        "Brief document evidence for the order: literal headings, their positions or a combined-name "
+        "separator. Do not use an external roster, a name dictionary or guess from individual names."
+    ))
+
+
 class VisualPageResponse(StrictModel):
+    name_order: NameOrderDecision | None = None
     participants: list[VisualParticipant]
     page_text: str | None = Field(
         description="Fallback only: transcribe all legible text if participants is empty; otherwise null."
@@ -150,7 +174,45 @@ class VisualPageResponse(StrictModel):
         return self
 
 
-class OCRParticipant(StrictModel):
+class VisualCellParticipant(PersonRole):
+    """Read identity cells in physical column order before assigning semantic fields."""
+
+    row_ref: str | None = None
+    first_name: str | None
+    last_name: str | None
+    identity_cells: list[str | None] = Field(description=(
+        "Exactly one cell per identity_headers column, in the same left-to-right order. "
+        "Include name and row-number cells too. Keep empty cells as ''. "
+        "Use null for masked, illegible, date or signature cells. Never shift cells."
+    ))
+    signature_present: bool | None = None
+
+
+class VisualCellPageResponse(StrictModel):
+    name_order: NameOrderDecision | None = None
+    identity_headers: list[str | None] = Field(description=(
+        "ALL literal printed table headings in physical left-to-right order, including row number, "
+        "names, user ID, department, date and signature columns if present. Include empty columns. "
+        "A page may have no user-ID column at all; never add a missing column or invent a heading. "
+        "Use null for an unreadable heading; never infer column roles from the cell values."
+    ))
+    participants: list[VisualCellParticipant]
+    page_text: str | None
+
+    @model_validator(mode="after")
+    def fallback_text(self):
+        if self.participants:
+            self.page_text = None
+        elif self.page_text is None:
+            raise ValueError("No participants: provide the visible page text as fallback, or '' for a blank page")
+        return self
+
+
+class OCRParticipant(PersonRole):
+    is_participant: bool = Field(default=True, description=(
+        "True only for an actual person entry. False for titles, course metadata, instructions, headers "
+        "or footers. Never turn the first word and the remaining sentence into a person's names."
+    ))
     ocr_line_id: int | None = Field(default=None, ge=1, description="line_id from OCR_LAYOUT_DATA.lines for this person row")
     row_ref: str | None = None
     first_name: str | None
@@ -164,7 +226,26 @@ class OCRParticipant(StrictModel):
 
 
 class OCRPageResponse(StrictModel):
+    name_order: NameOrderDecision | None = None
     participants: list[OCRParticipant]
+
+
+class OCRTextRow(PersonRole):
+    source_row: str
+    is_participant: bool = True
+    first_name: str | None
+    last_name: str | None
+    personnel_number: str | None
+    department: str | None
+
+
+class OCRTextPageResponse(StrictModel):
+    name_order: NameOrderDecision | None = None
+    participants: list[OCRTextRow]
+
+
+class OCRRecordResponse(StrictModel):
+    participants: list[OCRTextRow]
 
 
 class PageResult(StrictModel):
@@ -178,6 +259,7 @@ class PageResult(StrictModel):
     page_text: str | None = None
     text_fallback: bool = False
     participants: list[Participant] = Field(default_factory=list)
+    excluded_instructors: list[Participant] = Field(default_factory=list)
     parse_status: Literal["valid", "invalid", "not_attempted"] = "not_attempted"
     error: str | None = None
     timings: dict[str, float] = Field(default_factory=dict)

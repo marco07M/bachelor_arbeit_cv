@@ -12,7 +12,9 @@ from uuid import uuid4
 from vorverarbeitung.vorbereiten import document_number
 
 from .evaluation import normalized, prf, ratio
+from .excel_columns import field_labels, write_participants_xlsx
 from .excel_reference import ExcelConfig, ReferencePerson, read_reference
+from .identifiers import normalized_user_id
 from .io import file_hash, read_json, read_jsonl, write_csv, write_json
 from .schema import PageResult, Participant
 
@@ -22,7 +24,8 @@ DEFINITIONS = {
     "course": "Class ID aus sechsstelliger PDF-ID; alternativ explizite document_id/class_id-Zuordnung.",
     "matching": "Exakte eindeutige Kombination Vorname+Nachname+Organization, sonst eindeutige lesbare User ID, "
     "immer innerhalb derselben Class ID. Widersprüche und Mehrdeutigkeiten bleiben ungeklärt. Kein Fuzzy-Matching.",
-    "normalization": "NFC, Leerraum vereinheitlichen, casefold für Namen/Organization; IDs als Strings mit führenden Nullen.",
+    "normalization": "NFC, Leerraum vereinheitlichen, casefold für Namen/Organization; führende Nullen numerischer User IDs "
+    "werden nur für Zuordnung und Bewertung entfernt. Originalwerte und Class IDs bleiben erhalten.",
     "masked": "Leere/maskierte Excel-IDs und unleserliche oder sichtbar maskierte Vorhersage-IDs werden "
     "aus der ID-Feldmetrik ausgeschlossen. Fehlende Einträge und sonst unbekannte Vorhersagen bleiben Fehler.",
     "identity_bias": "Zur Zuordnung verwendete Felder sind keine unabhängige Erkennungsmessung. "
@@ -84,7 +87,7 @@ def assign(predictions: list[dict], references: list[ReferencePerson], config: E
     ids, names = defaultdict(set), defaultdict(set)
     for index, reference in enumerate(references):
         if config.usable_id(reference.user_id):
-            ids[reference.user_id].add(index)
+            ids[normalized_user_id(reference.user_id)].add(index)
         if reference.name_key:
             names[reference.name_key].add(index)
     proposed, issues = defaultdict(list), {}
@@ -92,7 +95,7 @@ def assign(predictions: list[dict], references: list[ReferencePerson], config: E
         values = prediction_values(prediction["person"])
         identity = tuple(normalized(values[k], "name") for k in ("first_name", "last_name", "short_code"))
         by_name = names.get(identity, set()) if all(identity) else set()
-        by_id = ids.get((values["user_id"] or "").strip(), set()) if config.usable_id(values["user_id"]) else set()
+        by_id = ids.get(normalized_user_id(values["user_id"]), set()) if config.usable_id(values["user_id"]) else set()
         if by_name and by_id and not by_name.intersection(by_id):
             issues[index] = "identity_conflict"
             continue
@@ -106,7 +109,8 @@ def assign(predictions: list[dict], references: list[ReferencePerson], config: E
     for reference_index, items in proposed.items():
         if len(items) > 1:
             fingerprints = {
-                tuple((getattr(predictions[i]["person"], f).value, getattr(predictions[i]["person"], f).state)
+                tuple((normalized_user_id(getattr(predictions[i]["person"], f).value) if f == "personnel_number"
+                       else getattr(predictions[i]["person"], f).value, getattr(predictions[i]["person"], f).state)
                       for f in FIELDS.values())
                 for i, _ in items
             }
@@ -150,7 +154,7 @@ def compare_course(predictions: list[dict], references: list[ReferencePerson], c
             if eligible:
                 known = actual is not None and actual.state == "read"
                 same = bool(known and (
-                    actual.value == expected if field == "user_id"
+                    normalized_user_id(actual.value) == normalized_user_id(expected) if field == "user_id"
                     else normalized(actual.value, "name") == normalized(expected, "name")
                 ))
                 counts[field].update(denominator=1, correct=int(same), fn=int(not same), fp=int(known and not same))
@@ -235,7 +239,9 @@ def evaluate_method(predictions: list[dict], references: list[ReferencePerson], 
 
 def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | None = None,
                 mapping_file: Path | None = None, methods: list[str] | None = None) -> tuple[Path, dict]:
-    references, sheet = read_reference(excel, config)
+    columns = {}
+    references, sheet = read_reference(excel, config, column_names=columns)
+    labels = field_labels(columns)
     mapping, mapping_rows = course_mapping(read_json(run / "manifest.json"), mapping_file)
     if not set(mapping.values()).intersection(r.class_id for r in references):
         raise ValueError("Keine gemeinsamen Class IDs: PDF-Dateinamen bzw. explizite Kurszuordnung prüfen")
@@ -245,6 +251,9 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
     if not selected or len(selected) != len(set(selected)) or any(m not in run_summary for m in selected):
         raise ValueError("Ungültige oder doppelte Methodenauswahl für diesen Lauf")
     metrics, matches, fields = {}, [], []
+    workbook_groups = {}
+    sources = {item["sha256"]: item["path"] for item in read_json(run / "manifest.json")["inputs"]
+               if item["kind"] == "pdf"}
     for method in selected:
         if run_summary[method].get("output_kind") == "ocr_text":
             raise ValueError("Reiner OCR-Text kann nicht als strukturierte Teilnehmerliste mit Excel verglichen werden")
@@ -259,20 +268,27 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
             predictions.extend({"person": person, "document_id": page.document_id,
                                 "page_number": page.page_number, "index": i}
                                for i, person in enumerate(page.participants))
+        workbook_groups[method] = [dict(
+            class_id=mapping.get(item["document_id"]),
+            **{field: getattr(item["person"], model_field).value for field, model_field in FIELDS.items()},
+            document_id=item["document_id"], source_file=sources.get(item["document_id"]),
+            page_number=item["page_number"], output_index=item["index"]) for item in predictions]
         score, rows, details = evaluate_method(predictions, references, mapping, config)
         score["counts"]["unmapped_documents"] = sum(row["status"] == "review_required" for row in mapping_rows)
         score["extraction_status"] = run_summary[method]["status"]
         metrics[method] = score
         matches.extend(dict(method=method, **row) for row in rows)
-        fields.extend(dict(method=method, **row) for row in details)
+        fields.extend(dict(method=method, field_label=labels[row["field"]], **row) for row in details)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
     output = output or run / "excel-comparison" / stamp
     if output.exists() and any(output.iterdir()):
         raise ValueError("Abgleich-Ausgabeordner muss leer sein")
     output.mkdir(parents=True, exist_ok=True)
-    write_json(output / "metrics.json", {"methods": metrics, "definitions": DEFINITIONS})
+    write_json(output / "metrics.json", {"methods": metrics, "definitions": DEFINITIONS, "columns": columns})
+    write_participants_xlsx(output / "participants.xlsx", workbook_groups, columns,
+                            references=(r for r in references if r.class_id in set(mapping.values())))
     write_json(output / "identity.json", {
-        "excel_sha256": file_hash(excel), "sheet": sheet, "config": config.model_dump(),
+        "excel_sha256": file_hash(excel), "sheet": sheet, "config": config.model_dump(), "reference_columns": columns,
         "run_manifest_sha256": file_hash(run / "manifest.json"),
         "mapping_sha256": file_hash(mapping_file) if mapping_file else None,
         "extractions_sha256": {method: file_hash(run / method / "extractions.jsonl")
@@ -293,15 +309,19 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
     def table(rows: list[dict]) -> str:
         if not rows:
             return "<p>Keine Einträge.</p>"
+        def display(row, key):
+            value = row.get(key, "")
+            return html.escape(str(labels.get(value, value) if key == "field" else value))
         keys = list(dict.fromkeys(key for row in rows for key in row))
-        return "<table><tr>" + "".join(f"<th>{html.escape(k)}</th>" for k in keys) + "</tr>" + "".join(
-            "<tr>" + "".join(f"<td>{html.escape(str(row.get(k, '')))}</td>" for k in keys) + "</tr>"
+        return "<table><tr>" + "".join(f"<th>{html.escape(labels.get(k, k))}</th>" for k in keys) + "</tr>" + "".join(
+            "<tr>" + "".join(f"<td>{display(row, k)}</td>" for k in keys) + "</tr>"
             for row in rows
         ) + "</table>"
     report = '<!doctype html><html lang="de"><meta charset="utf-8">' + (
         '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
         '<title>Excel-Abgleich</title><style>body{font-family:sans-serif}td,th{border:1px solid #ccc;padding:6px}'
         'table{border-collapse:collapse}</style><h1>Excel-Abgleich</h1>'
+        '<p><a href="participants.xlsx">Teilnehmer und Referenz mit Original-Spaltennamen als Excel-Datei</a></p>'
     ) + table(summary) + "<h2>Ungeklärte und abweichende Zuordnungen</h2>" + table(
         [row for row in matches if row["status"] != "matched"]
     ) + "<h2>Abweichende oder nicht bewertbare Felder</h2>" + table(

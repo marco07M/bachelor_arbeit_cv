@@ -14,9 +14,9 @@ import urllib.request
 from typing import Any
 
 from participant_bench.config import Config, ModelConfig
-from participant_bench.models import LocalModel, Unavailable, build_system
+from participant_bench.models import LocalModel, Unavailable, build_system, generation_schema
 from participant_bench.progress import Progress
-from participant_bench.schema import OCRPageResponse, VisualPageResponse
+from participant_bench.schema import OCRTextPageResponse, VisualCellPageResponse
 from PIL import Image
 from pydantic import BaseModel
 
@@ -275,7 +275,7 @@ class APIModel(LocalModel):
         response_type: type[BaseModel] | None = None,
         system_prompt: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        response_type = response_type or (VisualPageResponse if self.method == "vlm" else OCRPageResponse)
+        response_type = response_type or (VisualCellPageResponse if self.method == "vlm" else OCRTextPageResponse)
         system = build_system(self.method, response_type, system_prompt)
         content = [{"type": "text", "text": text}]
         if image is not None:
@@ -309,7 +309,7 @@ class APIModel(LocalModel):
                 "type": "json_schema",
                 "json_schema": {
                     "name": response_type.__name__,
-                    "schema": response_type.model_json_schema(),
+                    "schema": generation_schema(response_type),
                     "strict": False,
                 },
             }

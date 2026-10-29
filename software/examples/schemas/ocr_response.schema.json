@@ -1,25 +1,23 @@
 {
   "$defs": {
-    "OCRParticipant": {
+    "OCRTextRow": {
       "additionalProperties": false,
       "properties": {
-        "ocr_line_id": {
-          "anyOf": [
-            {
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
+        "person_role": {
+          "default": "unknown",
+          "description": "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. Never infer the role from a name, department, signature or row position.",
+          "enum": [
+            "participant",
+            "instructor",
+            "unknown"
           ],
-          "default": null,
-          "description": "line_id from OCR_LAYOUT_DATA.lines for this person row",
-          "title": "Ocr Line Id"
+          "title": "Person Role",
+          "type": "string"
         },
-        "row_ref": {
+        "role_evidence": {
           "anyOf": [
             {
+              "maxLength": 120,
               "type": "string"
             },
             {
@@ -27,7 +25,17 @@
             }
           ],
           "default": null,
-          "title": "Row Ref"
+          "description": "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. Use null when no explicit role label exists; never copy a label belonging to another person.",
+          "title": "Role Evidence"
+        },
+        "source_row": {
+          "title": "Source Row",
+          "type": "string"
+        },
+        "is_participant": {
+          "default": true,
+          "title": "Is Participant",
+          "type": "boolean"
         },
         "first_name": {
           "anyOf": [
@@ -72,23 +80,17 @@
             }
           ],
           "title": "Department"
-        },
-        "word_ids": {
-          "description": "IDs of the observed OCR words in this participant row; no invented word IDs.",
-          "items": {
-            "type": "integer"
-          },
-          "title": "Word Ids",
-          "type": "array"
         }
       },
       "required": [
+        "is_participant",
+        "source_row",
         "first_name",
         "last_name",
         "personnel_number",
         "department"
       ],
-      "title": "OCRParticipant",
+      "title": "OCRTextRow",
       "type": "object"
     }
   },
@@ -96,7 +98,7 @@
   "properties": {
     "participants": {
       "items": {
-        "$ref": "#/$defs/OCRParticipant"
+        "$ref": "#/$defs/OCRTextRow"
       },
       "title": "Participants",
       "type": "array"
@@ -105,6 +107,6 @@
   "required": [
     "participants"
   ],
-  "title": "OCRPageResponse",
+  "title": "OCRRecordResponse",
   "type": "object"
 }

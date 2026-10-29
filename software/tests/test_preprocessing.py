@@ -88,7 +88,7 @@ def test_recursive_copy_logs_and_handoff_to_processing(tmp_path):
     with report_path.with_suffix(".csv").open(encoding="utf-8-sig", newline="") as stream:
         assert list(csv.DictReader(stream)) == report["entries"]
     config = load_config(Path("configs/imported.yaml"))
-    assert config.methods == ["ocr_rules", "ocr_llm", "vlm"]
+    assert config.methods == ["ocr_raw", "ocr_llm", "vlm"]
     assert len(inventory(output / "pdfs", config.pdf.recursive)) == 2
 
 

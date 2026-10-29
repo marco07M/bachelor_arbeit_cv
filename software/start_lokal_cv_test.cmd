@@ -32,8 +32,8 @@ if /I "%~1"=="--pruefen" (
 )
 
 echo.
-echo Starte lokale OCR-, LLM- und VLM-Analyse. Der erste Modellstart kann dauern.
-".venv\Scripts\participant-bench.exe" run --input "data\cv-test-20261020-093337" --config "configs\imported.yaml" --offline
+echo Starte sechs lokale Verfahren: OCR Raw, OCR-LLM, Paddle-LLM, Docling, VLM und OCR-VLM.
+".venv\Scripts\participant-bench.exe" run --input "data\cv-test-20261020-093337" --config "configs\benchmark.yaml" --offline
 set "CV_EXIT_CODE=%ERRORLEVEL%"
 echo.
 if "%CV_EXIT_CODE%"=="0" (

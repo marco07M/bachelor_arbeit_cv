@@ -7,7 +7,7 @@ verbundenen Zellen und auf Seite 2 an fehlenden Überschriften. Der OCR-Text war
 vorhanden, aber es entstanden keine Teilnehmerdatensätze.
 
 Die optionale Einstellung `models.unlimited_ocr.options.extraction: llm` ergänzt
-eine lokale Zuordnung mit dem bereits vorhandenen Qwen3-8B. Der reine OCR-Modus
+eine lokale Zuordnung mit Qwen3-1.7B. Der reine OCR-Modus
 (`none`) und die konservative Tabellenbaseline (`table`) bleiben wählbar.
 
 ## Start aus software/
@@ -24,9 +24,9 @@ Das entspricht:
 .\.venv\Scripts\participant-bench.exe run --input .\data\cv-test-20261020-093337 --config .\configs\unlimited-ocr-llm.yaml --offline
 ```
 
-`configs/benchmark-unlimited.yaml` vergleicht Tesseract/Regeln, Tesseract/LLM,
-direktes VLM und Unlimited-OCR/LLM. Das 8B-LLM wird im Vergleich für zwei
-unterschiedliche OCR-Ausgaben eingesetzt; die Teilnehmerergebnisse der Verfahren
+`configs/benchmark-unlimited.yaml` vergleicht die sechs lokalen Verfahren.
+Das 4B-LLM wird für Tesseract, Unlimited-OCR, Paddle und Docling jeweils auf
+deren eigener OCR-/Textausgabe eingesetzt; die Teilnehmerergebnisse der Verfahren
 werden nicht untereinander übernommen. Dies benötigt zusätzliche LLM-Rechenzeit.
 
 Für andere Eingaben `--input` ändern. Einmalige Einrichtung, falls Gewichte oder
@@ -38,7 +38,8 @@ uv sync --locked --project unlimited_ocr_runtime
 .\.venv\Scripts\participant-bench.exe download-models --config configs/unlimited-ocr-llm.yaml --method unlimited_ocr --method ocr_llm --method vlm --transport range
 ```
 
-Auf dem eingerichteten Laptop ist kein neuer Modelldownload erforderlich.
+Beim Wechsel vom bisherigen 8B-Modell nur `--method ocr_llm` herunterladen;
+das neue Textmodell liegt getrennt unter `models/qwen3-1.7b`.
 
 ## Gespeicherte OCR nachträglich zuordnen
 
@@ -61,7 +62,7 @@ keine neue Unterschriftenprüfung durch. Dafür gegebenenfalls anschließend:
 
 1. Unlimited-OCR erkennt jede Seite lokal in seiner separaten Laufzeit.
 2. Der Worker wird vollständig beendet und gibt seine GPU-Belegung frei.
-3. Qwen3-8B wird lokal mit der konfigurierten 8-Bit-GPU-Zuordnung geladen.
+3. Qwen3-1.7B wird lokal in BF16 vollständig auf die GPU geladen.
 4. Es erhält physische Tabellenzellen mit expliziten Zellnummern, leeren Zellen,
    Spaltenpositionen, `rowspan` und `colspan`. Verbundener Text wird nicht in
    mehrere Zellen kopiert. Beschädigte/verschachtelte Tabellen bleiben zur Kontrolle.

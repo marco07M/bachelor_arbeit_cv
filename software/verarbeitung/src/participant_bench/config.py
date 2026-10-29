@@ -88,6 +88,7 @@ class ModelConfig(ConfigModel):
     path: str | None = None
     dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
     quantization: Literal["none", "int8"] = "none"
+    attention: Literal["sdpa", "sdpa_repeated_kv"] = "sdpa"
     device: Literal["auto", "cuda", "cpu"] = "auto"
     gpu_memory_gib: int = Field(default=10, ge=1)
     cpu_memory_gib: int = Field(default=32, ge=1)
@@ -137,8 +138,37 @@ class CostsConfig(ConfigModel):
         return self
 
 
+METHODS = ("ocr_raw", "ocr_llm", "paddle_llm", "docling", "vlm", "ocr_vlm")
+LEGACY_METHODS = ("ocr_rules", "unlimited_ocr", "paddle_structure")
+ALL_METHODS = (*METHODS, *LEGACY_METHODS)
+STRUCTURE_METHODS = ("paddle_llm", "paddle_structure", "docling")
+VISION_METHODS = ("vlm", "ocr_vlm")
+TEXT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+TEXT_REVISION = "cdbee75f17c01a7cc42f958dc650907174af0554"
+VISION_MODEL = "Qwen/Qwen3-VL-4B-Instruct"
+
+
+class StructureConfig(ConfigModel):
+    models_dir: str
+    runtime_python: str | None = None
+    device: Literal["cuda", "cpu"] = "cuda"
+    timeout_seconds: float = Field(default=600, gt=0)
+    table_mode: Literal["accurate", "fast"] = "accurate"
+    do_cell_matching: bool = True
+    force_full_page_ocr: bool = False
+    ocr_scale: float = Field(default=3.0, gt=0, le=8)
+    mapping: Literal["legacy_html", "structured"] = "legacy_html"
+    organization_header_aliases: list[str] = Field(default_factory=list)
+    assignment_format: Literal["legacy_v13", "positioned_v14"] = "legacy_v13"
+    scan_input: Literal["rendered", "native"] = "rendered"
+    extraction: Literal["table", "llm"] = "table"
+    assignment_max_new_tokens: int = Field(default=4096, ge=128, le=32768)
+
+
 class Config(ConfigModel):
-    methods: list[Literal["ocr_rules", "ocr_llm", "vlm", "unlimited_ocr"]]
+    # Keep ocr_rules readable for historical runs and frozen calibration experiments.
+    methods: list[Literal["ocr_raw", "ocr_rules", "ocr_llm", "vlm", "ocr_vlm", "unlimited_ocr", "paddle_structure", "paddle_llm", "docling"]]
+    main_comparison: bool = False
     seed: int = 42
     output_dir: str = "runs"
     cache_dir: str = ".cache/participant-bench"
@@ -148,18 +178,51 @@ class Config(ConfigModel):
     rules: RulesConfig = Field(default_factory=RulesConfig)
     signature: SignatureConfig = Field(default_factory=SignatureConfig)
     models: dict[str, ModelConfig] = Field(default_factory=dict)
+    structures: dict[Literal["paddle_structure", "paddle_llm", "docling"], StructureConfig] = Field(default_factory=dict)
     costs: CostsConfig = Field(default_factory=CostsConfig)
 
     @model_validator(mode="after")
     def unique_methods(self):
         if not self.methods or len(set(self.methods)) != len(self.methods):
             raise ValueError("Methods must be nonempty and unique")
+        if "ocr_vlm" in self.methods:
+            if "vlm" not in self.models:
+                raise ValueError("ocr_vlm benötigt das gemeinsame models.vlm")
+            self.models.setdefault("ocr_vlm", self.models["vlm"].model_copy(deep=True))
+            if self.models["ocr_vlm"].model_dump() != self.models["vlm"].model_dump():
+                raise ValueError("vlm und ocr_vlm müssen identische Modell- und Inferenzparameter verwenden")
+            if self.models["ocr_vlm"].backend != "local" or self.models["ocr_vlm"].tile_height is not None:
+                raise ValueError("ocr_vlm verwendet lokal das vollständige gemeinsame Seitenbild, ohne Kachelung")
+        if "paddle_llm" in self.methods and structure_settings(self, "paddle_llm").extraction != "llm":
+            raise ValueError("paddle_llm benötigt extraction: llm")
         unlimited = self.models.get("unlimited_ocr")
-        if "unlimited_ocr" in self.methods and unlimited and unlimited.options.get("extraction") == "llm":
+        needs_assignment = "paddle_llm" in self.methods or ("unlimited_ocr" in self.methods and unlimited and
+                            unlimited.options.get("extraction") == "llm") or any(
+            method in self.methods and settings.extraction == "llm" for method, settings in self.structures.items())
+        if needs_assignment:
             llm = self.models.get("ocr_llm")
             if llm is None or llm.backend != "local":
-                raise ValueError("Unlimited-OCR-Zuordnung benötigt ein lokales models.ocr_llm; keine API")
+                raise ValueError("OCR-Zellzuordnung benötigt ein lokales models.ocr_llm; keine API")
+        if self.main_comparison:
+            if set(self.methods) & set(LEGACY_METHODS):
+                raise ValueError("Legacy-Verfahren gehören nicht in den Hauptvergleich")
+            for name, expected in (("ocr_llm", TEXT_MODEL), ("vlm", VISION_MODEL), ("ocr_vlm", VISION_MODEL)):
+                spec = self.models.get(name)
+                if spec and (spec.backend != "local" or spec.repo != expected or spec.do_sample):
+                    raise ValueError(f"Hauptvergleich benötigt {name}={expected}, lokal und deterministisch")
+            if "docling" in self.methods and structure_settings(self, "docling").extraction != "table":
+                raise ValueError("Docling verwendet im Hauptvergleich deterministisches Tabellenmapping ohne LLM")
         return self
+
+
+def structure_settings(config, method):
+    key = "paddle_llm" if method == "ocr_vlm" else method
+    settings = config.structures.get(key)
+    if settings is None and key == "paddle_llm":
+        settings = config.structures.get("paddle_structure")
+    if settings is None:
+        raise ValueError(f"structures-Konfiguration für {method} fehlt")
+    return settings
 
 
 def load_config(path: Path) -> Config:

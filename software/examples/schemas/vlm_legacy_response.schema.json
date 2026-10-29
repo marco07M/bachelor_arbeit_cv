@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "NameOrderDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "description": "Physical reading order of the two name parts in this document: given_family means first name before surname; family_given means surname before first name. Use unknown if not defensible.",
+          "enum": [
+            "given_family",
+            "family_given",
+            "unknown"
+          ],
+          "title": "Order",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Brief document evidence for the order: literal headings, their positions or a combined-name separator. Do not use an external roster, a name dictionary or guess from individual names.",
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "evidence"
+      ],
+      "title": "NameOrderDecision",
+      "type": "object"
+    },
+    "VisualParticipant": {
+      "additionalProperties": false,
+      "description": "Compact VLM output; empty strings and unknown nulls remain distinguishable.",
+      "properties": {
+        "person_role": {
+          "default": "unknown",
+          "description": "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. Never infer the role from a name, department, signature or row position.",
+          "enum": [
+            "participant",
+            "instructor",
+            "unknown"
+          ],
+          "title": "Person Role",
+          "type": "string"
+        },
+        "role_evidence": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. Use null when no explicit role label exists; never copy a label belonging to another person.",
+          "title": "Role Evidence"
+        },
+        "row_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Ref"
+        },
+        "first_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Name"
+        },
+        "last_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Name"
+        },
+        "personnel_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value only from this person's Benutzer / User ID / Personalnummer cell. Use '' if visibly blank, null if masked, unreadable or ambiguous. Never substitute Kurzzeichen, department or a course/Class ID. Keep the person even without this ID.",
+          "title": "Personnel Number"
+        },
+        "department": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Value only from Kurzzeichen / Abteilung / Organisation in this person's row, even when Benutzer is blank. May contain letters, digits, hyphens or slashes. Use '' if visibly blank, null if unknown.",
+          "title": "Department"
+        },
+        "signature_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Present"
+        }
+      },
+      "required": [
+        "first_name",
+        "last_name",
+        "personnel_number",
+        "department"
+      ],
+      "title": "VisualParticipant",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name_order": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NameOrderDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "participants": {
+      "items": {
+        "$ref": "#/$defs/VisualParticipant"
+      },
+      "title": "Participants",
+      "type": "array"
+    },
+    "page_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Fallback only: transcribe all legible text if participants is empty; otherwise null.",
+      "title": "Page Text"
+    }
+  },
+  "required": [
+    "participants",
+    "page_text"
+  ],
+  "title": "VisualPageResponse",
+  "type": "object"
+}

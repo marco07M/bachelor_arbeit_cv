@@ -8,8 +8,10 @@ Konfidenzkalibrierung und eine separate finale Testbewertung. Die Befehle
 verwenden die bestehenden Verarbeitungsmodule; sie erlauben keine API-Modelle.
 
 Der vorhandene Benchmark liegt jetzt unter `src/participant_bench/` in diesem
-Ordner. Er rendert PDF-Seiten, bereitet die Seiten auf und führt OCR/Regeln,
-OCR mit lokalem Sprachmodell oder ein lokales Vision-Language-Modell aus.
+Ordner. Er rendert PDF-Seiten und vergleicht Tesseract-Rohtext, OCR mit lokalem
+Sprachmodell, PaddleOCR/LLM, Docling/TableFormer ohne LLM, ein direktes VLM und
+den ausdrücklichen OCR/VLM-Hybrid. Einrichtung und Start:
+[Sechs lokale Verfahren](../docs/local-methods.md).
 Die API-Verarbeitung wird ausschließlich über das separate
 [Firmen-PC-Projekt](../api_firmen_pc/README.md) gestartet. Hier bleibt der lokale
 Einstieg unabhängig von API-Paketen, Konfigurationen und Zugangsdaten.
@@ -38,14 +40,16 @@ bleibt unbekannt (`null`); ein sichtbar leerer Benutzer wird `""/empty`.
 Die gemeinsame VLM-Anweisung gilt lokal und über die API. Für bestehende
 Berichte ist ein neuer Extraktionslauf erforderlich.
 
-Auch `ocr_rules` und `ocr_llm` geben bei fehlenden strukturierten Teilnehmern
+`ocr_raw` gibt immer Tesseract-Rohtext ohne Teilnehmer- oder Signaturzuordnung aus.
+`ocr_rules` bleibt nur für historische Läufe und Kalibrierungen erhalten.
+Das historische `ocr_rules` und `ocr_llm` geben bei fehlenden strukturierten Teilnehmern
 den vorhandenen OCR-Text als Fallback aus. Die Texte liegen entsprechend unter
 `ocr_rules/texts/` und `ocr_llm/texts/`. Gründe für fehlende Zuordnungen und
 Links zu den OCR-Rohdaten stehen im Bericht. Das Sprachmodell erhält kompakte
 Worttabellen sowie die lesbare OCR-Zeilenaufteilung mit Zeilenkennungen und Wort-IDs.
 Bei unbekannter Tabellenstruktur können für das Regelverfahren die Spalten und
 der Tabellenbeginn konfiguriert werden; Beispiele stehen in der
-[Software-Anleitung](../README.md#konfiguration-und-grenzen).
+[Software-Handbuch](../docs/handbuch.md#konfiguration-und-grenzen).
 
 Im Abschnitt **OCR-Klartext und Modelleingabe** zeigt der Bericht alle OCR-Wörter
 auch bei erfolgreicher Extraktion. Der Klartext liegt zusätzlich unter
@@ -112,8 +116,15 @@ Aktualisierung des Repositorys die lokale Paketinstallation einmal anpassen:
 uv sync --locked --extra models
 ```
 
-Die lokalen Konfigurationen laden Qwen3-8B mit LLM.int8 vollständig auf die GPU;
-die Parameterzahl bleibt 8B. VLM und Unterschriftenprüfung bleiben bei BF16.
+Der Hauptvergleich lädt Qwen3-4B-Instruct-2507 in BF16 vollständig auf die GPU.
+Diese neue Revision vor dem nächsten Offline-Lauf einmalig aus `software/`
+herunterladen; ältere Qwen3-4B-Gewichte sind ein anderes Modell:
+
+```powershell
+.\.venv\Scripts\participant-bench.exe download-models --config configs/benchmark.yaml --method ocr_llm --transport range
+```
+
+VLM und Unterschriftenprüfung verwenden weiter Qwen3-VL-4B in BF16.
 Speicherbedarf, Start und Qualitätsgrenzen: [GPU-Ausführung](../docs/gpu-inference.md).
 
 Die Ausgabe der [Vorverarbeitung](../vorverarbeitung/README.md) direkt verwenden:

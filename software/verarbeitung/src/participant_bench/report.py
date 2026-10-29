@@ -1,9 +1,12 @@
 import html
 import json
+import re
 from pathlib import Path
 
 from .evaluation import DEFINITIONS
+from .excel_columns import field_labels, write_participants_xlsx
 from .io import digest, read_json, read_jsonl, write_csv, write_json, write_jsonl
+from .ocr import raw_transcript
 from .ocr_layout import model_input, readable_text
 from .schema import TEXT_FIELDS, PageResult
 
@@ -43,11 +46,16 @@ def cost_scenario(config):
     return result
 
 
-def report(output, summary, results, metrics, manifest, costs):
-    rows = []
+def report(output, summary, results, metrics, manifest, costs, *, columns=None):
+    from .roster_benchmark.evaluation import identify_course
+
+    rows, excluded_instructors, name_orders = [], [], []
+    labels = field_labels(columns)
+    excel_groups = {}
     page_outputs, text_records, overview, ocr_records, signature_records = [], [], [], [], []
     sources = {page["page_id"]: page for page in manifest["pages"]}
     for method, pages in results.items():
+        excel_groups[method] = []
         truncated_pages = 0
         has_assignment = False
         for page in pages:
@@ -61,6 +69,24 @@ def report(output, summary, results, metrics, manifest, costs):
             if truncated:
                 error = "Modellantwort am Ausgabelimit abgeschnitten. Die Rohantwort ist unten verlinkt."
             source_name = Path(sources.get(page.page_id, {}).get("source_path", page.document_id)).name
+            if "document_name_order" in raw:
+                audit = raw["document_name_order"]
+                decision = audit.get("decision") or {}
+                name_orders.append(dict(method=method, source_file=source_name, document_id=page.document_id,
+                    page_number=page.page_number, origin_page=audit.get("origin_page"),
+                    name_order=decision.get("order", "unknown"), evidence=decision.get("evidence") or
+                        " | ".join(item["evidence"] for item in audit.get("reported_decisions", [])),
+                    swapped_rows=sum(row["action"] == "swap" or row.get("previously_swapped", False) or row.get("prevalidation_swap", False)
+                                     for row in audit["actions"]),
+                    review_rows=sum(row["action"] == "review" for row in audit["actions"]),
+                    conflict=audit["conflicting_page_decision"]))
+            for person in page.excluded_instructors:
+                excluded_instructors.append(dict(method=method, source_file=source_name, page_number=page.page_number,
+                    first_name=person.first_name.value, last_name=person.last_name.value,
+                    role_evidence=person.role_evidence, reason="Explizit als Kursleiter/Trainer gekennzeichnet"))
+            class_id = identify_course(source_name, set())
+            if not re.fullmatch(r"[0-9]{6}", class_id):
+                class_id = None
             for check in raw.get("signature_checks", []):
                 relative = Path(check["crop"]) if check.get("crop") else None
                 crop = (Path(method) / relative).as_posix() if relative and not relative.is_absolute() and ".." not in relative.parts else None
@@ -80,6 +106,7 @@ def report(output, summary, results, metrics, manifest, costs):
                 "method": method, "document_id": page.document_id, "page_id": page.page_id,
                 "source_file": source_name, "page_number": page.page_number, "status": page.status,
                 "response_format": page.parse_status, "participants": len(page.participants),
+                "excluded_instructors": len(page.excluded_instructors),
                 "output_kind": page.output_kind,
                 "output_budget_reached": truncated, "error": error or None,
                 "text_fallback": fallback, "page_text": page.page_text if fallback else None,
@@ -87,6 +114,23 @@ def report(output, summary, results, metrics, manifest, costs):
             }
             text_records.append(record)
             links = []
+            if "structure" in raw:
+                recognized = raw["structure"]
+                for key, suffix, title in (("markdown", "md", "Strukturierter Seitentext"),
+                                           ("plain_text", "txt", "Vollständiger Klartext")):
+                    relative = Path(method) / "ocr_text" / f"{page.page_id}.{suffix}"
+                    (output / relative).parent.mkdir(parents=True, exist_ok=True)
+                    (output / relative).write_text(recognized[key], encoding="utf-8", newline="")
+                    links.append((relative.as_posix(), title))
+                # Store HTML as inert text; never render untrusted model markup in the report.
+                for index, table in enumerate(recognized["tables"]):
+                    relative = Path(method) / "tables" / f"{page.page_id}-t{index + 1}.html.txt"
+                    (output / relative).parent.mkdir(parents=True, exist_ok=True)
+                    (output / relative).write_text(table["html"], encoding="utf-8", newline="")
+                    links.append((relative.as_posix(), f"Tabelle {index + 1}: Zellstruktur als HTML-Text"))
+                links.append(((Path(method) / raw_path.name).as_posix(), "Native Layout-, Tabellen- und Zellbelege"))
+                ocr_records.append(dict(method=method, page_id=page.page_id, source_file=source_name,
+                    page_number=page.page_number, text=recognized["plain_text"], word_count=None, links=list(links)))
             if "unlimited_ocr" in raw:
                 recognized = raw["unlimited_ocr"]
                 plain_path = Path(method) / "ocr_text" / f"{page.page_id}.txt"
@@ -109,7 +153,7 @@ def report(output, summary, results, metrics, manifest, costs):
                 links.extend(native_links)
             if "ocr" in raw:
                 links.append(((Path(method) / raw_path.name).as_posix(), "OCR-Rohdaten mit Wortpositionen"))
-                plain = readable_text(raw["ocr"])
+                plain = raw_transcript(raw["ocr"]) if method == "ocr_raw" else readable_text(raw["ocr"])
                 plain_path = Path(method) / "ocr_text" / f"{page.page_id}.txt"
                 (output / plain_path).parent.mkdir(parents=True, exist_ok=True)
                 (output / plain_path).write_text(plain, encoding="utf-8", newline="")
@@ -148,10 +192,16 @@ def report(output, summary, results, metrics, manifest, costs):
                 links.append((raw_text_path.as_posix(), "Unveränderte Modellantwort"))
             page_outputs.append((record, links))
             for i, participant in enumerate(page.participants):
+                excel_groups[method].append(dict(
+                    class_id=class_id, user_id=participant.personnel_number.value,
+                    first_name=participant.first_name.value, last_name=participant.last_name.value,
+                    short_code=participant.department.value, source_file=source_name,
+                    document_id=page.document_id, page_number=page.page_number, output_index=i))
                 rows.append(
                     {
                         "method": method,
                         "document_id": page.document_id,
+                        "class_id": class_id,
                         "page_number": page.page_number,
                         "output_index": i,
                         "row_ref": participant.row_ref,
@@ -167,15 +217,24 @@ def report(output, summary, results, metrics, manifest, costs):
             "Verfahren": method, "Seiten zur Extraktion": len(pages),
             "Ausgabeart": summary[method].get("output_kind", "structured"),
             "Modell-Backend": summary[method].get("model_backend", "historischer Lauf"),
-            "Unlimited-Zuordnung": ("lokales LLM" if has_assignment else
+            "Modelle (konfiguriert)": " + ".join(str(value) for value in summary[method].get(
+                "models_required", summary[method].get("models_used", [])) if value) or "—",
+            "Feld-/Tabellenzuordnung": ("lokales LLM" if has_assignment else
+                                    "deterministisches Spaltenmapping" if summary[method].get("assignment_backend") == "deterministic_headers" else
+                                    "Bild und Paddle-OCR im VLM" if method == "ocr_vlm" else
+                                    "PP-StructureV3" if method == "paddle_structure" else
+                                    "TableFormer" if method == "docling" else
+                                    "keine (Rohtext)" if method == "ocr_raw" else
                                     "Tabellenparser/OCR" if method == "unlimited_ocr" else "—"),
             "Antworten mit gültigem Format": sum(p.parse_status == "valid" for p in pages),
             "Teilnehmende": sum(len(p.participants) for p in pages),
+            "Ausgeschlossene Kursleiter/Trainer": sum(len(p.excluded_instructors) for p in pages),
             "Unterschrift vorhanden": sum(person.signature_present is True for p in pages for person in p.participants),
             "Unterschriftsfeld leer": sum(person.signature_present is False for p in pages for person in p.participants),
             "Unterschrift unklar": sum(person.signature_present is None for p in pages for person in p.participants),
             "Unklare Detailprüfungen": sum(row["detail_signature_present"] is None for row in signature_records if row["method"] == method),
             "Signaturverfahren": summary[method].get("signature_backend", "historischer Lauf"),
+            "Signaturquelle": " | ".join(sorted({person.signature_method or "unbekannt" for page in pages for person in page.participants})),
             "Seiten mit Text-Fallback": sum(r[0]["text_fallback"] for r in page_outputs if r[0]["method"] == method),
             "Abgeschnittene Modellantworten": truncated_pages,
             "Extraktionsfehler": sum(p.status in ("failed", "unavailable") for p in pages),
@@ -185,6 +244,13 @@ def report(output, summary, results, metrics, manifest, costs):
     write_jsonl(output / "ocr_text.jsonl", ocr_records)
     write_csv(output / "pages.csv", [{k: v for k, v in row.items() if k != "page_text"} for row in text_records])
     write_csv(output / "extractions.csv", rows)
+    write_csv(output / "document_name_orders.csv", name_orders, fields=["method", "source_file", "document_id",
+        "page_number", "origin_page", "name_order", "evidence", "swapped_rows", "review_rows", "conflict"])
+    write_csv(output / "excluded_instructors.csv", excluded_instructors, fields=[
+        "method", "source_file", "page_number", "first_name", "last_name", "role_evidence", "reason"])
+    write_participants_xlsx(output / "participants.xlsx", excel_groups, columns)
+    write_json(output / "column_names.json", columns or {key: labels[key] for key in
+               ("class_id", "user_id", "first_name", "last_name", "short_code")})
     if signature_records:
         write_csv(output / "signature_checks.csv", signature_records)
     write_csv(output / "methods.csv", [dict(method=method, **values) for method, values in summary.items()])
@@ -218,13 +284,13 @@ def report(output, summary, results, metrics, manifest, costs):
     def esc(value):
         return html.escape(str(value))
 
-    def table(records):
+    def table(records, names=None):
         if not records:
             return "<p>Keine Einträge.</p>"
         keys = list(dict.fromkeys(k for record in records for k in record))
         return (
             "<table><thead><tr>"
-            + "".join(f"<th>{esc(k)}</th>" for k in keys)
+            + "".join(f"<th>{esc((names or {}).get(k, k))}</th>" for k in keys)
             + "</tr></thead><tbody>"
             + "".join(
                 "<tr>" + "".join(f"<td>{esc(record.get(k, ''))}</td>" for k in keys) + "</tr>"
@@ -308,6 +374,7 @@ def report(output, summary, results, metrics, manifest, costs):
 table{{border-collapse:collapse;display:block;overflow:auto;margin-bottom:2rem}}th,td{{border:1px solid #bcc;padding:.5rem;
 text-align:left;vertical-align:top}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}img{{max-width:100%;height:auto}}</style>
 <h1>PDF-Auslesung und Teilnehmerextraktion</h1><p>{esc(selection_note)}</p>
+{('<p><a href="hybrid_analysis.html">VLM und OCR-VLM: korrigierte und verschlechterte Felder vergleichen</a></p>' if (output / 'hybrid_analysis.html').is_file() else '')}
 <p>„Antworten mit gültigem Format“ zählt lesbare strukturierte Modellantworten.
 Dies ist keine Bewertung, ob eine PDF-Seite eine Anwesenheitsliste ist.
 Die Ausrichtungsprüfung betrifft ausschließlich die Drehung des Seitenbildes.</p>
@@ -316,7 +383,23 @@ bleibt der gelesene Seitentext als Fallback zur manuellen Prüfung erhalten.</p>
 <p>{esc(quality)}</p><p>Personenbezogene Inhalte: Bericht bleibt lokal.
 Keine globale Siegerkennzahl. Synthetische Tests belegen keine Qualität auf realen Listen.</p>
 <h2>Ergebnis der Extraktion</h2>{table(overview)}
-<h2>Extrahierte Teilnehmerdaten</h2>{table(rows)}
+<h2>Dokumentweite Zuordnung von Vor- und Nachname</h2>
+<p>Das Modell entscheidet die Namensreihenfolge anhand der Dokumentstruktur. Diese Entscheidung wird
+für die Seiten desselben Dokuments verwendet. Bereits gelesene Namensfelder werden bei Bedarf
+anhand ihrer belegten Positionen vertauscht; die Schreibweise bleibt erhalten. Unklare oder
+widersprüchliche Zuordnungen erfordern manuelle Prüfung. Die Excel-Referenz wird nicht herangezogen.</p>
+<p><a href="document_name_orders.csv">Entscheidungen und Begründungen als CSV</a>.</p>
+{table([{**row, 'name_order': {'given_family': 'Vorname → Nachname', 'family_given': 'Nachname → Vorname', 'unknown': 'Unklar'}.get(row['name_order'], row['name_order'])} for row in name_orders],
+       {'method': 'Modell', 'source_file': 'PDF-Datei', 'document_id': 'Dokument-ID', 'page_number': 'PDF-Seite',
+        'origin_page': 'Entscheidung auf Seite', 'name_order': 'Namensreihenfolge', 'evidence': 'Modellbegründung',
+        'swapped_rows': 'Umgeordnete Namenspaare', 'review_rows': 'Prüffälle', 'conflict': 'Widerspruch'})}
+<h2>Extrahierte Teilnehmerdaten</h2>
+<p><a href="participants.xlsx">Teilnehmer als Excel-Datei mit Referenz-Spaltennamen</a></p>
+{table(rows, dict(labels, **{name + '_state': labels[name] + ' – Status' for name in TEXT_FIELDS}))}
+<details><summary>{len(excluded_instructors)} Kursleiter-/Trainereinträge ausgeschlossen</summary>
+<p>Ausdrücklich belegte Kursleiterrollen sind von Teilnehmerexport, Unterschriftenprüfung und
+Excel-Abgleich ausgeschlossen. <a href="excluded_instructors.csv">Ausschlussprotokoll als CSV</a>.</p>
+{table(excluded_instructors)}</details>
 <h2>Unterschriften im Detail</h2>
 <p>Eine zusätzliche VLM-Prüfung betrachtet vergrößerte Zeilen mit Spaltenkontext.
 Nur die ausgewählte Zeile unter dem blauen Trenner wird bewertet. True bedeutet sichtbare
@@ -327,8 +410,8 @@ Dies ist kein zusätzlicher positiver Detailbefund; die Werte werden getrennt an
 {signature_view or '<p>Für diesen Lauf ist keine zusätzliche Detailprüfung gespeichert.</p>'}
 <h2>OCR-Klartext und Modelleingabe</h2>
 <p>Diese Ansicht zeigt alle OCR-Wörter als lesbaren Text, auch wenn Teilnehmer erkannt wurden.
-Das OCR-Sprachmodell erhält dieselben Wörter zusätzlich mit Wort-IDs und Positionen.
-Der Link „Exakte LLM-Eingabe“ zeigt die tatsächlich übergebene Worttabelle;
+Das OCR-Sprachmodell erhält daraus lesbare Zeilen und Zellen mit nachvollziehbaren Positionsbelegen.
+Der Link „Exakte LLM-Eingabe“ zeigt den tatsächlich übergebenen Text und seine Struktur;
 Systemanweisungen stehen in prompts.json. Der Klartext kann Erkennungsfehler enthalten.</p>
 {ocr_view or '<p>Für diesen Lauf sind keine OCR-Daten gespeichert.</p>'}
 <h2>Text-Fallback und Prüfhinweise</h2>{readings or '<p>Kein Text-Fallback oder zusätzlicher Prüfhinweis.</p>'}
@@ -358,5 +441,6 @@ def refresh_report(output: Path) -> Path:
         for method in summary
     }
     report(output, summary, results, read_json(output / "metrics.json"),
-           read_json(output / "manifest.json"), read_json(output / "costs.json"))
+           read_json(output / "manifest.json"), read_json(output / "costs.json"),
+           columns=read_json(output / "column_names.json") if (output / "column_names.json").is_file() else None)
     return output / "report.html"

@@ -1,0 +1,42 @@
+{
+  "PP-DocLayout_plus-L": {
+    "repo": "PaddlePaddle/PP-DocLayout_plus-L",
+    "revision": "aa52b8528c84f9b1a34ac3a88fe0e576edb9d11d"
+  },
+  "PP-OCRv5_server_det": {
+    "repo": "PaddlePaddle/PP-OCRv5_server_det",
+    "revision": "ca867c897ecbca8873081573a802ad70d499cb94"
+  },
+  "latin_PP-OCRv5_mobile_rec": {
+    "repo": "PaddlePaddle/latin_PP-OCRv5_mobile_rec",
+    "revision": "ab2cd5cc5fa6309be2e5acdfe66eca2c2c127d57"
+  },
+  "PP-LCNet_x1_0_textline_ori": {
+    "repo": "PaddlePaddle/PP-LCNet_x1_0_textline_ori",
+    "revision": "cd237a44b0e359d4fe38310a416203cf7403faa5"
+  },
+  "PP-LCNet_x1_0_table_cls": {
+    "repo": "PaddlePaddle/PP-LCNet_x1_0_table_cls",
+    "revision": "2fa6323e7dab88fa883081db1460995f46af2922"
+  },
+  "SLANeXt_wired": {
+    "repo": "PaddlePaddle/SLANeXt_wired",
+    "revision": "763069fcda6a065f2171753205a32bf899a88d15"
+  },
+  "SLANet_plus": {
+    "repo": "PaddlePaddle/SLANet_plus",
+    "revision": "bae6e5f8c3c4e7da0c0b7639fdf3228fe76184e2"
+  },
+  "RT-DETR-L_wired_table_cell_det": {
+    "repo": "PaddlePaddle/RT-DETR-L_wired_table_cell_det",
+    "revision": "e2bd53c06b3a815d86acbf5c6779dada58819cfe"
+  },
+  "RT-DETR-L_wireless_table_cell_det": {
+    "repo": "PaddlePaddle/RT-DETR-L_wireless_table_cell_det",
+    "revision": "25ca86356a601c877476bb0dcc5fd09153d9d64d"
+  },
+  "PP-LCNet_x1_0_doc_ori": {
+    "repo": "PaddlePaddle/PP-LCNet_x1_0_doc_ori",
+    "revision": "d3b95a6dff5fe8a94f2748e12b61cb26818a0df8"
+  }
+}

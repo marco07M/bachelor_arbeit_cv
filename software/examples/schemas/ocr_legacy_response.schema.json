@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "NameOrderDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "description": "Physical reading order of the two name parts in this document: given_family means first name before surname; family_given means surname before first name. Use unknown if not defensible.",
+          "enum": [
+            "given_family",
+            "family_given",
+            "unknown"
+          ],
+          "title": "Order",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Brief document evidence for the order: literal headings, their positions or a combined-name separator. Do not use an external roster, a name dictionary or guess from individual names.",
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "evidence"
+      ],
+      "title": "NameOrderDecision",
+      "type": "object"
+    },
+    "OCRParticipant": {
+      "additionalProperties": false,
+      "properties": {
+        "person_role": {
+          "default": "unknown",
+          "description": "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. Never infer the role from a name, department, signature or row position.",
+          "enum": [
+            "participant",
+            "instructor",
+            "unknown"
+          ],
+          "title": "Person Role",
+          "type": "string"
+        },
+        "role_evidence": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. Use null when no explicit role label exists; never copy a label belonging to another person.",
+          "title": "Role Evidence"
+        },
+        "is_participant": {
+          "default": true,
+          "description": "True only for an actual person entry. False for titles, course metadata, instructions, headers or footers. Never turn the first word and the remaining sentence into a person's names.",
+          "title": "Is Participant",
+          "type": "boolean"
+        },
+        "ocr_line_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "line_id from OCR_LAYOUT_DATA.lines for this person row",
+          "title": "Ocr Line Id"
+        },
+        "row_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Ref"
+        },
+        "first_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Name"
+        },
+        "last_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Name"
+        },
+        "personnel_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Personnel Number"
+        },
+        "department": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Department"
+        },
+        "word_ids": {
+          "description": "IDs of the observed OCR words in this participant row; no invented word IDs.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Word Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "first_name",
+        "last_name",
+        "personnel_number",
+        "department"
+      ],
+      "title": "OCRParticipant",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name_order": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NameOrderDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "participants": {
+      "items": {
+        "$ref": "#/$defs/OCRParticipant"
+      },
+      "title": "Participants",
+      "type": "array"
+    }
+  },
+  "required": [
+    "participants"
+  ],
+  "title": "OCRPageResponse",
+  "type": "object"
+}

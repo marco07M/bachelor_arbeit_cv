@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "NameOrderDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "description": "Physical reading order of the two name parts in this document: given_family means first name before surname; family_given means surname before first name. Use unknown if not defensible.",
+          "enum": [
+            "given_family",
+            "family_given",
+            "unknown"
+          ],
+          "title": "Order",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Brief document evidence for the order: literal headings, their positions or a combined-name separator. Do not use an external roster, a name dictionary or guess from individual names.",
+          "title": "Evidence",
+          "type": "string",
+          "maxLength": 240
+        }
+      },
+      "required": [
+        "order",
+        "evidence"
+      ],
+      "title": "NameOrderDecision",
+      "type": "object"
+    },
+    "OCRTextRow": {
+      "additionalProperties": false,
+      "properties": {
+        "person_role": {
+          "default": "unknown",
+          "description": "instructor only for a person explicitly labelled Kursleiter, Trainer, Dozent or equivalent. Never infer the role from a name, department, signature or row position.",
+          "enum": [
+            "participant",
+            "instructor",
+            "unknown"
+          ],
+          "title": "Person Role",
+          "type": "string"
+        },
+        "role_evidence": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Copy the literal role label belonging to this person, e.g. Kursleiter or Trainer. Use null when no explicit role label exists; never copy a label belonging to another person.",
+          "title": "Role Evidence"
+        },
+        "source_row": {
+          "title": "Source Row",
+          "type": "string"
+        },
+        "is_participant": {
+          "default": true,
+          "title": "Is Participant",
+          "type": "boolean"
+        },
+        "first_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "First Name"
+        },
+        "last_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Name"
+        },
+        "personnel_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Personnel Number"
+        },
+        "department": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Department"
+        }
+      },
+      "required": [
+        "is_participant",
+        "source_row",
+        "first_name",
+        "last_name",
+        "personnel_number",
+        "department"
+      ],
+      "title": "OCRTextRow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name_order": {
+      "$ref": "#/$defs/NameOrderDecision"
+    },
+    "participants": {
+      "items": {
+        "$ref": "#/$defs/OCRTextRow"
+      },
+      "title": "Participants",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name_order",
+    "participants"
+  ],
+  "title": "OCRTextPageResponse",
+  "type": "object"
+}

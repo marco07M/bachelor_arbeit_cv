@@ -77,6 +77,11 @@ def service(monkeypatch):
                     }
                 else:
                     result = {"participants": [PERSON | {"signature_present": None}], "page_text": None}
+                    if "VisualCellPageResponse" in schema:
+                        result = dict(name_order=dict(order="given_family", evidence="First Name | Last Name"),
+                            identity_headers=["First Name", "Last Name", "User ID", "Organization"], page_text=None,
+                            participants=[dict(first_name="Anna", last_name="Weber", signature_present=None,
+                                identity_cells=["Anna", "Weber", "00123", "MUC"])])
                 data = (
                     state.custom
                     if state.custom is not None
@@ -327,6 +332,33 @@ def test_api_factory_image_schema_and_usage_without_loading_local_weights(servic
     assert KEY not in raw
 
 
+def test_api_vlm_uses_physical_cells_and_preserves_an_empty_employee_id(service):
+    result = {
+        "identity_headers": ["Benutzername", "Benutzer", "Kurzzeichen"],
+        "participants": [{"row_ref": "1", "first_name": "Anna", "last_name": "Weber",
+                          "identity_cells": ["Weber, Anna", "", "AB 123"], "signature_present": None}],
+        "page_text": None,
+    }
+    service.custom = {"choices": [{"message": {"content": json.dumps(result)}, "finish_reason": "stop"}]}
+    spec = oauth_spec(service, response_format="json_schema")
+    model = APIModel("vlm", Config(methods=["vlm"], models={"vlm": spec}))
+    try:
+        with Image.new("RGB", (256, 256), "white") as image:
+            people, records, status, _ = model.extract(image)
+        assert status == "success" and len(people) == 1
+        assert people[0].personnel_number.value == "" and people[0].personnel_number.state == "empty"
+        assert people[0].department.value == "AB 123"
+        assert records[0]["identity_column_assignment"]["field_columns"] == {
+            "personnel_number": 1, "department": 2,
+        }
+        assert service.requests[0]["path"] == "/token"
+        request = json.loads(service.requests[-1]["body"])
+        assert request["response_format"]["json_schema"]["name"] == "VisualCellPageResponse"
+        assert model.calls == 1
+    finally:
+        model.close()
+
+
 def test_text_api_preserves_ocr_grounding_contract_and_rejects_unobserved_fields(service):
     model = APIModel("ocr_llm", Config(methods=["ocr_llm"], models={"ocr_llm": api_spec(service)}))
     service.custom = {
@@ -506,3 +538,102 @@ def test_main_smoke_missing_credentials_fails_without_network(service, monkeypat
     output = capsys.readouterr()
     assert "TEST_CLIENT_SECRET" in output.err
     assert all(value not in output.out + output.err for value in (KEY, CLIENT, SECRET, TOKEN))
+
+
+@pytest.mark.parametrize("extension", ["csv", "xlsx"])
+def test_api_framework_runs_multiple_pdfs_and_scores_locally_without_sending_reference(
+    service, tmp_path, monkeypatch, capsys, extension
+):
+    from openpyxl import Workbook
+
+    inputs = tmp_path / "pdfs"
+    inputs.mkdir()
+    for course in ("123456", "654321"):
+        with pymupdf.open() as document:
+            document.new_page().insert_text((30, 70), f"Synthetic document {course}: Anma Weber")
+            document.save(inputs / f"{course}.pdf")
+    reference = tmp_path / f"reference.{extension}"
+    rows = [
+        ["Class ID", "User ID", "First Name", "Last Name", "Organization"],
+        ["654321", "000007", "Anna", "Weber", "MUC"],
+        ["999999", "000009", "REFERENCE_EXCLUSIVE_NEVER_SENT_TO_API", "Other", "REF"],
+        ["123456", "000007", "Anna", "Weber", "MUC"],
+    ]
+    if extension == "csv":
+        reference.write_text("\n".join(";".join(row) for row in rows), encoding="utf-8")
+    else:
+        book = Workbook()
+        for row in rows:
+            book.active.append(row)
+        book.save(reference)
+        book.close()
+    originals = {path: file_hash(path) for path in [reference, *inputs.glob("*.pdf")]}
+    extraction = Config(methods=["vlm"], models={"vlm": oauth_spec(service)},
+                        output_dir=str(tmp_path / "extractions"), cache_dir=str(tmp_path / "cache"))
+    extraction.pdf.auto_orient = False
+    model_config = tmp_path / "models.yaml"
+    model_config.write_text(yaml.safe_dump(extraction.model_dump()), encoding="utf-8")
+    benchmark_config = tmp_path / "benchmark.yaml"
+    benchmark_config.write_text(yaml.safe_dump(dict(input_dir="pdfs", reference_file=reference.name,
+                                                    extraction_config="models.yaml", output_dir="results",
+                                                    matching={"mode": "best_fit"})),
+                                encoding="utf-8")
+    response = dict(identity_headers=["Benutzername", "Benutzer", "Kurzzeichen"], participants=[dict(
+        row_ref="1", first_name="Weber", last_name="Anma", identity_cells=["Weber, Anma", "000007", "MUC"],
+        signature_present=None)], page_text=None)
+    response["name_order"] = dict(order="family_given", evidence="Benutzername: Nachname, Vorname")
+    response["participants"].append(dict(first_name="Max", last_name="Muster", identity_cells=["Muster, Max", "", "MUC"],
+                                         person_role="instructor", role_evidence="Kursleiter"))
+    service.custom = {"choices": [{"message": {"content": json.dumps(response)}, "finish_reason": "stop"}]}
+    monkeypatch.setattr("participant_bench.runner.environment", lambda *args: {})
+    assert main(["benchmark", "run", "--config", str(benchmark_config)]) == 0
+    output = next((tmp_path / "results").iterdir())
+    metrics = read_json(output / "metrics.json")
+    assert metrics["scope"]["input_pdfs"] == 2 and metrics["scope"]["courses_compared"] == 2
+    assert metrics["scope"]["reference_rows_outside_input"] == 1
+    assert metrics["methods"]["vlm"]["score_percent"] == 93.75
+    assert metrics["methods"]["vlm"]["matching_mode"] == "best_fit"
+    assert metrics["methods"]["vlm"]["conservative_score_percent"] == 93.75
+    assert metrics["methods"]["vlm"]["reference_participants"] == 2
+    assert metrics["methods"]["vlm"]["excluded_instructors"] == 2
+    assert (output / "report.html").is_file() and (output / "participants.xlsx").is_file()
+    assert (output / "details.html").is_file()
+    assert (output / "zuordnungen.html").is_file()
+    assert read_json(output / "details/calculation_checks.json")["vlm"]["contributions_match_saved_metrics"]
+    assert [request["path"] for request in service.requests] == ["/token", "/v1/chat/completions", "/v1/chat/completions"]
+    assert all("REFERENCE_EXCLUSIVE_NEVER_SENT_TO_API" not in request["body"] for request in service.requests)
+    assert all(file_hash(path) == expected for path, expected in originals.items())
+    console = capsys.readouterr()
+    assert "93.75%" in console.out and "REFERENCE_EXCLUSIVE" not in console.out
+    assert all(secret not in console.out + console.err for secret in (KEY, CLIENT, SECRET, TOKEN))
+    source = read_json(output / "identity.json")["source_run"]
+    source_pages = read_jsonl(Path(source) / "vlm/extractions.jsonl")
+    assert all(len(page["participants"]) == len(page["excluded_instructors"]) == 1 for page in source_pages)
+    calls = len(service.requests)
+    for name in ("TEST_API_KEY", "TEST_CLIENT_ID", "TEST_CLIENT_SECRET"):
+        monkeypatch.delenv(name)
+    assert main(["benchmark", "compare", "--config", str(benchmark_config),
+                 "--run", source, "--output", str(tmp_path / "comparison")]) == 0
+    assert len(service.requests) == calls
+    assert read_json(tmp_path / "comparison/metrics.json")["methods"]["vlm"]["score_percent"] == 93.75
+    assert main(["benchmark", "details", "--report", str(tmp_path / "comparison")]) == 0
+    assert main(["benchmark", "assignments", "--report", str(tmp_path / "comparison")]) == 0
+    assert len(service.requests) == calls
+
+
+def test_api_framework_check_requires_no_credentials_or_model_requests(service, tmp_path, monkeypatch, capsys):
+    inputs = tmp_path / "pdfs"
+    inputs.mkdir()
+    with pymupdf.open() as document:
+        document.new_page().insert_text((30, 70), "Synthetic document")
+        document.save(inputs / "123456.pdf")
+    (tmp_path / "reference.csv").write_text(
+        "Class ID;First Name;Last Name;Organization\n123456;Anna;Weber;MUC\n", encoding="utf-8")
+    config = tmp_path / "benchmark.yaml"
+    config.write_text("input_dir: pdfs\nreference_file: reference.csv\n", encoding="utf-8")
+    for name in ("TEST_API_KEY", "TEST_CLIENT_ID", "TEST_CLIENT_SECRET"):
+        monkeypatch.delenv(name)
+    assert main(["benchmark", "check", "--config", str(config)]) == 0
+    assert not service.requests
+    message = json.loads(capsys.readouterr().out)
+    assert message["input_pdfs"] == 1 and not message["network_contacted"]

@@ -1,4 +1,7 @@
-methods: [ocr_rules, ocr_llm, vlm]
+methods:
+- ocr_raw
+- ocr_llm
+- vlm
 seed: 42
 output_dir: runs
 cache_dir: .cache/participant-bench
@@ -16,20 +19,42 @@ ocr:
   remove_grid_lines: true
 rules:
   header_aliases:
-    row_ref: [nr, nummer, lfd]
-    first_name: [vorname, vornamen, firstname]
-    last_name: [nachname, familienname, zuname, lastname, surname]
-    personnel_number: [personalnummer, personalnr, persnr, mitarbeiternummer]
-    department: [abteilung, department, bereich, kurzzeichen, kuerzel, kürzel, organization, organisation]
-    signature: [unterschrift, signature]
-  # Optional normalized column intervals, e.g. first_name: [0.10, 0.29].
+    row_ref:
+    - nr
+    - nummer
+    - lfd
+    first_name:
+    - vorname
+    - vornamen
+    - firstname
+    last_name:
+    - nachname
+    - familienname
+    - zuname
+    - lastname
+    - surname
+    personnel_number:
+    - personalnummer
+    - personalnr
+    - persnr
+    - mitarbeiternummer
+    department:
+    - abteilung
+    - department
+    - bereich
+    - kurzzeichen
+    - kuerzel
+    - kürzel
+    - organization
+    - organisation
+    signature:
+    - unterschrift
+    - signature
   columns: {}
   body_top: null
   body_bottom: 0.96
   row_tolerance: 0.008
 signature:
-  # Shared, separately recorded local VLM stage for signature presence in A/B/C.
-  # Use opencv to retain the conservative OCR-only signature baseline.
   backend: local_vlm
   inspect_known: true
   context_height: 0.12
@@ -38,21 +63,19 @@ signature:
   max_new_tokens: 192
   blank_ink_fraction: 0.0005
   component_min_area: 8
-  # The opencv backend alone keeps ink unknown; the detail VLM can report presence.
 models:
   ocr_llm:
-    repo: Qwen/Qwen3-8B
-    revision: b968826d9c46dd6066d109eabc6255188de91218
-    path: models/qwen3-8b
+    repo: Qwen/Qwen3-4B-Instruct-2507
+    revision: cdbee75f17c01a7cc42f958dc650907174af0554
+    path: models/qwen3-4b-instruct-2507
     dtype: bfloat16
-    # Same 8B checkpoint; int8 linear layers let it fit wholly on a 16 GiB GPU.
-    quantization: int8
+    quantization: none
     device: cuda
-    gpu_memory_gib: 11
+    gpu_memory_gib: 9
     cpu_memory_gib: 32
     max_input_tokens: 12000
     prefill_chunk_size: 1024
-    max_new_tokens: 2048
+    max_new_tokens: 8192
     do_sample: false
     temperature: 0.7
     warmup: true
@@ -66,7 +89,6 @@ models:
     gpu_memory_gib: 10
     cpu_memory_gib: 32
     max_input_tokens: 12000
-    # Enough room for all participant rows, or full page text when none are recognized.
     max_new_tokens: 8192
     do_sample: false
     temperature: 0.7

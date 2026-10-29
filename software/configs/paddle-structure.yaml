@@ -1,0 +1,9 @@
+# Optional legacy name, separate from the main comparison.
+extends: benchmark.yaml
+main_comparison: false
+methods: [paddle_structure]
+structures:
+  paddle_structure:
+    models_dir: models/paddle-structure
+    extraction: llm
+    device: cuda

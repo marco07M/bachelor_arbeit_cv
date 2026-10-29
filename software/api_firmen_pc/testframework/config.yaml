@@ -1,0 +1,27 @@
+# Paths are relative to this file. Only PDFs enter model requests; references stay local.
+input_dir: eingabe_pdfs
+reference_dir: referenz
+reference_file: null
+extraction_config: ../configs/api-bmw.yaml
+output_dir: ergebnisse
+signature_detail_checks: false
+reference:
+  columns:
+    class_id: Class ID
+    user_id: User ID
+    first_name: First Name
+    last_name: Last Name
+    short_code: Organization
+  sheet: null
+  header_row: 1
+  encoding: utf-8-sig
+  delimiter: null
+  merge_identical_duplicates: false
+matching:
+  ignore_leading_user_id_zeros: true
+  mode: best_fit
+  minimum_similarity: 0.80
+  minimum_name_similarity: 0.70
+  ambiguity_margin: 0.02
+  case_sensitive: false
+  score_uncertain_values: true

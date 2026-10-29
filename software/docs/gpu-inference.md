@@ -1,114 +1,63 @@
-# Lokale Ausführung auf der GPU
+﻿# GPU-Ausführung des Hauptvergleichs
 
-Die Konfigurationen `local.yaml`, `imported.yaml` und `benchmark-unlimited.yaml`
-verwenden weiterhin Qwen3-8B mit derselben festen Revision. Auf der vorhandenen
-RTX 4090 Laptop mit 16 GiB VRAM werden dessen lineare Schichten beim Laden mit
-bitsandbytes 0.48.1 / LLM.int8 quantisiert. Vorhandene Safetensors bleiben
-unverändert; es ist kein anderer Modelldownload erforderlich. Embeddings,
-Ausgabekopf und nicht quantisierte Operationen verwenden den konfigurierten
-`dtype: bfloat16`; LLM.int8 verarbeitet empfindliche Ausreißer mit höherer
-Präzision. Der Hinweis auf die interne Konvertierung von BF16 nach FP16 in
-MatMul8bitLt ist erwartbar. Das ist keine Änderung der Parameterzahl, kann aber
-Ausgaben verändern; eine unveränderte Erkennungsqualität ist nicht nachgewiesen.
+Das aktuelle Hauptprofil ist configs/benchmark.yaml. Es nutzt genau
+Qwen3-4B-Instruct-2507 für Text und Qwen3-VL-4B-Instruct für Bilder.
+Verbindliche Revisionen und Installationsbefehle:
+[Sechs lokale Verfahren](local-methods.md).
 
-Die ursprünglichen BF16-Gewichte benötigen 16.381.470.720 Bytes, etwa 15,26 GiB.
-Damit passen sie zusammen mit KV-Cache, Aktivierungen und Desktop nicht vollständig
-auf die vorgefundene GPU. Im früheren Lauf lagen deshalb 15 von 36 Transformer-
-Schichten sowie der Ausgabekopf auf der CPU. Ein bloß erhöhtes GPU-Budget löst
-diesen Kapazitätsengpass nicht vollständig.
+Die tatsächliche Hardware wird beim Start in environment.json erfasst.
+Auf diesem Laptop: RTX 4090 Laptop, rund 16 GiB VRAM. Modelle werden
+nacheinander geladen und wieder vollständig entladen. CUDA-Zuordnung und
+Parametergeräte werden überprüft. PDF-Rendering, Tesseract und Export bleiben
+CPU-Aufgaben; Paddle, TableFormer und Qwen verwenden die konfigurierte GPU.
 
-## Start
+## Speicher
 
-Aus `software/` einmal die zum Lockfile passende Modellumgebung einrichten:
+Hauptprofil: BF16, keine Quantisierung und kein CPU-Offload.
+Bei fehlender BF16-Unterstützung wird FP16 verwendet und ausgewiesen.
+Int8 bleibt eine bewusst konfigurierte Option ausschließlich für das Textmodell.
 
-```powershell
-uv sync --locked --extra models
-```
+Vor dem Laden werden Modellbudget und 2 GiB Reserve geprüft. Der CUDA-Allocator
+wird auf den zu Beginn verfügbaren Speicher abzüglich dieser Reserve begrenzt;
+eine bereits strengere Prozessgrenze bleibt erhalten. Nach dem Entladen wird
+die vorherige Grenze wiederhergestellt. Fehlender Speicher führt zu einem
+ausgewiesenen Fehler, nicht zu einem anderen Modell oder verstecktem CPU-Offload.
 
-Die Umgebung dieses Laptops wurde bereits aktualisiert. Danach wie bisher:
+attention: sdpa_repeated_kv verwendet äquivalente Attention mit explizit
+wiederholten Key-/Value-Köpfen und denselben kausalen Masken. Der installierte
+Windows-PyTorch-Build besitzt keinen Flash-Attention-Kernel; natives GQA kann
+sonst den speicherintensiven mathematischen Kernel wählen. Die neue Variante
+ermöglicht den vorhandenen effizienten GPU-Kernel. Numerische Gleichwertigkeit
+wird mit Masken, vollständigen Sequenzen und Ein-Token-Decoding getestet.
+Es werden keine Dateien installierter Bibliotheken verändert.
 
-```powershell
-.\start_lokal_cv_test.cmd
-```
+Beide VLM-Verfahren müssen identische Modellparameter einschließlich dieser
+Option verwenden. attention: sdpa bleibt für ausdrücklich getrennte Versuche
+verfügbar. Änderungen des Kernels sind zu dokumentieren; kleine numerische
+Unterschiede können trotz gleicher mathematischer Funktion Ausgaben beeinflussen.
 
-Oder alle vier Verfahren einschließlich Unlimited-OCR vergleichen:
+Bildauflösung, Eingabe- und Ausgabegrenzen sind konfigurierbar. Das Hauptprofil
+verwendet maximal 1.048.576 Bildpixel, 12.000 Eingabetoken und 8.192 Ausgabetoken.
+Zu lange Eingaben werden nicht still gekürzt. Ausgabeabbrüche bleiben Fehler
+mit gespeicherter Rohantwort. Das Textmodell kann den vollständigen Prompt
+in konfigurierten Prefill-Abschnitten verarbeiten.
 
-```powershell
-.\.venv\Scripts\participant-bench.exe run --input .\data\cv-test-20261020-093337 --config .\configs\benchmark-unlimited.yaml --offline
-```
+## Messen und vergleichen
 
-Einen **neuen Lauf** starten. Alte Ergebnisse und Berichte ändern sich nicht;
-`--resume` mischt wegen der veränderten Konfiguration/Softwareidentität keine
-früheren BF16-/Offload-Ergebnisse mit neuen int8-Ergebnissen.
+resources.json und timings.csv trennen Laden, Warm-up, Erkennung, Zuordnung,
+Generierung und gemeinsame Vorbereitung. Cache-Hits und zugerechnete OCR-Zeiten
+stehen separat. Der CUDA-Allocator misst nicht den gesamten Treiberbedarf oder
+andere Prozesse. Bei Paddle stammt der GPU-Wert gegebenenfalls vom separaten
+Worker; fehlende Werte bleiben unbekannt.
 
-## Speicherzuordnung
+Die Laufzeit hängt auch von Netz-/Akkubetrieb, GPU-Takt und anderen Prozessen ab.
+Ein Funktionstest bei stark gedrosseltem GPU-Takt ist kein belastbarer
+Durchsatznachweis für 6.000 PDFs. Entwicklung, Validierung und finale Tests
+unter dokumentierten, vergleichbaren Betriebsbedingungen ausführen.
 
-```yaml
-models:
-  ocr_llm:
-    # Weitere Modelleinstellungen aus local.yaml beibehalten.
-    dtype: bfloat16
-    quantization: int8
-    device: cuda
-    gpu_memory_gib: 11
-    prefill_chunk_size: 1024
-```
+## Frühere Modelle
 
-`device: cuda` bedeutet vollständiges Laden auf CUDA-Gerät 0. CPU-/Platten-
-Offload ist dabei ausgeschaltet. Die tatsächlichen Parametergeräte werden nach
-dem Laden geprüft. `gpu_memory_gib` plus 2 GiB Reserve wird vorab mit dem freien
-VRAM verglichen. Zusätzlich wird der PyTorch-CUDA-Allocator für die Lebensdauer
-des Modells auf den zu Beginn freien VRAM abzüglich 2 GiB begrenzt. Eine bereits
-strengere Prozessgrenze bleibt erhalten. Beim Entladen oder fehlgeschlagenen
-Modellladen wird die vorherige Grenze wiederhergestellt. Das verhindert, dass
-PyTorch große Speicheranforderungen unbemerkt in Windows Shared GPU Memory
-verlagert. Andere Prozesse oder GPU-Bibliotheken können weiterhin außerhalb
-dieser Grenze Speicher belegen. Bei Speichermangel wird ein Fehler protokolliert und
-keine langsamere Ersatzberechnung gestartet. Andere GPU-Prozesse gegebenenfalls
-vor dem Start schließen. Die maximalen Eingabe-/Ausgabetokens bleiben unverändert.
-
-Beim Modellwechsel werden nach CUDA-Synchronisation auch cuBLAS-Workspaces
-freigegeben. Sie hielten auf diesem Windows-System sonst mehrere GiB reserviert,
-obwohl die Modelltensoren bereits gelöscht waren. Dafür fragt der Adapter den
-internen Workspace-Clear-Hook der festgelegten PyTorch-2.8-Version defensiv ab;
-die Kombination aus Entladen und anschließendem VLM-Laden wurde lokal geprüft.
-
-`prefill_chunk_size: 1024` nutzt die native Transformers-Verarbeitung des
-vollständigen OCR-Prompts in mehreren Abschnitten mit gemeinsamem KV-Cache.
-Alle Wörter, Zeilengruppen und Positionen bleiben erhalten. Damit wird die
-Spitzenbelegung beim Einlesen langer Prompts reduziert. Bei kurzen Prompts ist
-die Aufteilung unnötig; das VLM verwendet sie nicht. `null` deaktiviert die Option.
-
-Im `progress.log` stehen Quantisierung, Modellspeicher und Parametergeräte.
-`ocr_llm/resources.json` enthält zusätzlich `device_map`, `parameter_devices`,
-`quantization`, `weight_memory_bytes`, `cuda_allocator_limit_bytes`,
-`prefill_chunk_size` und CUDA-Peaks. Der Speicherkonsum der
-separaten Unterschriftenprüfung wird dort gesondert erfasst.
-
-Qwen3-VL-4B für Seitenauswertung und Unterschriften bleibt in BF16 und wird
-ebenfalls vollständig auf die GPU gelegt. Unlimited-OCR nutzt bereits seine
-eigene CUDA-Laufzeit. PDF-Rendering, Tesseract, Tabellenregeln und Export bleiben
-CPU-Arbeit; Tesseract erhält durch diese Änderung keinen CUDA-Modus. Es werden
-weiterhin keine Dokumentinhalte an externe Dienste übertragen.
-
-## BF16 als Referenz und Qualitätsprüfung
-
-Für einen späteren BF16-Vergleich `quantization: none` setzen. Auf dieser 16-GiB-
-GPU zusätzlich `device: auto` und beispielsweise `gpu_memory_gib: 10` verwenden;
-dies erlaubt die langsamere CPU-Auslagerung. Auf einer GPU mit ausreichend
-freiem Speicher kann BF16 mit `device: cuda` laufen. Auch `device: cpu` benötigt
-`quantization: none`. 8-Bit-Laden ist nur für den lokalen OCR-LLM-Adapter freigegeben.
-
-Die Originalgewichte und Referenzdaten werden nicht verändert. Quantisierte
-und BF16-Ausgaben auf denselben manuell geprüften Dokumenten vergleichen:
-buchstäbliche Feldtreffer (`raw_exact_match`), führende Nullen, leere Benutzer-
-zellen, Zeilenzuordnung, fehlende Personen und manuelle Nachkontrolle. Einzelne
-synthetische Funktionsprüfungen belegen keine gleichbleibende Qualität auf
-echten Scans. Alte Laufzeiten auf anderen Dokumenten sind kein kontrollierter
-Geschwindigkeitsvergleich.
-
-Offizielle Grundlagen: [Transformers 4.57 / bitsandbytes](https://huggingface.co/docs/transformers/v4.57.1/quantization/bitsandbytes)
-und [bitsandbytes 0.48.1: CUDA-/Windows-Unterstützung](https://huggingface.co/docs/bitsandbytes/v0.48.1/en/installation),
-[PyTorch 2.8: Allocator-Grenze](https://docs.pytorch.org/docs/2.8/generated/torch.cuda.memory.set_per_process_memory_fraction.html)
-und der native `_prefill_chunking`-Pfad in der lokal installierten Transformers-
-Version 4.57.6 (`generation/utils.py`).
+Gespeicherte Läufe und ältere Gewichte werden nicht verändert.
+1.7B-/8B-Konfigurationen gehören zu früheren Experimenten und sind keine
+Bestandteile des aktuellen Hauptvergleichs. Nach Code-/Modelländerungen einen
+neuen Lauf starten; --resume setzt nur identische Konfigurationen fort.

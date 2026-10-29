@@ -25,9 +25,12 @@ def recheck_run(source: Path, config, methods=None, output: Path | None = None, 
     if "vlm" not in config.models:
         raise ValueError("Für die Signaturprüfung muss models.vlm konfiguriert sein")
     original_summary = read_json(source / "summary.json")
-    methods = methods or list(original_summary)
+    methods = methods or [name for name, summary in original_summary.items()
+                          if summary.get("output_kind", "structured") != "ocr_text"]
     if any(method not in original_summary for method in methods):
         raise ValueError("Gewähltes Verfahren ist im Quelllauf nicht vorhanden")
+    if not methods or any(original_summary[method].get("output_kind") == "ocr_text" for method in methods):
+        raise ValueError("Signaturprüfung benötigt strukturierte Teilnehmer; reine OCR-Ausgaben enthalten nur Rohtext")
     config.signature.backend = "vlm"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     output = output or source / "signature-review" / stamp

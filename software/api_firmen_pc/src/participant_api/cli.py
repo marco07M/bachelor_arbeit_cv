@@ -72,6 +72,10 @@ def smoke(config_path, method):
 def main(argv=None):
     enable()
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "benchmark":
+        from .benchmark import main as benchmark_main
+
+        return benchmark_main(argv[1:])
     if argv and argv[0] in ("check", "api-check", "smoke"):
         parser = argparse.ArgumentParser(
             description="API auf dem Firmen-PC prüfen; Zugangsdaten nur aus der Umgebung"
@@ -93,7 +97,8 @@ def main(argv=None):
             print(f"Fehler: {exc}", file=sys.stderr)
             return 1
     if not argv or argv[0] in ("-h", "--help"):
-        print("Firmen-PC: main.py check [--connect], smoke, run, signatures, report, compare-excel")
+        print("Firmen-PC: main.py check [--connect], smoke, run, signatures, report, compare-excel, benchmark")
+        print("Testframework: main.py benchmark check|run|compare|details|assignments; PDFs gegen Excel/CSV bewerten.")
         print("run/signatures nutzen dieselben Ergebnisformate wie die lokale Verarbeitung.")
         return 0
     if argv[0] not in ("run", "signatures", "report", "compare-excel", "prepare", "doctor"):

@@ -11,3 +11,30 @@ signature:
   backend: vlm
   inspect_known: true
   use_ocr_positions: true
+models:
+  vlm: &api_vlm
+    backend: api
+    max_new_tokens: 8192
+    max_pixels: 1048576
+    options: &bmw_connection
+      auth: oauth2
+      base_url_env: BMW_AI_BASE_URL
+      model_env: BMW_VLM_MODEL
+      chat_path_env: BMW_AI_CHAT_PATH
+      api_key_env: BMW_AI_API_KEY
+      api_key_header: x-apikey
+      api_key_header_env: BMW_AI_API_KEY_HEADER
+      api_key_prefix: ''
+      token_url_env: BMW_AI_TOKEN_URL
+      client_id_env: BMW_AI_CLIENT_ID
+      client_secret_env: BMW_AI_CLIENT_SECRET
+      scope_env: BMW_AI_SCOPE
+      resource_env: BMW_AI_RESOURCE
+      token_auth_method: basic
+      ca_bundle_env: BMW_AI_CA_BUNDLE
+  ocr_llm:
+    <<: *api_vlm
+    max_new_tokens: 8192
+    options:
+      <<: *bmw_connection
+      model_env: BMW_LLM_MODEL
