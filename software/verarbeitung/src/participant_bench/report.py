@@ -76,6 +76,9 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
                     page_number=page.page_number, origin_page=audit.get("origin_page"),
                     name_order=decision.get("order", "unknown"), evidence=decision.get("evidence") or
                         " | ".join(item["evidence"] for item in audit.get("reported_decisions", [])),
+                    decision_source=audit.get("decision_source", "model"),
+                    split_rows=sum(row["action"] == "split" or row.get("previously_split", False) or row.get("prevalidation_split", False)
+                                   for row in audit["actions"]),
                     swapped_rows=sum(row["action"] == "swap" or row.get("previously_swapped", False) or row.get("prevalidation_swap", False)
                                      for row in audit["actions"]),
                     review_rows=sum(row["action"] == "review" for row in audit["actions"]),
@@ -245,7 +248,7 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     write_csv(output / "pages.csv", [{k: v for k, v in row.items() if k != "page_text"} for row in text_records])
     write_csv(output / "extractions.csv", rows)
     write_csv(output / "document_name_orders.csv", name_orders, fields=["method", "source_file", "document_id",
-        "page_number", "origin_page", "name_order", "evidence", "swapped_rows", "review_rows", "conflict"])
+        "page_number", "origin_page", "name_order", "evidence", "decision_source", "split_rows", "swapped_rows", "review_rows", "conflict"])
     write_csv(output / "excluded_instructors.csv", excluded_instructors, fields=[
         "method", "source_file", "page_number", "first_name", "last_name", "role_evidence", "reason"])
     write_participants_xlsx(output / "participants.xlsx", excel_groups, columns)
@@ -384,14 +387,16 @@ bleibt der gelesene Seitentext als Fallback zur manuellen Prüfung erhalten.</p>
 Keine globale Siegerkennzahl. Synthetische Tests belegen keine Qualität auf realen Listen.</p>
 <h2>Ergebnis der Extraktion</h2>{table(overview)}
 <h2>Dokumentweite Zuordnung von Vor- und Nachname</h2>
-<p>Das Modell entscheidet die Namensreihenfolge anhand der Dokumentstruktur. Diese Entscheidung wird
-für die Seiten desselben Dokuments verwendet. Bereits gelesene Namensfelder werden bei Bedarf
-anhand ihrer belegten Positionen vertauscht; die Schreibweise bleibt erhalten. Unklare oder
-widersprüchliche Zuordnungen erfordern manuelle Prüfung. Die Excel-Referenz wird nicht herangezogen.</p>
+<p>Standard ist Nachname zuerst, danach sämtliche Vornamen. Ein eindeutiges Komma trennt die vollständigen
+Namensgruppen; zusammengesetzte Nachnamen bleiben zusammen. Klare getrennte Namensspalten haben Vorrang.
+Die Tabelle kennzeichnet Dokumentbelege und die vorgegebene Standardannahme getrennt. Bereits gelesene
+Namensfelder werden anhand ihrer Quellzellen zugeordnet; die Schreibweise bleibt erhalten. Unklare oder
+widersprüchliche Aufteilungen erfordern manuelle Prüfung. Die Excel-Referenz wird nicht herangezogen.</p>
 <p><a href="document_name_orders.csv">Entscheidungen und Begründungen als CSV</a>.</p>
 {table([{**row, 'name_order': {'given_family': 'Vorname → Nachname', 'family_given': 'Nachname → Vorname', 'unknown': 'Unklar'}.get(row['name_order'], row['name_order'])} for row in name_orders],
        {'method': 'Modell', 'source_file': 'PDF-Datei', 'document_id': 'Dokument-ID', 'page_number': 'PDF-Seite',
-        'origin_page': 'Entscheidung auf Seite', 'name_order': 'Namensreihenfolge', 'evidence': 'Modellbegründung',
+        'origin_page': 'Entscheidung auf Seite', 'name_order': 'Namensreihenfolge', 'evidence': 'Begründung',
+        'decision_source': 'Entscheidungsquelle (model / user_default)', 'split_rows': 'Neu getrennte Namenszellen',
         'swapped_rows': 'Umgeordnete Namenspaare', 'review_rows': 'Prüffälle', 'conflict': 'Widerspruch'})}
 <h2>Extrahierte Teilnehmerdaten</h2>
 <p><a href="participants.xlsx">Teilnehmer als Excel-Datei mit Referenz-Spaltennamen</a></p>

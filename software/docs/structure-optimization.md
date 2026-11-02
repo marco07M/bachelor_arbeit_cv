@@ -3,6 +3,9 @@
 Stand: 02.11.2026. Die Änderungen betreffen das vorhandene Framework und seine
 beiden Strukturverfahren. Es wurde kein zusätzliches LLM/VLM eingeführt.
 Dokumente, Gewichte, Rohantworten und Bild-Overlays bleiben lokal und gitignoriert.
+Die unten dokumentierten Vergleichsläufe entstanden vor dem späteren
+Namensnachtrag v22. Für die aktuelle Nachname-zuerst-Regel siehe
+[Feldzuordnung und Rollen](local-methods.md#feldzuordnung-und-rollen).
 
 ## Ursache und Änderung
 

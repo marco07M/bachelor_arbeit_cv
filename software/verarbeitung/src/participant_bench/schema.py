@@ -148,6 +148,10 @@ class SignatureLocations(StrictModel):
 
 
 class NameOrderDecision(StrictModel):
+    basis: Literal["document", "default", "unknown"] = Field(default="document", description=(
+        "document for visible headings or separators; default for the user's surname-first convention "
+        "without explicit order evidence; unknown for unreadable/conflicting evidence."
+    ))
     order: Literal["given_family", "family_given", "unknown"] = Field(description=(
         "Physical reading order of the two name parts in this document: given_family means first name "
         "before surname; family_given means surname before first name. Use unknown if not defensible."

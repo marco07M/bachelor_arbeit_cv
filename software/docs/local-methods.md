@@ -135,8 +135,26 @@ gemäß seiner Konfiguration ignorieren. Konfidenzen sind nicht kalibriert.
 Docling ordnet anhand **gedruckter Überschriften** zu, auch bei geänderter
 Spaltenreihenfolge, verbundenen Zellen oder mehrzeiligen Überschriften.
 Bekannte Aliase: Benutzer/User ID, Kurzzeichen/Organization, Vorname, Nachname.
-Eine kombinierte Namenszelle wird nur beim expliziten Format Nachname, Vorname
-getrennt. Ohne eindeutige Trennung bleiben Namen unbekannt und prüfpflichtig.
+Für kombinierte Namenszellen gilt auf Nutzerwunsch standardmäßig **Nachname
+zuerst, danach alle Vornamen**. `Muster-Schmidt, Anna Maria Luise` wird als
+Nachname `Muster-Schmidt` und Vorname `Anna Maria Luise` übernommen. Alles vor
+dem Komma bleibt zusammen, einschließlich mehrteiliger Nachnamen wie
+`von der Wiese`. Ein Bindestrich trennt keine Namensgruppe. Klare getrennte
+Vor-/Nachnamensspalten haben Vorrang vor dieser Standardannahme.
+
+Docling kann außerdem eine unmarkierte Zelle mit genau zwei Namensgruppen
+gemäß dem Standard zuordnen. Bei drei oder mehr ungetrennten Wörtern kann
+ein doppelter Nachname mit zusätzlichen Vornamen verwechselt werden. Ohne
+weitere Belege bleiben solche Aufteilungen prüfpflichtig; bereits beobachtete
+Modellgruppen und der vollständige Quelltext bleiben erhalten. Unvollständige
+Personen werden wegen dieser Mehrdeutigkeit nicht entfernt.
+
+Seit `participant-json-v22-family-first-name-groups` erhalten OCR-LLM, VLM
+und Hybrid dieselbe Namensregel. `name_order.basis=document/default/unknown`
+unterscheidet Dokumentbeleg und Standardannahme. Spätere eindeutige Überschriften
+können die Standardannahme ersetzen. Kommagrenzen korrigieren belegbare falsche
+Teilungen vor der Zellprüfung; Rohantworten bleiben unverändert. HTML und
+`document_name_orders.csv` zeigen Quelle, Neuaufteilungen und Prüffälle.
 Es gibt keine Namenswörterbücher oder fest codierten Pixelgrenzen.
 Auf Folgeseiten dürfen ausschließlich passende Spaltenüberschriften
 übernommen werden, keine Personenwerte. Widersprüchliche Zellbreiten und

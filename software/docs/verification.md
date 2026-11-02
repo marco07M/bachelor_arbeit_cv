@@ -1,5 +1,42 @@
 # Verifikationsprotokoll
 
+## Nachtrag: Nachname zuerst und vollständige Namensgruppen, 02.11.2026
+
+Auf Nutzerwunsch gilt für kombinierte Namenszellen Nachname → sämtliche
+Vornamen als Standard. Eindeutige separate Namensüberschriften haben Vorrang.
+Ein Komma trennt vollständige Gruppen; Bindestriche und mehrteilige Nachnamen
+werden erhalten. Falsch aufgeteilte Kommazellen können vor der strikten
+Zellprüfung anhand ihrer unveränderten Quelle neu zugeordnet werden.
+
+Neue Entscheidungsgrundlage `name_order.basis` und `decision_source` im Audit
+unterscheiden Beleg und Annahme. Spätere eindeutige Überschriften ersetzen
+eine Annahme ohne falschen Konflikt. Unklare unmarkierte Mehrfachnamen bleiben
+Prüffälle; die ganze Quelle und unvollständige Personen bleiben erhalten.
+Die dokumentweiten Namens- und Zellpromptversionen wurden erhöht. Es entstehen
+keine zusätzlichen Modellaufrufe oder Zugriffe auf Referenznamen.
+
+Abschließend bestanden **567 lokale Volltests** in 155,44 Sekunden und
+**48 API-Tests** in 14,69 Sekunden; Ruff und `git diff --check` ohne Befund.
+Der praktische Lauf `runs/20261102T092453Z-ffe0c48d/` enthält drei unabhängig
+vorab verfasste synthetische Personen: Doppelnachname mit drei Vornamen,
+mehrteiliges Nachnamenspräfix mit zwei Vornamen sowie einfacher Name ohne Komma.
+OCR-LLM und VLM geben alle drei Namensgruppen vollständig richtig aus.
+Doclings OCR-Belege enthalten den ersten Namen einschließlich Komma korrekt;
+die native Namenszelle enthält stattdessen einen Organisationscode. Damit ist
+ein Fehler der Zellzuordnung belegt (`cell_assignment_failed`); die Namensgruppe
+bleibt unklar. Eine vorläufige Komma-/Punkt-Vermutung wurde anhand der Rohdaten
+verworfen.
+
+Die ursprüngliche Positionsauswertung bleibt unverändert. OCR-Textzeilenboxen
+unterschreiten gegenüber ganzen GT-Tabellenzeilen die vertikale IoU-Schwelle;
+hier entstehen trotz richtiger Namensstrings keine Zuordnungen. Die ergänzende
+Inhaltsprüfung unter `runs/name-groups-20261102/report.html` verwendet dieselben
+vorab verfassten Feldwerte ohne GT-Positionslabels und den bestehenden
+approximativen Namens-/Organisationsabgleich. Namensfelder exakt: OCR-LLM 6/6,
+VLM 6/6, Docling 4/6. Es wurden keine Referenzfelder anhand von Modellantworten
+geändert. Dies ist ein Funktionstest, kein allgemeiner Genauigkeitsnachweis auf
+realen Teilnehmerlisten und keine unabhängige Identitätsprüfung.
+
 ## Nachtrag: Benutzer-Spalte und User IDs, 02.11.2026
 
 Der vom Nutzer geöffnete Vergleich

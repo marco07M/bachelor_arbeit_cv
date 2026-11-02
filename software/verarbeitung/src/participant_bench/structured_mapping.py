@@ -8,11 +8,12 @@ import re
 from collections import defaultdict
 
 from .column_headers import ORGANIZATION_ALIASES, field_roles
+from .name_parts import split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-headings-v2"
+VERSION = "tableformer-native-headings-v3-family-first"
 
 
 def table_rows(table, table_index=0, size=None):
@@ -116,18 +117,22 @@ def extract_structured(recognized, context=None):
             combined = (mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name"))
             value = fields["last_name"].value
             if combined or (not mapping.get("first_name") and value and "," in value):
-                if value and value.count(",") == 1 and all(part.strip() for part in value.split(",")):
-                    last, first = (part.strip() for part in value.split(","))
+                split = split_combined_name(value)
+                if split:
+                    first, last, rule = split
                     box = fields["last_name"].bbox
                     fields["first_name"] = TextField(value=first, state="read", bbox=box)
                     fields["last_name"] = TextField(value=last, state="read", bbox=box)
                     for key, text in (("first_name", first), ("last_name", last)):
                         evidence[key] = dict(evidence.get("last_name", {}), text=text,
-                                             assignment_rule="explicit_surname_comma_given_name")
+                                             assignment_rule=rule)
+                    if rule == "default_name_group_order":
+                        warnings.append("Namenszelle ohne Komma gemäß Vorgabe Nachname → Vorname zugeordnet")
                 else:
                     fields["first_name"], fields["last_name"] = TextField(), TextField()
                     warnings.append("Name split unknown; combined cell retained in source evidence")
-            if not any(fields[f].value for f in ("first_name", "last_name", "personnel_number")):
+            observed_unsplit = combined and value and any(c.isalpha() for c in value) and not any(c.isdigit() for c in value)
+            if not any(fields[f].value for f in ("first_name", "last_name", "personnel_number")) and not observed_unsplit:
                 continue
             boxes = [c["bbox"] for c in row["cells"] if c.get("bbox")]
             row_ref = next((c["text"] for c in row["cells"] if c["column_start"] in mapping.get("row_ref", set())

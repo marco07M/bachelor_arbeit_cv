@@ -46,6 +46,35 @@ def test_native_grid_prevents_loss_during_html_export():
     assert source["tables"][0]["html"].count("<th>") == 2
 
 
+@pytest.mark.parametrize("extract", [extract_docling, extract_structured])
+@pytest.mark.parametrize("value,first,last", [
+    ("Muster Max", "Max", "Muster"),
+    ("Muster-Schmidt Anna", "Anna", "Muster-Schmidt"),
+    ("Muster Schmidt, Anna Maria", "Anna Maria", "Muster Schmidt"),
+    ("von der Wiese, Anna Maria", "Anna Maria", "von der Wiese"),
+])
+def test_docling_combined_names_use_family_first_and_preserve_complete_groups(extract, value, first, last):
+    people, proofs, _, _ = extract(native_table(["Benutzername", "User ID"], [[value,"000007"]]))
+    assert people[0].first_name.value == first and people[0].last_name.value == last
+    assert people[0].personnel_number.value == "000007"
+    assert value in proofs[0]["raw_cells"]
+
+
+@pytest.mark.parametrize("extract", [extract_docling, extract_structured])
+def test_separate_given_family_headers_preserve_a_double_surname(extract):
+    people, _, _, _ = extract(native_table(["Vorname", "Nachname"], [["Anna Maria", "Muster Schmidt"]]))
+    assert people[0].first_name.value == "Anna Maria" and people[0].last_name.value == "Muster Schmidt"
+
+
+@pytest.mark.parametrize("extract", [extract_docling, extract_structured])
+def test_ambiguous_undelimited_compound_name_keeps_the_partial_person_and_source(extract):
+    people, proofs, _, _ = extract(native_table(["Benutzername", "Organisation"], [["Muster Schmidt Anna", "ABC"]]))
+    assert len(people) == 1
+    assert people[0].first_name.value is None and people[0].last_name.value is None
+    assert "Muster Schmidt Anna" in proofs[0]["raw_cells"]
+    assert people[0].department.value == "ABC"
+
+
 def test_two_semantically_distinct_organization_columns_are_not_arbitrarily_merged():
     source = native_table(["Vorname", "Nachname", "Organization", "Abteilung"], [["Max", "Muster", "ABC", "XYZ"]])
     people, _, _, _ = extract_structured(source)

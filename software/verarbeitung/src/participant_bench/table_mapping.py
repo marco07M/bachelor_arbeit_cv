@@ -3,11 +3,12 @@
 import re
 from collections import defaultdict
 
+from .name_parts import split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import header_fields, source_rows, table_headers
 
-VERSION = "tableformer-heading-mapping-v1"
+VERSION = "tableformer-heading-mapping-v2-family-first"
 
 
 def extract_docling(recognized: dict, context: dict | None = None):
@@ -67,25 +68,29 @@ def extract_docling(recognized: dict, context: dict | None = None):
                                          bbox=Box.model_validate(cell["bbox"]) if cell["bbox"] else None)
                 proofs[field] = dict(column_start=cell["column_start"], text=text, assignment_rule="printed_header_cell")
             first_columns, last_columns = mapping.get("first_name", set()), mapping.get("last_name", set())
-            # A combined printed Name/Benutzername cell is split only at an explicit comma.
+            # Commas preserve complete name groups; bare two-part cells use the user's default.
             combined = bool(first_columns and first_columns == last_columns)
             if not first_columns and last_columns:
                 cell = next((c for column in last_columns for c in by_column[column] if "," in c["text"]), None)
                 combined = cell is not None
             if combined:
                 value = fields["last_name"].value
-                if value and value.count(",") == 1 and all(part.strip() for part in value.split(",")):
-                    last, first = (part.strip() for part in value.split(",", 1))
+                split = split_combined_name(value)
+                if split:
+                    first, last, rule = split
                     box = fields["last_name"].bbox
                     fields["first_name"] = TextField(value=first, state="read", bbox=box)
                     fields["last_name"] = TextField(value=last, state="read", bbox=box)
                     for key, text in (("first_name", first), ("last_name", last)):
                         proofs[key] = dict(column_start=next(iter(last_columns)), text=text,
-                                           assignment_rule="explicit_surname_comma_given_name")
+                                           assignment_rule=rule)
+                    if rule == "default_name_group_order":
+                        warnings.append("Namenszelle ohne Komma gemäß Vorgabe Nachname → Vorname zugeordnet")
                 else:
                     fields["first_name"], fields["last_name"] = TextField(), TextField()
                     warnings.append("Kombinierte Namenszelle ohne eindeutiges Komma; Vor-/Nachname unbekannt")
-            if not any(fields[key].value for key in ("first_name", "last_name", "personnel_number")):
+            observed_unsplit = combined and value and any(c.isalpha() for c in value) and not any(c.isdigit() for c in value)
+            if not any(fields[key].value for key in ("first_name", "last_name", "personnel_number")) and not observed_unsplit:
                 if any(cell["text"] for cell in row["cells"]):
                     notes.append(f"Tabelle {table_index}, Zeile {row['row_index']}: kein eindeutig zuordenbarer Identitätswert")
                 continue

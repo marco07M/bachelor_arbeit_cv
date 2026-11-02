@@ -32,6 +32,36 @@ Weitere Einstiege: [Repository-README](README.md),
 [Verfahrensbeschreibung](software/docs/local-methods.md),
 [bisherige Verifikation](software/docs/verification.md).
 
+### Nachtrag: Nachname zuerst und vollständige Namensgruppen
+
+Auf ausdrücklichen Nutzerwunsch gilt für neue Läufe standardmäßig
+Nachname → sämtliche Vornamen. Klare Spaltenüberschriften haben Vorrang.
+Ein Komma trennt vollständige Gruppen; mehrteilige/mit Bindestrich verbundene
+Nachnamen werden nicht am zweiten Wort abgeschnitten. `name_order.basis`
+unterscheidet Dokumentbeleg und Standardannahme. Spätere klare Überschriften
+können die Annahme ohne künstlichen Dokumentwiderspruch ersetzen.
+Unmarkierte mehrteilige Namen bleiben bei unklarer Gruppengrenze Prüffälle;
+Originaltext und bereits gelesene Gruppen bleiben erhalten.
+
+Implementiert in `name_parts.py`, `document_names.py`, den beiden Docling-
+Zuordnungen und den gemeinsamen Modellanweisungen. Promptversionen:
+`participant-json-v22-family-first-name-groups`, Zellzuordnung v15/v16.
+Abgeschlossen: 69 gezielte Namens-/Strukturtests, 567 lokale Volltests und
+48 API-Tests bestanden. Praktischer unabhängiger synthetischer Lauf:
+`software/runs/20261102T092453Z-ffe0c48d/`. Die ergänzende Inhaltsprüfung
+`software/runs/name-groups-20261102/report.html` zeigt 6/6 richtige Namensfelder
+bei OCR-LLM und VLM, 4/6 bei Docling. Die Docling-OCR enthält den ersten Namen
+samt Komma korrekt; die native Tabelle enthält in der Namenszelle jedoch einen
+Organisationscode. Das ist `cell_assignment_failed`, kein belegter OCR-Lesefehler.
+Die Aufteilung bleibt unklar. Die Inhaltsprüfung verwendet dieselben vorab verfassten
+Referenzwerte ohne Positionslabels und den üblichen approximativen Namens-/
+Organisationsabgleich. Ursprüngliche Positionsmetriken bleiben erhalten: Die
+OCR-Textzeilenboxen unterschreiten gegenüber ganzen GT-Tabellenzeilen die strenge
+IoU-Schwelle und liefern dort trotz richtiger Namensstrings keine Zuordnung.
+Dieser Funktionstest belegt keine allgemeine Qualität auf realen Dokumenten.
+Keine historischen Rohantworten
+oder Ergebnisse umschreiben; keine Namenswerte aus Referenzen übernehmen.
+
 ### Nachtrag: User IDs unter „Benutzer“
 
 „Benutzer“ wird bereits als `personnel_number` erkannt; „Benutzername“ bleibt
@@ -157,9 +187,9 @@ Kursauswertung; aus bedingten Seitenwerten keinen Handschrift-Recall ableiten.
 
 ### Prüfstand
 
-Am 2026-11-02 bestanden nach dem Benutzer-ID-Nachtrag **546 vollständige lokale
-Tests** in 165,99 Sekunden sowie **48 Tests des getrennten API-Projekts** in
-25,06 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
+Am 2026-11-02 bestanden nach dem Namensgruppen-Nachtrag **567 vollständige lokale
+Tests** in 155,44 Sekunden sowie **48 Tests des getrennten API-Projekts** in
+14,69 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
 veränderte Original-/Laufbilder, Referenzänderungen und maskierte Felder.
 Ruff, Markdown-Dateiverweise und `git diff --check` ohne Befund. 22 lokale
 Pipelineprofile sowie Excel- und Testframework-Konfiguration erfolgreich geladen.
@@ -190,6 +220,32 @@ auf die dort datierten Stände.
   Modellgewichte und personenbezogene Diagnoseartefakte gehören nicht in Git.
 
 ## Änderungsprotokoll
+
+### 2026-11-02 – Standard Nachname zuerst, flexible Namensgruppen
+
+- **Auftrag:** Nachname vor Vorname annehmen, mehrere Vornamen und doppelte
+  Nachnamen vollständig erhalten.
+- **Dateien:** `name_parts.py`, `document_names.py`, `models.py`, `schema.py`,
+  `unlimited_assignment.py`, `table_mapping.py`, `structured_mapping.py`,
+  `report.py`, Tests für Dokumentnamen und Strukturdiagnose, `docs/local-methods.md`,
+  `docs/structure-optimization.md`, `docs/verification.md`, diese Übergabe.
+- **Änderung:** Nutzerstandard als eigene Entscheidungsquelle, klare Überschriften
+  weiterhin vorrangig. Kommagrenze korrigiert auch falsch abgeschnittene
+  Nachnamengruppen vor der strikten Zellvalidierung. Native OCR-Fragmente nutzen
+  die belegte Namensspalte. HTML/CSV weisen Standardannahmen und Neuaufteilungen
+  getrennt aus. Mehrdeutige unmarkierte Dreier-/Mehrfachnamen werden nicht blind
+  am ersten Leerzeichen geteilt; unvollständige Personen bleiben erhalten.
+- **Prüfung:** 69 gezielte Tests, 567 lokale Volltests (155,44 s), 48 API-Tests
+  (14,69 s) und Ruff bestanden. Praktischer Docling-/OCR-LLM-/VLM-Test abgeschlossen,
+  Eingabe und Referenz unabhängig vor der Inferenz erstellt. OCR-LLM/VLM geben
+  alle drei Namensgruppen korrekt aus; Docling lässt eine wegen fehlerhafter nativer
+  Zellzuordnung unklar. Die OCR-Belege enthalten den vollständigen Namen samt
+  Komma korrekt, die native Namenszelle enthält dagegen einen Organisationscode.
+  Frühere Komma-/Punkt-Vermutung ausdrücklich verworfen; Ursache anhand Rohdaten
+  geprüft. Die obige ergänzende Inhaltsprüfung und ihre Grenzen sind protokolliert.
+- **Grenze:** Ohne Komma, Bindestrich oder andere Gruppierungsbelege kann ein
+  doppelter Nachname nicht immer von mehreren Vornamen unterschieden werden.
+  Dann keine blinde Worttrennung und keine Namen aus Referenzen übernehmen.
 
 ### 2026-11-02 – Benutzer-ID und Zeilennummer unterscheiden
 

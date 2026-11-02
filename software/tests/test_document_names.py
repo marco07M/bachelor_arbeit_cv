@@ -84,7 +84,7 @@ def test_separate_ocr_name_boxes_are_swapped_as_whole_fields_with_their_position
     assert person.personnel_number.value == "000007"
 
 
-@pytest.mark.parametrize("order,cell", [("unknown", "Weber, Anna"), ("family_given", "Unreadable name")])
+@pytest.mark.parametrize("order,cell", [("unknown", "Unreadable name"), ("family_given", "Unreadable name")])
 def test_uncertain_order_or_missing_physical_evidence_is_reviewed_without_changing_names(order, cell):
     page, raw = visual(order=order, cell=cell)
     DocumentNameOrders().apply(page, raw)
@@ -95,11 +95,12 @@ def test_uncertain_order_or_missing_physical_evidence_is_reviewed_without_changi
 
 def test_later_headings_resolve_earlier_pages_without_another_model_call(tmp_path):
     resolver = DocumentNameOrders()
-    first, raw = visual(order="unknown")
+    first, raw = visual(order="unknown", cell="Anna Weber")
     resolver.apply(first, raw)
-    assert first.participants[0].first_name.state == "uncertain"
+    assert raw["document_name_order"]["decision_source"] == "user_default"
+    assert first.participants[0].first_name.value == "Weber"
     write_json(tmp_path / f"raw-{first.page_id}.json", raw)
-    second, second_raw = visual(number=2)
+    second, second_raw = visual(number=2, cell="Anna Weber", order="given_family")
     resolver.apply(second, second_raw)
     write_json(tmp_path / f"raw-{second.page_id}.json", second_raw)
     resolver.finalize([first, second], tmp_path)
@@ -131,7 +132,7 @@ def test_old_response_without_a_document_decision_is_not_reinterpreted():
     assert "document_name_order" not in raw
 
 
-def test_new_model_answer_missing_the_required_order_is_preserved_for_manual_review():
+def test_new_model_answer_missing_the_required_order_uses_the_documented_default():
     page, raw = visual()
     payload = json.loads(raw["responses"][0]["raw_response"])
     del payload["name_order"]
@@ -146,9 +147,83 @@ def test_new_model_answer_missing_the_required_order_is_preserved_for_manual_rev
         people, responses, _, _ = model.extract(image)
     assert responses[0]["name_order"]["order"] == "unknown"
     page.participants = people
-    DocumentNameOrders().apply(page, dict(responses=responses))
-    assert page.participants[0].first_name.value == "Weber"
+    audit = dict(responses=responses)
+    DocumentNameOrders().apply(page, audit)
+    assert page.participants[0].first_name.value == "Anna"
+    assert page.participants[0].last_name.value == "Weber"
+    assert audit["document_name_order"]["decision_source"] == "user_default"
+
+
+@pytest.mark.parametrize("cell,first,last,expected_first,expected_last", [
+    ("Muster, Max", "Muster", "Max", "Max", "Muster"),
+    ("Muster-Schmidt, Anna Maria", "Muster-Schmidt", "Anna Maria", "Anna Maria", "Muster-Schmidt"),
+    ("von der Wiese, Anna Maria", "von", "der Wiese, Anna Maria", "Anna Maria", "von der Wiese"),
+    ("Muster Schmidt, Anna Maria", "Muster", "Schmidt, Anna Maria", "Anna Maria", "Muster Schmidt"),
+    ("O’Neill-Smith, Zoë Anne", "O’Neill-Smith", "Zoë Anne", "Zoë Anne", "O’Neill-Smith"),
+])
+def test_comma_preserves_complete_surnames_and_all_given_names(cell, first, last, expected_first, expected_last):
+    page, raw = visual(first=first, last=last, cell=cell, order="unknown")
+    original = raw["responses"][0]["raw_response"]
+    resolver = DocumentNameOrders()
+    resolver.apply(page, raw)
+    resolver.apply(page, raw)
+    person = page.participants[0]
+    assert (person.first_name.value, person.last_name.value) == (expected_first, expected_last)
+    assert raw["responses"][0]["raw_response"] == original
+    assert raw["document_name_order"]["decision_source"] == "user_default"
+
+
+def test_default_keeps_model_observed_compound_name_groups_without_a_comma():
+    page, raw = visual(first="Muster Schmidt", last="Anna Maria", cell="Muster Schmidt Anna Maria", order="unknown")
+    DocumentNameOrders().apply(page, raw)
+    assert page.participants[0].last_name.value == "Muster Schmidt"
+    assert page.participants[0].first_name.value == "Anna Maria"
+    assert page.participants[0].first_name.state == page.participants[0].last_name.state == "uncertain"
     assert REVIEW in page.participants[0].review_notes
+
+
+def test_later_explicit_headings_replace_a_reported_default_without_conflict():
+    resolver = DocumentNameOrders()
+    first, raw = visual(order="family_given", cell="Anna Weber")
+    raw["responses"][0]["name_order"]["basis"] = "default"
+    resolver.apply(first, raw)
+    assert raw["document_name_order"]["decision_source"] == "user_default"
+    second, later_raw = visual(order="given_family", cell="Anna Weber", number=2)
+    resolver.apply(second, later_raw)
+    assert not later_raw["document_name_order"]["conflicting_page_decision"]
+    assert later_raw["document_name_order"]["origin_page"] == 2
+    assert second.participants[0].first_name.value == "Anna"
+
+
+def test_compound_surname_is_regrouped_before_strict_cell_validation():
+    rows, _ = source_rows("<table><tr><td>Benutzername</td><td>Benutzer</td></tr>"
+                          "<tr><td>Muster Schmidt, Anna Maria</td><td>000007</td></tr></table>")
+    response = AssignmentResponse.model_validate(dict(name_order=dict(order="unknown", evidence="Keine eindeutige Reihenfolge"),
+        participants=[dict(source_row="t0r1", first_name=(0,"Muster"), last_name=(0,"Schmidt, Anna Maria"),
+                           personnel_number=(1,"000007"), department=(None,None))]))
+    changes = DocumentNameOrders().prepare_assignment(response, rows, "doc", 1)
+    people, _, _ = ground_response(response, rows)
+    assert changes[0]["action"] == "split_combined_name_before_validation"
+    assert people[0].last_name.value == "Muster Schmidt"
+    assert people[0].first_name.value == "Anna Maria"
+    assert people[0].personnel_number.value == "000007"
+
+
+def test_fragmented_native_name_cells_keep_their_transcript_reference():
+    from test_structure_assignment import paddle
+
+    from participant_bench.structure_assignment import prepare_rows
+
+    rows, _, _ = prepare_rows(paddle(), "paddle_structure")
+    response = AssignmentResponse.model_validate(dict(name_order=dict(order="unknown", evidence="Standard"),
+        participants=[dict(source_row=rows[1]["id"], first_name=(0,"von"), last_name=(0,"der Wiese, Anna"),
+                           personnel_number=(0,"001234"), department=(0,"MUC-1"))]))
+    changes = DocumentNameOrders().prepare_assignment(response, rows, "doc", 1)
+    people, _, _ = ground_response(response, rows, trusted_headers=False)
+    assert changes[0]["name_cell_text"] == "von der Wiese, Anna"
+    assert response.participants[0].first_name[0] == response.participants[0].last_name[0] == 0
+    assert people[0].first_name.value == "Anna" and people[0].last_name.value == "von der Wiese"
+    assert people[0].personnel_number.value == "001234" and people[0].department.value == "MUC-1"
 
 
 @pytest.mark.parametrize("method", ["unlimited_ocr", "paddle_structure", "docling"])
