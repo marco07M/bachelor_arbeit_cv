@@ -408,10 +408,11 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
                     recognized["plain_text"] = text  # Also repair incomplete transcripts in older saved runs.
             page.page_text = recognized["plain_text"]
             bands, previous_bands, previous_spatial = {}, {}, None
-            candidates, validation_bands = [], {}
+            candidates, validation_bands, ambiguous_fields = [], {}, []
             if structure:
                 from .structure_assignment import (
                     VERSION,
+                    ambiguous_header_fields,
                     comma_names,
                     continuation_candidates,
                     ground_positions,
@@ -423,6 +424,8 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
 
                 rows, source_notes, aspect = prepare_rows(recognized, "paddle_structure" if method == "paddle_llm" else method)
                 bands = header_bands(rows)
+                if positioned:
+                    ambiguous_fields = ambiguous_header_fields(rows)
                 previous_spatial = spatial_context.get(page.document_id)
                 if previous_spatial and aspect and abs(previous_spatial["aspect"] / aspect - 1) < 0.02:
                     previous_bands = previous_spatial["bands"]
@@ -499,7 +502,8 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
                     table_structure.append([[row["row_index"], [[cell["column_start"], cell["text"],
                         cell["rowspan"], cell["colspan"]] for cell in row["cells"]]] for row in grid])
             prompt = json.dumps(dict(cell_columns=["cell_index", *cell_columns[1:]],
-                **(dict(layout_cell_columns=["text", "bbox", "ocr_confidence", "heading_roles"]) if positioned else {}),
+                **(dict(layout_cell_columns=["text", "bbox", "ocr_confidence", "heading_roles"],
+                        ambiguous_fields=ambiguous_fields) if positioned else {}),
                 table_structure=table_structure,
                 name_column_hint=name_hint,
                 current_columns={} if structure else current_columns,
@@ -586,6 +590,8 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
                 def validator(field, cell, match):
                     if not structure:
                         return True
+                    if field in ambiguous_fields:
+                        return False
                     if not position_matches(field, cell, match, validation_bands):
                         return False
                     if name_bounds and field in ("first_name", "last_name") and match:
@@ -608,6 +614,7 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
                               current_field_bands=bands, previous_field_bands=previous_bands,
                               position_context_origin=previous_spatial.get("origin") if previous_spatial else None,
                               continuation_candidates=candidates)
+                record["ambiguous_fields"] = ambiguous_fields
                 if not cached:
                     write_json(cache, dict(answer=answer, metadata=metadata))
                 page.participants, page.parse_status, page.error = people, "valid", None

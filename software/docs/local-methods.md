@@ -54,8 +54,9 @@ vor dem Laden geprüfte SHA256-Prüfsummen. Tesseract mit deu/eng muss vorhanden
 .\.venv\Scripts\participant-bench.exe doctor --config configs/benchmark.yaml
 ~~~
 
-Auf dem bereits eingerichteten Laptop fehlen derzeit die **neuen Textgewichte**.
-Dort dieses Modell bewusst einrichten:
+Auf diesem Laptop wurden die exakten Textgewichte am **02.11.2026** eingerichtet,
+anhand des Download-Manifests geprüft und mit echter CUDA-Inferenz ausgeführt.
+Auf einem neuen Rechner dieses Modell bewusst einrichten:
 
 ~~~powershell
 .\.venv\Scripts\participant-bench.exe download-models --config configs/benchmark.yaml --method ocr_llm --transport range
@@ -103,6 +104,15 @@ Die ursprünglichen Paddle-Daten bleiben vollständig in den Rohdateien erhalten
 Wenn Paddle fehlt, wird der Hybrid unavailable statt unbemerkt bildbasiert.
 
 ## Feldzuordnung und Rollen
+
+Aktiv sind Doclings native Tabellenzellen mit ACCURATE, deaktiviertem Cell Matching
+und Standard-OCR. Paddle behält `legacy_v13`: Die erweiterte Übergabe
+`positioned_v14` mit Positionen, Konfidenzen, Zellbeziehungen und Überschriftenrollen
+ist über `configs/paddle-positioned.yaml` prüfbar, zeigte aber keinen Vorteil und
+eine Regression im Entwicklungstest. Die frühere Docling-Konfiguration ist als
+`configs/structures-baseline.yaml` verfügbar. Full-Page-OCR und Tesseract PSM 11
+bleiben getrennte Experimente. Befunde, Grenzen und reproduzierbare Befehle:
+[Docling-/Paddle-Abschlussbericht](structure-optimization.md).
 
 Tesseract-LLM und Paddle-LLM verwenden ausschließlich die eigenen OCR-Belege;
 ein VLM ergänzt keine Namen. Das LLM erhält lesbare Zeilen, Spalten,

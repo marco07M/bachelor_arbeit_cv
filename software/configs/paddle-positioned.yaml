@@ -1,0 +1,25 @@
+# Measured candidate: richer evidence did not improve the current development cases.
+extends: benchmark.yaml
+methods: [paddle_llm]
+structures:
+  paddle_llm:
+    models_dir: models/paddle-structure
+    extraction: llm
+    device: cuda
+    timeout_seconds: 600
+    assignment_format: positioned_v14
+    organization_header_aliases:
+    - Organization
+    - Organisation
+    - Abteilung
+    - Organisationseinheit
+    - Org.-Einheit
+    - Org.
+    - Bereich
+    - Department
+    - Organizational Unit
+    - Organisational Unit
+    - Kurzzeichen
+    - Kürzel
+    - Kuerzel
+    - Org Unit

@@ -250,6 +250,21 @@ def header_bands(rows):
             for field, start in starts.items() if field in TEXT_FIELDS}
 
 
+def ambiguous_header_fields(rows):
+    """Distinct columns with the same role are not resolved by an LLM guess."""
+    ambiguous = set()
+    for row in rows:
+        cells = [(c, set(c.get("header_fields", []))) for c in row.get("native_cells", [])]
+        found = set().union(*(fields for _, fields in cells)) if cells else set()
+        if not (found & {"first_name", "last_name"} and len(found & set(TEXT_FIELDS)) >= 2):
+            continue
+        for field in TEXT_FIELDS:
+            anchors = [cell["bbox"]["x0"] for cell, fields in cells if field in fields]
+            if len(anchors)>1 and max(anchors)-min(anchors)>.02:
+                ambiguous.add(field)
+    return sorted(ambiguous)
+
+
 def ground_positions(people, evidence, rows, bands):
     """Enforce column evidence after literal grounding; do not fill unknown values."""
     by_id = {row["id"]: row for row in rows}

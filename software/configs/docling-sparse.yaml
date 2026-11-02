@@ -1,0 +1,10 @@
+# Explicit development variant: compare sparse Tesseract segmentation with PSM 6.
+# No additional model and no visual/language-model fallback.
+extends: benchmark.yaml
+methods: [docling]
+ocr:
+  command: auto
+  languages: deu+eng
+  psm: 11
+  timeout_seconds: 120
+  remove_grid_lines: true

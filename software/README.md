@@ -59,6 +59,7 @@ Für den Firmen-PC gilt die [separate Installation](api_firmen_pc/README.md).
 
 - [PDFs und Referenz vorbereiten, Vergleich verstehen](testframework/README.md)
 - [Lokale Modelle und ihr Ablauf](docs/local-methods.md)
+- [Docling/Paddle: Fehleranalyse und gemessener Vorher-/Nachher-Vergleich](docs/structure-optimization.md)
 - [Excel-Spalten und User-ID-Vergleich](docs/excel-comparison.md)
 - [OCR-Kalibrierung und unabhängige Evaluation](docs/ocr-calibration.md)
 - [GPU-Konfiguration](docs/gpu-inference.md)

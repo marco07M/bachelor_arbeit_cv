@@ -76,6 +76,8 @@ def analyze_page(raw, final):
     traces = []
     for proof in proofs:
         index, source_id = proof["output_index"], proof.get("source_row")
+        if any(item.get("source_output_index") == index for item in raw.get("person_role_filter", {}).get("excluded", [])):
+            continue  # An intentional trainer exclusion is not normalization loss.
         original = source_rows.get(source_id)
         supplied = prompt_rows.get(source_id)
         if original is None and supplied:

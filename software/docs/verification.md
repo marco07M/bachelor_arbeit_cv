@@ -1,6 +1,31 @@
 # Verifikationsprotokoll
 
-## Aktueller Hauptvergleich: sechs Verfahren, 29.10.2026
+## Docling/Paddle: praktische Abnahme, 02.11.2026
+
+Die exakten Qwen3-4B-Instruct-2507-Gewichte sind installiert, SHA256-geprüft und
+mit echter lokaler CUDA-Inferenz ausgeführt. Vollständig abgeschlossen sind
+fünf Docling-Konfigurationsvarianten und vier A/B-Läufe auf synthetischen und
+realen Dokumenten. Zusätzlich wurden zwei reale Docling-OCR-Varianten geprüft.
+Die Vergleichsbedingungen, Feldmetriken, Ursachen, Laufzeiten und Grenzen stehen
+im [Abschlussbericht](structure-optimization.md).
+
+Aktiv ist Docling mit nativen Zellen, ACCURATE und deaktiviertem Cell Matching.
+Paddles erweiterte Übergabe bleibt nach gemessener Regression eine gesonderte
+Versuchsvariante; das Hauptprofil behält dafür `legacy_v13`. Ein Qualitätsgewinn
+auf der realen PDF wurde nicht nachgewiesen. Die vorhandenen 18 Kursreferenzen
+ersetzen keine manuell geprüften Seitentranskripte für Handschriftmetriken.
+
+Abschließender Prüfstand: **544 lokale Volltests bestanden** in 163,52 Sekunden;
+**48 API-Tests bestanden** auf dem geänderten Kerncode. Ruff, Markdown-Dateiverweise
+und `git diff --check` ohne Befund. 22 lokale Pipelineprofile sowie die Excel- und
+Testframework-Konfiguration erfolgreich mit den jeweiligen Schemas geladen.
+Die tatsächlichen Laufbilder und endgültigen Methodeneinstellungen wurden gegen
+die eingefrorenen Ergebnisse geprüft. Die Original-PDF blieb hashgleich erhalten.
+
+Alle folgenden Abschnitte sind historische, datierte Prüfstände. Insbesondere
+die dort dokumentierten fehlenden Textgewichte sind seit 02.11.2026 behoben.
+
+## Hauptvergleich: sechs Verfahren, 29.10.2026
 
 Implementiert sind `ocr_raw`, `ocr_llm`, `paddle_llm`, `docling`, `vlm` und
 `ocr_vlm` im vorhandenen Runner. Hauptprofil: `configs/benchmark.yaml`.

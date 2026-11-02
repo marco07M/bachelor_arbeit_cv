@@ -21,6 +21,8 @@ def table_rows(table, table_index=0, size=None):
     height, width = data.get("num_rows"), data.get("num_cols")
     if not native:
         rows, notes = source_rows(table.get("html", ""))
+        for row in rows:
+            row.update(id=f"t{table_index}r{row['row_index']}", table_index=table_index)
         return rows, "html", notes
     if not isinstance(height, int) or not isinstance(width, int) or not (0 < height <= 10000 and 0 < width <= 256):
         return [], "native", ["table_structure_failed: invalid native grid dimensions"]

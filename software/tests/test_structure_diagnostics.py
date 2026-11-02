@@ -132,3 +132,87 @@ def test_controlled_matrix_is_frozen_and_full_page_ocr_is_explicit():
     assert all(v.models == config.models for _, v in experiment)
     assert [v.structures["docling"].force_full_page_ocr for _, v in experiment] == [False]*4+[True]
     assert {v.structures["docling"].table_mode for _, v in experiment} == {"fast", "accurate"}
+
+
+def test_targeted_org_ambiguity_and_signature_column_are_preserved():
+    from test_structure_assignment import paddle
+
+    from participant_bench.structure_assignment import ambiguous_header_fields, header_bands, prepare_rows
+
+    source = paddle()
+    source["organization_header_aliases"] = list(ORGANIZATION_ALIASES)
+    source["native"]["overall_ocr_res"]["rec_texts"][3] = "Signatur"
+    rows, _, _ = prepare_rows(source, "paddle_structure")
+    assert header_bands(rows)["department"][1] < .8
+    source["native"]["overall_ocr_res"]["rec_texts"][3] = "Organisation"
+    rows, _, _ = prepare_rows(source, "paddle_structure")
+    assert "department" in ambiguous_header_fields(rows)
+
+
+def test_intentional_trainer_exclusion_is_not_normalization_failure():
+    source = native_table(["Vorname", "Nachname", "Organisation"], [["Max", "Muster", "ABC"]])
+    source["row_evidence"] = [dict(output_index=0, source_row="t0r1", fields={})]
+    result = analyze_page(dict(method_id="docling", structure=source,
+        person_role_filter=dict(excluded=[dict(source_output_index=0)]),
+        assignment=dict(participants_after_position_validation=[dict(department=dict(value="ABC"))])),
+        dict(participants=[]))
+    assert result["traces"] == []
+
+
+def test_quality_comparison_without_truth_does_not_invent_scores():
+    from participant_bench.structure_experiment import quality_summary, render_experiment
+
+    assert quality_summary(None, []) == dict(quality_measured=False)
+    # A partial report exists even if inference has not completed a single variant.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        render_experiment(root, [])
+        assert "Zwischenstand" in (root/"report.html").read_text(encoding="utf-8")
+
+
+def test_full_experiment_uses_all_raw_pages_after_development_guard(tmp_path, monkeypatch):
+    import participant_bench.structure_experiment as module
+
+    seen = []
+    def stop(config, folder, **kwargs):
+        seen.append(kwargs)
+        raise RuntimeError("controlled test stop before any model")
+    monkeypatch.setattr(module, "run", stop)
+    with pytest.raises(RuntimeError, match="controlled test"):
+        module.experiment(tmp_path, Path("configs/benchmark.yaml"), tmp_path.parent/(tmp_path.name+"-experiment"))
+    assert seen[0]["split"] == "all" and seen[0]["offline"]
+
+
+def test_active_optimized_profile_retains_explicit_baseline():
+    optimized = load_config(Path("configs/benchmark.yaml"))
+    baseline = load_config(Path("configs/structures-baseline.yaml"))
+    assert optimized.structures["docling"].mapping == "structured"
+    assert optimized.structures["docling"].do_cell_matching is False
+    assert optimized.structures["docling"].force_full_page_ocr is False
+    assert optimized.structures["paddle_llm"].assignment_format == "legacy_v13"
+    candidate = load_config(Path("configs/paddle-positioned.yaml"))
+    assert candidate.structures["paddle_llm"].assignment_format == "positioned_v14"
+    assert "Org.-Einheit" in optimized.structures["docling"].organization_header_aliases
+    assert "Org.-Einheit" in candidate.structures["paddle_llm"].organization_header_aliases
+    assert baseline.structures["docling"].mapping == "legacy_html"
+    assert baseline.structures["docling"].do_cell_matching is True
+    assert baseline.structures["paddle_llm"].assignment_format == "legacy_v13"
+    assert baseline.models == optimized.models
+
+
+def test_mapping_and_prompt_options_share_identical_recognition_cache():
+    from participant_bench.config import StructureConfig
+    from participant_bench.structure import recognition_key
+
+    config = load_config(Path("configs/benchmark.yaml"))
+    settings = StructureConfig(models_dir="synthetic", extraction="llm")
+    page = dict(document_id="doc", page_number=1, run_image_sha256="same pixels")
+    original = recognition_key({"engine":"test"}, settings, config, page, "docling")
+    settings.mapping = "structured"
+    settings.assignment_format = "positioned_v14"
+    settings.organization_header_aliases = ["Org.-Einheit"]
+    assert recognition_key({"engine":"test"}, settings, config, page, "docling") == original
+    settings.do_cell_matching = False
+    assert recognition_key({"engine":"test"}, settings, config, page, "docling") != original

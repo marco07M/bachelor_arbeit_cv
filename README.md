@@ -1,5 +1,10 @@
 # Bachelorarbeit: Text und Software
 
+Für die Wiederaufnahme durch Agenten: zuerst [AGENTS.md](AGENTS.md) und die
+zentrale [Projektübergabe mit Änderungsprotokoll](AGENTEN_UEBERGABE.md) lesen.
+Die Übergabe enthält bestätigten Stand, offene Aufgaben und durchgeführte Prüfungen
+und wird bei Änderungen fortgeschrieben.
+
 Das Repository ist in zwei eigenständige Bereiche aufgeteilt:
 
 | Ordner | Inhalt | Einstieg |
