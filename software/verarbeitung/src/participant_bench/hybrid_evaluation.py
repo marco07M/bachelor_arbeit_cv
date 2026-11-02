@@ -7,6 +7,7 @@ import yaml
 
 from .evaluation import edits
 from .io import read_json, write_csv, write_json
+from .output_order import document_order, ordered_rows
 
 VERSION = "paired-image-ocr-v1"
 
@@ -67,6 +68,10 @@ def compare_fields(baseline, hybrid, *, key_fields, normalize, source="ground_tr
         rows.append(dict(zip((*key_fields, "field"), key), reference_value=expected,
                          vlm_value=a, ocr_vlm_value=b, vlm_exact=correct_a, ocr_vlm_exact=correct_b,
                          vlm_distance=da, ocr_vlm_distance=db, transition=transition))
+        location = before if before.get("output_index", before.get("prediction_index")) not in (None, "") else after
+        for name in ("document_id", "page_number", "output_index"):
+            if name not in rows[-1]:
+                rows[-1][name] = location.get(name, location.get("prediction_index") if name == "output_index" else None)
     count, chars, record_count = totals["fields"], totals["reference_characters"], len(records)
     def value(n, d):
         return n/d if d else None
@@ -94,6 +99,8 @@ def compare_fields(baseline, hybrid, *, key_fields, normalize, source="ground_tr
 
 
 def export_analysis(output, analysis, rows, *, summaries=None, source=None):
+    if source and (source / "manifest.json").is_file():
+        rows = ordered_rows(rows, document_order(read_json(source / "manifest.json")))
     summaries = summaries or {}
     a, b = summaries.get("vlm", {}), summaries.get("ocr_vlm", {})
     def delta(key):

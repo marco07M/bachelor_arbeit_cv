@@ -148,8 +148,10 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
         if case["status"] == "matched":
             assigned[case["method"], case["class_id"]][case["reference_row"]] = case
     result = []
-    cases.sort(key=lambda row: (row["method"], row["class_id"], not bool(row["document_id"]), row["document_id"],
-                                 int(row["page_number"] or 0), int(row["output_index"] or 0), int(row["reference_row"] or 0)))
+    from ..output_order import ordered_rows
+
+    documents = {row["document_id"]: i for i, row in enumerate(read_csv(output / "documents.csv"))}
+    cases = ordered_rows(cases, documents, {method: i for i, method in enumerate(metrics["methods"])})
     for case in cases:
         values = {row["field"]: row for row in grouped[case_key(case)]}
         original = originals.get(prediction_key(case))
@@ -175,6 +177,8 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
         target = f"details/{digest(case['method'])[:10]}-{digest(case['class_id'])[:12]}.html"
         link = f'<p><a href="{esc(target)}">Vollständige Feldberechnung dieser Schulung</a></p>' if (output / target).is_file() else ""
         result.append(f'<tr class="name-pair {style}" data-method="{esc(case["method"])}" '
+                      f'data-document="{esc(case["document_id"] or "")}" data-page="{esc(case["page_number"] or "")}" '
+                      f'data-output-index="{esc(case["output_index"])}" '
                       f'data-status="{esc(case["status"])}" data-review="{str(review).lower()}" data-search="{esc(search)}">'
                       f'<td>{esc(case["method"])}<br>{esc(labels["class_id"])}: {esc(case["class_id"])}<br>'
                       f'{esc(case["source_file"])}<br>PDF-Seite {esc(case["page_number"] or "—")}, Index {esc(case["output_index"] or "—")}'
@@ -212,6 +216,7 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
                'sind keine Kandidaten, auch bei vollständiger Übereinstimmung. Ohne passende Referenzklasse '
                'bleibt die PDF unbewertet; es gibt keine Suche in anderen Kursen.</p>'
                '<p>Jede Zeile zeigt eine tatsächlich gespeicherte Paarung oder einen nicht zugeordneten Namen. '
+               'Ausgaben folgen PDF, Seite und ursprünglichem Eintragsindex; reine Referenzfälle stehen am Ende. '
                'Es werden keine neuen Paarungen berechnet. Modellnamen und Feldrollen bleiben unverändert. '
                'Die Alternative einer Ausgabe kann wegen der globalen Einmalvergabe schon einer anderen Person gehören.</p>'
                f'<p>Modus: <strong>{esc(config.matching.mode)}</strong>. Best-Fit-Paare sind Bewertungszuordnungen '

@@ -194,7 +194,10 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
                      if key in ("reference_value", "prediction_value", "reference_row", "source_file", "page_number"))
     title = (f"{STATUS.get(status, status)} · Referenzzeile {case['reference_row'] or '—'} · "
              f"PDF-Seite {case['page_number'] or '—'} · Ausgabeindex {case['output_index'] or '—'}")
-    content = f'<article class="case" data-status="{esc(status)}" data-search="{esc(terms)}"><h3>{esc(title)}</h3>'
+    content = (f'<article class="case" data-status="{esc(status)}" data-search="{esc(terms)}" '
+               f'data-document="{esc(case.get("document_id") or "")}" '
+               f'data-page="{esc(case.get("page_number") or "")}" '
+               f'data-output-index="{esc(case.get("output_index", ""))}"><h3>{esc(title)}</h3>')
     content += f"<p>Datei: {esc(case.get('source_file'))} · Zuordnungsquelle: {esc(case.get('matching_source') or 'keine')} · "
     content += f"Zuordnungsähnlichkeit: {esc(case.get('identity_similarity') or '—')} · "
     content += f"Abstand zur globalen Alternative: {esc(case.get('alternative_gap') or '—')}</p>"
@@ -273,6 +276,10 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
                                                  parse_status=page.parse_status, error=page.error))
                 for index, person in enumerate(page.participants):
                     raw_people[method, page.document_id, str(page.page_number), str(index)] = person
+    from ..output_order import ordered_rows
+
+    documents = {row["document_id"]: i for i, row in enumerate(read_csv(output / "documents.csv"))}
+    cases = ordered_rows(cases, documents, {method: i for i, method in enumerate(metrics["methods"])})
     grouped_fields, grouped_cases, course_field_rows, course_references = (defaultdict(list) for _ in range(4))
     for reference in references:
         course_references[reference["class_id"]].append(reference)
@@ -287,6 +294,9 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
     overview, checks = [], {}
     introduction = ("<p>Dieser Bericht erklärt die gespeicherten Ergebnisse. Keine Modellaufrufe, keine neue "
                     "Referenzdatei, keine automatische Korrektur und keine Änderung der Kennzahlen.</p>"
+                    "<p>Ausgaben folgen der Anwesenheitsliste: PDF, Seite und ursprünglicher Eintragsindex. "
+                    "Die Referenzzuordnung verändert diese Reihenfolge nicht. Nur in der Referenz vorhandene "
+                    "Personen stehen anschließend in einem eigenen Abschnitt.</p>"
                     "<p>R = bewertbare Referenzfelder, P = ausgegebene bewertbare Felder, C = Summe der "
                     "Levenshtein-Teilpunkte tatsächlicher Paarungen, E = Anzahl exakter Feldtreffer. "
                     "Fehlende Personen und zusätzliche Ausgaben behalten ihre Beiträge im Nenner.</p>"
@@ -346,7 +356,12 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
             filename = f"{digest(method)[:10]}-{digest(course)[:12]}.html"
             course_fields = course_field_rows[method, course]
             cards, hints = [], 0
+            missing_heading = False
             for case in records:
+                if not case["document_id"] and not missing_heading:
+                    cards.append("<h2>Nur in der Referenz vorhanden</h2><p>Diese Personen haben keine "
+                                 "zugeordnete Position in der Anwesenheitsliste.</p>")
+                    missing_heading = True
                 key = method, course, case["reference_row"], case["document_id"], case["page_number"], case["output_index"]
                 card, hint = case_html(case, grouped_fields[key], reference_rows, config, labels, raw_people,
                                        source if source.is_dir() else None, pages_dir)
@@ -395,6 +410,7 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
         result_artifacts={name: file_hash(output / name) for name in (
             "metrics.json", "identity.json", "reference_snapshot.json", "config.json", "fields.csv", "participants.csv")},
         rendering_implementation={name: file_hash(Path(__file__).parent / name) for name in ("detail_report.py", "matching.py")},
+        output_order_sha256=file_hash(Path(__file__).parent.parent / "output_order.py"),
         grading_implementation=identity.get("implementation"), new_inference=False, modified_scores=False))
     main = output / "report.html"
     if main.is_file():

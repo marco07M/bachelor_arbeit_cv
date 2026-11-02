@@ -5,6 +5,12 @@ lokalen `.xlsx`-Datei. Die Excel-Datei wird ausschließlich nach der Extraktion
 gelesen. Sie verändert keine Vorhersagen und wird nicht an OCR oder Modelle gegeben.
 Originale, Excel-Datei und vorhandene Ergebnisse bleiben erhalten.
 
+Die Ausgabe folgt der Anwesenheitsliste: Eingabe-PDF, numerische PDF-Seite und
+ursprünglicher Eintragsindex. Die Referenz dient der Paarung und Bewertung;
+ihre Zeilenreihenfolge verändert die ausgegebenen Teilnehmer nicht. Reine
+Referenzfälle ohne zugeordnete Ausgabe stehen anschließend. In Excel enthalten
+die Modellblätter nur die Extraktionen; das Blatt „Referenz“ bleibt separat.
+
 ## Installation und Start
 
 Alle Befehle aus `software/` ausführen. Die Excel-Bibliothek `openpyxl` ist in

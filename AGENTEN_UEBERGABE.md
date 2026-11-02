@@ -32,6 +32,28 @@ Weitere Einstiege: [Repository-README](README.md),
 [Verfahrensbeschreibung](software/docs/local-methods.md),
 [bisherige Verifikation](software/docs/verification.md).
 
+### Nachtrag: Ausgabereihenfolge der Anwesenheitsliste
+
+Auf Nutzerwunsch folgen Teilnehmerausgaben der PDF-Eingabereihenfolge, der
+PDF-Seite und dem ursprünglichen erkannten Eintragsindex. Die Referenz wird
+nur zugeordnet und darf die Modellzeilen nicht sortieren. Reine Referenzfälle
+ohne zugeordnete Ausgabe stehen nach den tatsächlichen Ausgaben; in der
+Detailansicht haben sie einen eigenen Abschnitt.
+
+Gemeinsame Darstellungsregel in `output_order.py`, verwendet vom Hauptbericht,
+neuem und älterem Referenzabgleich, Detail-/Namenszuordnung und Hybrid-Feldexport.
+Excel-Modellblätter erhalten die Ausgaben direkt in Quellenreihenfolge statt
+einer vorherigen Gruppierung nach Referenzkursen. Matching und Bewertungsregeln
+bleiben erhalten. Tests decken umgekehrte Referenzlisten, durcheinander gespeicherte
+Seiten, mehrere PDFs/Kurse, zusätzliche Ausgaben und fehlende Referenzpersonen ab.
+Historische Berichte und Extraktionen nicht überschreiben.
+Abgeschlossen: 571 lokale Volltests und 48 API-Tests bestanden. Zwei vorhandene
+reale Vergleiche mit eingefrorenen Referenzen neu dargestellt, ohne Modellaufrufe:
+`software/testframework/ergebnisse/source-order-20261102/opened-report/` und
+`software/testframework/ergebnisse/source-order-20261102/latest-userids/`.
+Die dortige übergeordnete `validation.json` bestätigt identische Kennzahlen,
+unveränderte Quelldaten und gleiche Quellenreihenfolge sämtlicher Modellzeilen.
+
 ### Nachtrag: Nachname zuerst und vollständige Namensgruppen
 
 Auf ausdrücklichen Nutzerwunsch gilt für neue Läufe standardmäßig
@@ -187,9 +209,9 @@ Kursauswertung; aus bedingten Seitenwerten keinen Handschrift-Recall ableiten.
 
 ### Prüfstand
 
-Am 2026-11-02 bestanden nach dem Namensgruppen-Nachtrag **567 vollständige lokale
-Tests** in 155,44 Sekunden sowie **48 Tests des getrennten API-Projekts** in
-14,69 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
+Am 2026-11-02 bestanden nach dem Reihenfolge-Nachtrag **571 vollständige lokale
+Tests** in 93,03 Sekunden sowie **48 Tests des getrennten API-Projekts** in
+9,81 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
 veränderte Original-/Laufbilder, Referenzänderungen und maskierte Felder.
 Ruff, Markdown-Dateiverweise und `git diff --check` ohne Befund. 22 lokale
 Pipelineprofile sowie Excel- und Testframework-Konfiguration erfolgreich geladen.
@@ -220,6 +242,26 @@ auf die dort datierten Stände.
   Modellgewichte und personenbezogene Diagnoseartefakte gehören nicht in Git.
 
 ## Änderungsprotokoll
+
+### 2026-11-02 – Anwesenheitsreihenfolge in allen Ergebnisansichten
+
+- **Auftrag:** Ausgabe in der Reihenfolge der Anwesenheitsliste erhalten;
+  Referenzreihenfolge nicht als Ausgabereihenfolge verwenden.
+- **Dateien:** `output_order.py`, Hauptbericht, `excel_comparison.py`,
+  `hybrid_evaluation.py`, Referenzabgleichsmetriken/-evaluation und die beiden
+  Detailansichten, `tests/test_output_order.py`, Testframework-README,
+  `docs/excel-comparison.md`, `docs/verification.md`, diese Übergabe.
+- **Änderung:** Sortierung nach Eingabe-PDF, numerischer Seite und bestehendem
+  Ausgabeindex, ohne Namen/Referenzzeilen als Sortierschlüssel. Reine Referenzfälle
+  nachstellen und in Details separat kennzeichnen. Teilnehmer-Excel vor der
+  Kursgruppierung aufbauen. Auch alte gespeicherte Detailansichten werden beim
+  erneuten Rendern nach Quellenreihenfolge angezeigt, ohne neue Modellaufrufe.
+- **Prüfung:** Neue Ende-zu-Ende-Tests prüfen CSV, Excel und HTML bei umgekehrter
+  Referenz und unveränderten Kennzahlen/Quellvorhersagen. 119 gezielte Tests,
+  571 lokale Volltests (93,03 s), 48 API-Tests (9,81 s) und Ruff bestanden.
+  Zwei reale gespeicherte Vergleiche neu ausgegeben; Kennzahlen vollständig
+  identisch und alle Quellartefakte unverändert. Keine erneute Modellinferenz.
+  Neue Pfade und Quellenreihenfolge sind oben dokumentiert.
 
 ### 2026-11-02 – Standard Nachname zuerst, flexible Namensgruppen
 

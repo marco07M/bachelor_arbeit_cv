@@ -372,6 +372,13 @@ und Rohtext. `participants.csv` zeigt, welcher Teilnehmer welcher Referenzzeile
 zugeordnet wurde; `fields.csv` erklärt die Punkte pro Feld. Referenzwerte und
 Personennamen werden nicht in der Konsolenzusammenfassung ausgegeben.
 
+**Die Teilnehmerreihenfolge stammt aus der Anwesenheitsliste:** Eingabe-PDF,
+PDF-Seite und ursprünglicher erkannter Eintragsindex. Die Referenzliste sortiert
+die Ausgaben nicht um. Dies gilt für die Modellblätter in Excel, die Zuordnungs-
+und Feld-CSV sowie die HTML-Detail- und Namensansichten. Nur in der Referenz
+vorhandene Personen stehen anschließend; die Detailansicht kennzeichnet sie
+in einem eigenen Abschnitt. Das separate Excel-Blatt „Referenz“ ist die Vergleichsgrundlage.
+
 Beim Start wird die Referenz im Speicher eingefroren. Wenn du die Quelldatei während
 eines längeren Modelllaufs änderst, wird weiter gegen die eingelesene Variante
 bewertet; Bericht und Identität weisen auf die Änderung hin. Neue Referenzen lassen

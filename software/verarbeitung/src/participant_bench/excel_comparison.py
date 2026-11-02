@@ -16,10 +16,13 @@ from .excel_columns import field_labels, write_participants_xlsx
 from .excel_reference import ExcelConfig, ReferencePerson, read_reference
 from .identifiers import normalized_user_id
 from .io import file_hash, read_json, read_jsonl, write_csv, write_json
+from .output_order import document_order, ordered_rows, page_key
 from .schema import PageResult, Participant
 
 FIELDS = {"user_id": "personnel_number", "first_name": "first_name", "last_name": "last_name", "short_code": "department"}
 DEFINITIONS = {
+    "output_order": "Ausgaben folgen PDF-Eingabereihenfolge, Seite und ursprünglichem Eintragsindex. "
+                    "Nur in der Referenz vorhandene Personen folgen anschließend; die Referenz sortiert keine Ausgaben.",
     "scope": "Nur Kurse aus dem Lauf mit Excel-Referenz. Andere Excel-Kurse bleiben außerhalb des Nenners.",
     "course": "Class ID aus sechsstelliger PDF-ID; alternativ explizite document_id/class_id-Zuordnung.",
     "matching": "Exakte eindeutige Kombination Vorname+Nachname+Organization, sonst eindeutige lesbare User ID, "
@@ -179,7 +182,8 @@ def compare_course(predictions: list[dict], references: list[ReferencePerson], c
         })
         for field, value in prediction_values(prediction["person"]).items():
             counts[field]["fp"] += int(bool(value) and (field != "user_id" or config.usable_id(value)))
-    return counts, independent_ids, rows, details, sources
+    documents = {doc: i for i, doc in enumerate(dict.fromkeys(p["document_id"] for p in predictions))}
+    return counts, independent_ids, ordered_rows(rows, documents), ordered_rows(details, documents), sources
 
 
 def evaluate_method(predictions: list[dict], references: list[ReferencePerson], mapping: dict, config: ExcelConfig):
@@ -234,7 +238,8 @@ def evaluate_method(predictions: list[dict], references: list[ReferencePerson], 
         },
         "independent_user_id_exact_match": ratio(independent["correct"], independent["denominator"]),
     }
-    return scores, rows, details
+    documents = {doc: i for i, doc in enumerate(dict.fromkeys(p["document_id"] for p in predictions))}
+    return scores, ordered_rows(rows, documents), ordered_rows(details, documents)
 
 
 def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | None = None,
@@ -243,6 +248,7 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
     references, sheet = read_reference(excel, config, column_names=columns)
     labels = field_labels(columns)
     mapping, mapping_rows = course_mapping(read_json(run / "manifest.json"), mapping_file)
+    documents_in_order = document_order(read_json(run / "manifest.json"))
     if not set(mapping.values()).intersection(r.class_id for r in references):
         raise ValueError("Keine gemeinsamen Class IDs: PDF-Dateinamen bzw. explizite Kurszuordnung prüfen")
     run_summary = read_json(run / "summary.json")
@@ -259,8 +265,8 @@ def compare_run(run: Path, excel: Path, config: ExcelConfig, *, output: Path | N
             raise ValueError("Reiner OCR-Text kann nicht als strukturierte Teilnehmerliste mit Excel verglichen werden")
         predictions, seen = [], set()
         extraction = run / method / "extractions.jsonl"
-        for data in read_jsonl(extraction) if extraction.exists() else []:
-            page = PageResult.model_validate(data)
+        pages = [PageResult.model_validate(data) for data in read_jsonl(extraction)] if extraction.exists() else []
+        for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             key = (page.document_id, page.page_number)
             if key in seen or page.method_id != method:
                 raise ValueError("Doppelte Seite oder abweichende Methode in den Extraktionsergebnissen")

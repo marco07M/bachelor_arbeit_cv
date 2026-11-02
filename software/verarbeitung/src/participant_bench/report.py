@@ -47,6 +47,7 @@ def cost_scenario(config):
 
 
 def report(output, summary, results, metrics, manifest, costs, *, columns=None):
+    from .output_order import document_order, page_key
     from .roster_benchmark.evaluation import identify_course
 
     rows, excluded_instructors, name_orders = [], [], []
@@ -54,11 +55,12 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     excel_groups = {}
     page_outputs, text_records, overview, ocr_records, signature_records = [], [], [], [], []
     sources = {page["page_id"]: page for page in manifest["pages"]}
+    documents_in_order = document_order(manifest)
     for method, pages in results.items():
         excel_groups[method] = []
         truncated_pages = 0
         has_assignment = False
-        for page in pages:
+        for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             raw_path = output / method / f"raw-{page.page_id}.json"
             raw = read_json(raw_path) if raw_path.is_file() else {}
             has_assignment = has_assignment or "assignment" in raw

@@ -17,13 +17,16 @@ from vorverarbeitung.vorbereiten import document_number
 from ..config import ALL_METHODS
 from ..excel_columns import field_labels, write_participants_xlsx
 from ..io import file_hash, read_json, read_jsonl, write_csv, write_json
+from ..output_order import document_order, ordered_rows, page_key
 from ..schema import PageResult
 from .matching import Prediction
 from .metrics import aggregate, course_metrics
 from .references import read_reference
 
-VERSION = "roster-levenshtein-v3-user-id-zeros"
+VERSION = "roster-levenshtein-v4-source-order"
 DEFINITIONS = {
+    "output_order": "PDF input order, page number and original output_index. Reference-only rows follow "
+                    "the extracted participants separately; reference order never reorders predictions.",
     "score": "100 * 2 * sum(field_similarity) / (assessable_reference_fields + predicted_assessable_fields). "
              "Micro-average over training IDs. Missing fields contribute zero, extra predictions increase the denominator.",
     "similarity": "1 - Levenshtein distance / max(reference length, prediction length), in [0,1]. "
@@ -96,6 +99,7 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     manifest_path, summary_path = source / "manifest.json", source / "summary.json"
     manifest_hash, summary_hash = file_hash(manifest_path), file_hash(summary_path)
     manifest, summary = read_json(manifest_path), read_json(summary_path)
+    documents_in_order = document_order(manifest)
     selected = methods or list(summary)
     allowed = set(ALL_METHODS)
     if not selected or len(selected) != len(set(selected)) or any(name not in summary or name not in allowed for name in selected):
@@ -133,11 +137,13 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
         extraction = source / method / "extractions.jsonl"
         extraction_hashes[method] = file_hash(extraction) if extraction.is_file() else None
         predicted, seen, failed_pages, excluded_instructors = defaultdict(list), set(), 0, 0
+        pages = []
         for item in read_jsonl(extraction) if extraction.is_file() else []:
             try:
-                page = PageResult.model_validate(item)
+                pages.append(PageResult.model_validate(item))
             except ValidationError:
                 raise ValueError("Ungültiges Seitenergebnis; Schema und Methode im lokalen Quelllauf prüfen") from None
+        for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             key = page.document_id, page.page_number
             if key in seen or page.method_id != method:
                 raise ValueError("Doppelte Seite oder abweichende Methode in den Vorhersagen")
@@ -153,14 +159,13 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                 continue
             predicted[class_id].extend(Prediction(page.document_id, page.page_number, index, person)
                                        for index, person in enumerate(page.participants))
+            workbook_groups[method].extend(dict(
+                class_id=class_id, user_id=person.personnel_number.value,
+                first_name=person.first_name.value, last_name=person.last_name.value,
+                short_code=person.department.value, source_file=source_names.get(page.document_id, ""),
+                document_id=page.document_id, page_number=page.page_number, output_index=index)
+                for index, person in enumerate(page.participants))
             excluded_instructors += len(page.excluded_instructors)
-        for class_id, people in predicted.items():
-            for item in people:
-                workbook_groups[method].append(dict(
-                    class_id=class_id, user_id=item.person.personnel_number.value,
-                    first_name=item.person.first_name.value, last_name=item.person.last_name.value,
-                    short_code=item.person.department.value, source_file=source_names.get(item.document_id, ""),
-                    document_id=item.document_id, page_number=item.page_number, output_index=item.index))
         course_scores, conservative_scores = [], []
         for class_id in sorted(courses_in_scope):
             score, rows, fields, candidates = course_metrics(class_id, predicted[class_id], references[class_id],
@@ -209,6 +214,9 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     labels = field_labels(columns)
     for row in field_details:
         row["field_label"] = labels[row["field"]]
+    methods_in_order = {method: index for index, method in enumerate(selected)}
+    row_details = ordered_rows(row_details, documents_in_order, methods_in_order)
+    field_details = ordered_rows(field_details, documents_in_order, methods_in_order)
     write_json(output / "metrics.json", dict(version=VERSION, scope=scope, methods=metrics, matching_mode=config.matching.mode,
                                             definitions=DEFINITIONS, columns=columns))
     write_json(output / "reference_snapshot.json", dict(people=[asdict(person) for person in data.people],
@@ -233,7 +241,7 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                packages={name: importlib.metadata.version(name) for name in ("numpy", "scipy", "openpyxl", "pydantic", "pyyaml")},
                implementation={path.name: file_hash(path) for path in Path(__file__).parent.glob("*.py")},
                shared_implementation={name: file_hash(Path(__file__).parent.parent / name) for name in
-                   ("hybrid_evaluation.py", "evaluation.py", "identifiers.py", "excel_columns.py")},
+                   ("hybrid_evaluation.py", "evaluation.py", "identifiers.py", "excel_columns.py", "output_order.py")},
                evaluated_at=datetime.now(timezone.utc).isoformat(), duration_seconds=time.perf_counter() - started))
     from .report import render
 

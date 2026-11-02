@@ -1,5 +1,27 @@
 # Verifikationsprotokoll
 
+## Nachtrag: Originalreihenfolge der Anwesenheitsliste, 02.11.2026
+
+Darstellung und Exporte verwenden Eingabe-PDF, numerische Seite und den
+ursprünglichen Ausgabeindex. Referenzzeilen und Namen sind keine Sortierschlüssel.
+Dies gilt für Hauptbericht, Teilnehmer-Excel, neuen und älteren Referenzabgleich,
+CSV, Detail-/Namenszuordnung und Hybrid-Feldvergleich. Reine Referenzfälle
+folgen den tatsächlichen Ausgaben und erhalten in den Details einen eigenen Abschnitt.
+
+Die Ende-zu-Ende-Tests kehren die Referenzliste um und speichern PDF-Seiten
+absichtlich durcheinander. Sie prüfen mehrere PDFs mit übergreifenden Kursen,
+zusätzliche Ausgaben, fehlende Referenzpersonen, HTML, CSV und Excel. Kennzahlen
+und Quellvorhersagen bleiben unverändert. Abgeschlossen: **571 lokale Volltests**
+in 93,03 Sekunden, **48 API-Tests** in 9,81 Sekunden; Ruff ohne Befund.
+
+Zusätzlich wurden vorhandene reale Ausgaben gegen ihre eingefrorenen Referenzen
+neu dargestellt, ohne Modellaufrufe. Neue Berichte:
+`testframework/ergebnisse/source-order-20261102/opened-report/report.html` und
+`testframework/ergebnisse/source-order-20261102/latest-userids/report.html`.
+`validation.json` im übergeordneten Ordner bestätigt identische Kennzahlen,
+unveränderte Originalartefakte und exakte Quellenreihenfolge aller ausgegebenen
+Teilnehmer. Die historische Auswertung und die Referenzdateien bleiben erhalten.
+
 ## Nachtrag: Nachname zuerst und vollständige Namensgruppen, 02.11.2026
 
 Auf Nutzerwunsch gilt für kombinierte Namenszellen Nachname → sämtliche

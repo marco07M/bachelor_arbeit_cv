@@ -3,6 +3,7 @@
 from collections import Counter
 
 from ..evaluation import edits
+from ..output_order import ordered_rows
 from ..person_roles import UNCONFIRMED_ROLE
 from .matching import FIELDS, align, normalize, similarity, values
 
@@ -128,7 +129,8 @@ def course_metrics(class_id, predictions, references, config, reference_config):
                   fields={field: scores(count) for field, count in fields.items()}, overall=scores(total),
                   fully_exact_participant_recall=divide(full_rows, len(references)))
     result["score_percent"] = 100 * result["overall"]["soft_f1"] if result["overall"]["soft_f1"] is not None else None
-    return result, rows, details, candidates
+    documents = {doc: i for i, doc in enumerate(dict.fromkeys(p.document_id for p in predictions))}
+    return result, ordered_rows(rows, documents), ordered_rows(details, documents), candidates
 
 
 def aggregate(courses):
