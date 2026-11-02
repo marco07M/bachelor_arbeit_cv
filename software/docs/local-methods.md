@@ -105,6 +105,17 @@ Wenn Paddle fehlt, wird der Hybrid unavailable statt unbemerkt bildbasiert.
 
 ## Feldzuordnung und Rollen
 
+Die gedruckte Spalte **„Benutzer“** bezeichnet die **User ID** (`personnel_number`),
+auch wenn „ID“ nicht dabeisteht. **„Benutzername“** ist die Namensspalte. Eine
+Zeilennummer gehört ausschließlich in `row_ref`. Seit Promptversion
+`participant-json-v21-visible-benutzer-headings` unterscheiden beide
+Bildverfahren diese Überschriften ausdrücklich, einschließlich einer numerischen
+ersten Benutzer-Spalte. Ein Modell darf sie nicht allein wegen der Zahlenwerte
+als „Nr“ umbenennen. Fehlen eindeutige Spaltenbelege weiterhin, bleibt der Wert
+unklar; die Nachverarbeitung deutet ihn nicht anhand seines Zahlenformats um.
+Auf Seiten ohne sichtbare Überschriften bleiben die entsprechenden Überschriften
+unbekannt; ein Kurzzeichen darf keine erfundene Benutzer-Spalte begründen.
+
 Aktiv sind Doclings native Tabellenzellen mit ACCURATE, deaktiviertem Cell Matching
 und Standard-OCR. Paddle behält `legacy_v13`: Die erweiterte Übergabe
 `positioned_v14` mit Positionen, Konfidenzen, Zellbeziehungen und Überschriftenrollen

@@ -1,5 +1,49 @@
 # Verifikationsprotokoll
 
+## Nachtrag: Benutzer-Spalte und User IDs, 02.11.2026
+
+Der vom Nutzer geöffnete Vergleich
+`testframework/ergebnisse/20261102T074721Z-1c30943c/` basiert auf dem älteren
+Lauf `runs/20261102T074109Z-328a26c1/`. „Benutzer“ wird im Header-Mapping bereits
+als User ID erkannt. Die VLM-/Hybrid-Antworten nennen diese Spalte jedoch „Nr“;
+neun gelesene Zellwerte auf Seite 1 werden deshalb nicht als IDs übernommen.
+Die damaligen Textverfahren sind zudem wegen fehlender Gewichte unavailable.
+Im späteren praktisch geprüften Paddle-Lauf sind neun IDs vorhanden und alle
+neun im konfigurierten, führende Nullen ignorierenden Kursvergleich exakt.
+
+Promptversion `participant-json-v21-visible-benutzer-headings` verlangt von
+beiden Bildverfahren die wörtliche Unterscheidung zwischen „Benutzer“,
+„Benutzername“ und „Nr“. OCR-LLM erhält dieselbe explizite Feldbedeutung.
+Eine Spalte ohne sichtbare Überschrift darf keine erfundene Benutzer-Spalte
+ergeben. Der Parser deutet keine unbekannten Spalten anhand ihres Zahlenformats
+um und erhält weiterhin führende Nullen.
+
+Die erste Gegenprobe v20 wurde verworfen: Sie liest zwar auf Seite 1 neun IDs,
+ordnet auf der Folgeseite aber Kurzzeichen als IDs zu. Ihr gezielt beendeter
+Lauf `runs/20261102T084044Z-e1089296/` bleibt erhalten. Der neue v21-Lauf unter
+`runs/user-id-validation-20261102-v21/` verwendet nachweislich identische
+Laufbild-Hashes und visuelle Modellparameter wie die alte Vergleichsgrundlage.
+Beim direkten VLM werden auf Seite 1 neun IDs und auf Seite 2 keine IDs
+ausgegeben; dort bleiben die ID-Felder unklar und Kurzzeichen separat erhalten.
+Auch der Hybrid-Lauf ist vollständig abgeschlossen. Der Kursreferenzabgleich
+ergibt bei neun ausgegebenen IDs **8 korrekte IDs beim VLM und 9 beim Hybrid**,
+jeweils gegenüber zuvor null. Der Vergleich ignoriert konfigurationsgemäß
+führende Nullen; die Rohwerte bleiben erhalten. Bezogen auf alle 18 Kursreferenzen
+sind das 8/18 beziehungsweise 9/18, nicht 100 % dokumentweiter ID-Recall.
+Auf Seite 2 bleiben bei beiden Verfahren neun ID-Felder unklar; kein Kurzzeichen
+wird als ID ausgegeben. Vorname-, Nachname- und Organisationstreffer bleiben
+jeweils gegenüber der alten Auswertung unverändert.
+
+Einstieg mit Zählern/Nennern und geprüften Vergleichsbedingungen:
+`runs/user-id-validation-20261102-v21/report.html`. Neuer Modelllauf:
+`runs/20261102T084927Z-483e59b1/`. Das ist ein dokumentbezogener Entwicklungsbefund;
+der verbleibende VLM-Lesefehler wird nicht anhand der Referenz korrigiert.
+
+Abschließende Regression auf v21: **546 lokale Volltests bestanden** in
+165,99 Sekunden, **48 API-Tests bestanden** in 25,06 Sekunden. Die zwei neuen
+Integrationstests prüfen gefüllte Benutzer-Spalten für VLM und Hybrid bis zum
+Excel-Export, einschließlich führender Nullen und fehlender Zeilennummer.
+
 ## Docling/Paddle: praktische Abnahme, 02.11.2026
 
 Die exakten Qwen3-4B-Instruct-2507-Gewichte sind installiert, SHA256-geprüft und

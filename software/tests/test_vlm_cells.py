@@ -94,6 +94,33 @@ def test_complete_table_row_preserves_name_and_empty_id_as_separate_physical_cel
     assert audit["field_columns"] == dict(personnel_number=2, department=3)
 
 
+@pytest.mark.parametrize("method", ["vlm", "ocr_vlm"])
+def test_filled_benutzer_first_column_survives_model_parser_and_excel_export(method, tmp_path):
+    data = payload(headers=["Benutzer", "Benutzername", "Kurzzeichen", "Unterschrift"],
+                   cells=["00001234", "Weber, Anna", "AB-123", None])
+    data["participants"][0]["row_ref"] = None
+    raw = json.dumps(data)
+    model = object.__new__(LocalModel)
+    model.method, model.calls = method, 0
+    model.spec = load_config(Path("configs/benchmark.yaml")).models[method]
+    model.generate = lambda *args: (raw, dict(output_budget_reached=False))
+    with Image.new("RGB", (256, 256)) as image:
+        people, responses, status, _ = model.extract(image, {"hints": {}} if method == "ocr_vlm" else None)
+    assert status == "success" and len(people) == 1
+    assert people[0].personnel_number.value == "00001234" and people[0].personnel_number.state == "read"
+    assert people[0].row_ref is None and people[0].department.value == "AB-123"
+    assert responses[0]["identity_column_assignment"]["field_columns"]["personnel_number"] == 0
+    page = PageResult(run_id="fixture", document_id="doc", page_id="doc-p0001", page_number=1,
+                      method_id=method, status=status, parse_status="valid", participants=people)
+    report(tmp_path, {method: {"status": status}}, {method: [page]}, {}, {"pages": []}, {})
+    book = load_workbook(tmp_path / "participants.xlsx", read_only=True)
+    try:
+        headers, exported = list(book[method].values)[:2]
+        assert dict(zip(headers, exported))["User ID"] == "00001234"
+    finally:
+        book.close()
+
+
 def test_table_without_id_column_keeps_name_out_of_user_id_and_reads_organization():
     people, _, warnings, _ = parse_visual_response(json.dumps(payload(
         headers=["Nr", "Name", "Kurzzeichen", "Unterschrift"],

@@ -32,6 +32,41 @@ Weitere Einstiege: [Repository-README](README.md),
 [Verfahrensbeschreibung](software/docs/local-methods.md),
 [bisherige Verifikation](software/docs/verification.md).
 
+### Nachtrag: User IDs unter „Benutzer“
+
+„Benutzer“ wird bereits als `personnel_number` erkannt; „Benutzername“ bleibt
+eine Namensspalte. Im vom Nutzer geöffneten Vergleich
+`software/testframework/ergebnisse/20261102T074721Z-1c30943c/` stammen die
+Ausgaben aus `software/runs/20261102T074109Z-328a26c1/`. Damals fehlten die
+Textgewichte; VLM/Hybrid lasen auf Seite 1 neun ID-Zellwerte, bezeichneten die
+Spalte aber als „Nr“. Der Parser ließ deren ID-Zuordnung deshalb unklar.
+Die neueren Paddle-Läufe enthalten bereits neun Benutzer-IDs auf Seite 1.
+
+Die gemeinsame VLM-Anweisung wurde unter Promptversion
+`participant-json-v21-visible-benutzer-headings` präzisiert: „Benutzer“ ist
+eine ID-Spalte, eine numerische erste Spalte nicht automatisch eine Zeilennummer.
+OCR-LLM erhält dieselbe explizite Feldbedeutung. Zwei Integrationstests prüfen
+gefüllte Benutzer-Spalten einschließlich führender Nullen bis zum Excel-Export.
+65 gezielte Tests sowie anschließend 546 lokale Volltests und 48 API-Tests
+auf v21 bestanden. Der erste reale Kandidat v20 übernimmt zwar neun IDs auf Seite 1,
+erfindet jedoch auf der Folgeseite eine Benutzer-Spalte über Kurzzeichen.
+Dieser Kandidat wird nicht übernommen; sein gezielt beendeter Lauf
+`software/runs/20261102T084044Z-e1089296/` bleibt als negativer Befund erhalten.
+v21 verlangt für jede Überschrift einen auf der aktuellen Seite sichtbaren Beleg.
+Die vollständige v21-Gegenprobe ist abgeschlossen:
+`software/runs/user-id-validation-20261102-v21/report.html`.
+Modelllauf: `software/runs/20261102T084927Z-483e59b1/`; neuer Kursvergleich:
+`software/runs/user-id-validation-20261102-v21/comparison/20261102T085935Z-8c47146d/`.
+Beide Bildverfahren geben auf Seite 1 neun IDs aus; davon sind acht beim VLM
+und neun beim Hybrid im konfigurierten Kursvergleich exakt (führende Nullen
+werden nur beim Vergleich ignoriert). Auf Seite 2 bleiben neun ID-Felder unklar;
+keine Kurzzeichen werden als IDs ausgegeben. Die exakten Trefferzahlen der
+übrigen Textfelder bleiben gegenüber dem alten Bericht unverändert. Gleiche
+tatsächliche Laufbild-Hashes, visuelle Modellparameter und Referenz geprüft.
+Keine alten Ausgaben
+umschreiben oder unbelegte „Nr“-Spalten nachträglich allein nach Zahlenformat
+in Benutzer-IDs umdeuten.
+
 ### Docling-/Paddle-Fehleranalyse und Organisationszuordnung
 
 **Status: technische Umsetzung, Vergleichsläufe und Regressionstests abgeschlossen.**
@@ -122,9 +157,9 @@ Kursauswertung; aus bedingten Seitenwerten keinen Handschrift-Recall ableiten.
 
 ### Prüfstand
 
-Am 2026-11-02 bestanden abschließend **544 vollständige lokale Tests** in
-163,52 Sekunden sowie zuvor **48 Tests des getrennten API-Projekts** auf
-dem geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
+Am 2026-11-02 bestanden nach dem Benutzer-ID-Nachtrag **546 vollständige lokale
+Tests** in 165,99 Sekunden sowie **48 Tests des getrennten API-Projekts** in
+25,06 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
 veränderte Original-/Laufbilder, Referenzänderungen und maskierte Felder.
 Ruff, Markdown-Dateiverweise und `git diff --check` ohne Befund. 22 lokale
 Pipelineprofile sowie Excel- und Testframework-Konfiguration erfolgreich geladen.
@@ -155,6 +190,26 @@ auf die dort datierten Stände.
   Modellgewichte und personenbezogene Diagnoseartefakte gehören nicht in Git.
 
 ## Änderungsprotokoll
+
+### 2026-11-02 – Benutzer-ID und Zeilennummer unterscheiden
+
+- **Auftrag:** Fehlende User IDs bei der PDF-Überschrift „Benutzer“ untersuchen.
+- **Dateien:** `models.py`, `tests/test_vlm_cells.py`, `docs/local-methods.md`,
+  `docs/verification.md`, diese Übergabe.
+- **Befund/Änderung:** Vorhandenes Alias-Mapping ist korrekt. Der ältere
+  VLM-/Hybrid-Lauf gibt die Benutzer-Spalte als „Nr“ aus; seine neun Zellwerte
+  werden deshalb nicht als IDs exportiert. Gemeinsame Modellanweisung und
+  Beispiele für echte Benutzer-Spalten präzisiert, Promptversion erhöht.
+- **Prüfung:** 65 gezielte Tests, 546 lokale Volltests, 48 API-Tests und Ruff
+  bestanden. Vollständige reale Gegenprobe abgeschlossen: VLM 9 IDs, 8 korrekt;
+  Hybrid 9 IDs, 9 korrekt; zuvor beide 0 IDs. Auf der Folgeseite jeweils 0
+  ausgegebene IDs und 9 unklare ID-Felder. Andere Textfeld-Treffer unverändert.
+  `user_id_audit.json` belegt gleiche Laufbilder, Modellparameter und Referenz;
+  Rohwerte bleiben erhalten. Ein einzelner VLM-Lesefehler wird nicht anhand der
+  Referenz korrigiert. v20 wurde wegen falscher IDs auf der Folgeseite verworfen.
+- **Grenze:** Ein realer Entwicklungsfall; keine allgemeine Genauigkeitsgarantie.
+  Auswertung und Bericht sind abgeschlossen. Die üblichen Starter verwenden
+  die aktualisierte gemeinsame Modellanweisung für neue Läufe.
 
 ### 2026-11-02 – Abgeschlossene Messungen und begründete Profilwahl
 
