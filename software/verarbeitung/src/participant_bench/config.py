@@ -103,6 +103,7 @@ class ModelConfig(ConfigModel):
     tile_overlap: int = Field(default=0, ge=0)
     warmup: bool = True
     preserve_partial_fields: bool = True
+    ocr_row_selection: Literal["pattern", "all"] = "pattern"
 
     @model_validator(mode="after")
     def valid_tiles(self):

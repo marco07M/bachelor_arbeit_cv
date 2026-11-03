@@ -62,6 +62,7 @@ Für den Firmen-PC gilt die [separate Installation](api_firmen_pc/README.md).
 - [Docling/Paddle: Fehleranalyse und gemessener Vorher-/Nachher-Vergleich](docs/structure-optimization.md)
 - [Handschrift: belegte Datenverluste, OCR-Proben und Modellgrenzen](docs/handwriting-optimization.md)
 - [Spaltenüberschriften auf Fortsetzungsseiten derselben PDF](docs/document-columns.md)
+- [OCR-Folgeseiten: vollständige Beobachtungen, Ablehnungen und Confidence-Prüfung](docs/ocr-observation-retention.md)
 - [Excel-Spalten und User-ID-Vergleich](docs/excel-comparison.md)
 - [OCR-Kalibrierung und unabhängige Evaluation](docs/ocr-calibration.md)
 - [GPU-Konfiguration](docs/gpu-inference.md)

@@ -1,5 +1,20 @@
 # Verifikationsprotokoll
 
+## Vollständige OCR-Beobachtung auf Folgeseiten, 03.11.2026
+
+652 lokale Volltests in 49,23 s, 48 API-Tests in 7,64 s und abschließend
+107 gezielte Tests in 2,57 s bestanden; Ruff ohne Befund. Niedrige/fehlende
+Confidence, SDK-Löschung/Mutation, unzugeordnete/verworfene Beobachtungen,
+isolierte Identitätsfelder mit Spaltenbeleg und HTML-Escaping abgesichert.
+
+Aktueller realer Ausgang auf Seite 2: OCR-LLM 51 Wörter, zehn Eingabezeilen,
+eine Modellperson, keine nachträgliche Zeilenverwerfung; Docling 66 Zellen und
+keine zuverlässige Spaltenzuordnung. Neuer Docling-Messpunkt vor/nach SDK
+153/153 und 66/66, hier kein Zusammenführungsverlust. Texte unverändert.
+Standardauswertung erhält 25/72 bzw. 19/72 exakte Felder. Optionale vollständige
+Zeilenvariante wird wegen Regression (24 statt 25 exakte Felder) nicht aktiviert.
+Bericht und Reproduktion: [OCR-Beobachtung und Datenerhalt](ocr-observation-retention.md).
+
 ## Dokumentbezogene Spalten auf Fortsetzungsseiten, 03.11.2026
 
 627 lokale Volltests in 166,99 s und 48 API-Tests in 18,99 s bestanden.

@@ -8,6 +8,7 @@ from .excel_columns import field_labels, write_participants_xlsx
 from .io import digest, read_json, read_jsonl, write_csv, write_json, write_jsonl
 from .ocr import raw_transcript
 from .ocr_layout import model_input, readable_text
+from .ocr_observations import export as observation_export
 from .schema import TEXT_FIELDS, PageResult
 
 
@@ -54,6 +55,7 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     labels = field_labels(columns)
     excel_groups = {}
     page_outputs, text_records, overview, ocr_records, signature_records = [], [], [], [], []
+    observation_views = []
     sources = {page["page_id"]: page for page in manifest["pages"]}
     documents_in_order = document_order(manifest)
     for method, pages in results.items():
@@ -63,6 +65,8 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
         for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             raw_path = output / method / f"raw-{page.page_id}.json"
             raw = read_json(raw_path) if raw_path.is_file() else {}
+            if "ocr" in raw or "structure" in raw:
+                observation_views.append(observation_export(output, method, page, raw))
             traces = raw.get("structure", {}).get("mapping_diagnostics", [])
             single_trace = (raw.get("assignment", {}).get("document_column_mapping") or
                             raw.get("ocr_layout_analysis", {}).get("mapping_provenance"))
@@ -431,6 +435,12 @@ Dies ist kein zusätzlicher positiver Detailbefund; die Werte werden getrennt an
 Werte stammen weiterhin aus der aktuellen Seite. Geometrische Kompatibilität ist keine OCR-Konfidenz.</p>
 <p><a href="document_column_mappings.csv">Herkunft und Kompatibilitätsprüfung als CSV</a>.</p>
 {table(column_mappings)}
+<h2>OCR-Beobachtungen und nicht zugeordnete Texte</h2>
+<p>Alle nichtleeren gespeicherten Engine-Beobachtungen bleiben unabhängig vom Score erhalten.
+Unzugeordnete Beobachtungen zählen nicht als Teilnehmerfelder. Historische Docling-Daten
+enthalten nur die damals gespeicherten Zellen nach der SDK-Zusammenführung;
+neu erfasste Rohbeobachtungen liegen zusätzlich davor vor.</p>
+{''.join(observation_views) or '<p>Keine OCR-Beobachtungen gespeichert.</p>'}
 <h2>OCR-Klartext und Modelleingabe</h2>
 <p>Diese Ansicht zeigt alle OCR-Wörter als lesbaren Text, auch wenn Teilnehmer erkannt wurden.
 Das OCR-Sprachmodell erhält daraus lesbare Zeilen und Zellen mit nachvollziehbaren Positionsbelegen.

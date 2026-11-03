@@ -3,6 +3,7 @@
 import re
 import subprocess
 import time
+from math import isfinite
 from pathlib import Path
 
 import pytesseract
@@ -76,7 +77,7 @@ class OCR:
                 "image": image_hash,
                 "config": self.config.ocr.model_dump(),
                 "ocr": self.identity,
-                "implementation": "ocr-v2-preprocessing",
+                "implementation": "ocr-v3-complete-observations",
                 "embedded_words": embedded_words, "rotation": rotation_clockwise,
             }
         )
@@ -117,11 +118,19 @@ class OCR:
             if not text.strip():
                 continue
             x, y, width, height = (data[k][i] for k in ("left", "top", "width", "height"))
+            scores = data.get("conf") or []
+            original_confidence = scores[i] if i < len(scores) else None
+            try:
+                confidence = float(original_confidence) if original_confidence is not None else None
+                if confidence is not None and not isfinite(confidence):
+                    confidence = None
+            except (TypeError, ValueError):
+                confidence = None  # An unavailable score must not discard the observed text.
             words.append(
                 {
                     "text": text,
                     "bbox": original_box(x, y, width, height),
-                    "ocr_confidence": float(data["conf"][i]),
+                    "ocr_confidence": confidence, "raw_ocr_confidence": original_confidence,
                     "line": [data[k][i] for k in ("block_num", "par_num", "line_num")],
                 }
             )

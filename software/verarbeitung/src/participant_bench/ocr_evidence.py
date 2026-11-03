@@ -41,6 +41,44 @@ def bounds(words: list[dict], indices: list[int]) -> Box:
     )
 
 
+def attach_record_observations(people, proofs, data):
+    """Word-level evidence and Tesseract review flags for the compact row protocol too."""
+    sources = {row["id"]: row for row in data.get("text_rows", [])}
+    words = data.get("words", [])
+    for person, proof in zip(people, proofs, strict=True):
+        source = sources.get(proof.get("source_row"), {})
+        for field, item in proof.get("fields", {}).items():
+            target = getattr(person, field)
+            if not target.value or item.get("cell_index") is None:
+                continue
+            cell = source["cells"][item["cell_index"]]
+            span, selected, cursor = item.get("offset"), [], 0
+            indices = cell.get("word_ids", [])
+            if not indices and source.get("original_source_row", "").startswith("r"):
+                suffix = source["original_source_row"][1:]
+                groups = line_groups(data)
+                group = groups[int(suffix)-1] if suffix.isdigit() and 0 < int(suffix) <= len(groups) else []
+                box = cell.get("bbox")
+                candidates = [i for i in group if box and box["x0"] <= (words[i]["bbox"]["x0"]+words[i]["bbox"]["x1"])/2 <= box["x1"]]
+                if " ".join(words[i]["text"] for i in candidates) == cell["text"]:
+                    indices = candidates  # Verified legacy cell, not a guessed reference or edited text.
+            for index in indices:
+                end = cursor + len(words[index]["text"])
+                if span is None or min(end, span[1]) > max(cursor, span[0]):
+                    selected.append(index)
+                cursor = end + 1
+            if not selected:
+                continue
+            target.bbox = bounds(words, selected)
+            item.update(word_ids=selected, bbox=target.bbox.model_dump(), ocr_observations=[
+                dict(text=words[i]["text"], bbox=words[i]["bbox"],
+                     ocr_confidence=words[i].get("ocr_confidence"), native_ref=f"words/{i}") for i in selected])
+            if any(words[i].get("ocr_confidence") is not None and words[i]["ocr_confidence"] < 30 for i in selected):
+                target.state = "uncertain"
+                item["observation_state"] = "uncertain"
+                person.review_notes.append(f"{field}: niedrige Tesseract-Confidence; beobachteter Wert erhalten")
+
+
 def same_row(words: list[dict], anchor: list[int], span: list[int]) -> bool:
     anchor_keys = {line_key(words[i]) for i in anchor}
     span_keys = {line_key(words[i]) for i in span}

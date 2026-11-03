@@ -8,6 +8,54 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
+### Vollständige OCR-Beobachtungen und Verlustdiagnose (03.11.)
+
+Neuer Auftrag aus Anhang `b06f9e5e-397e-49b1-a021-d44ca755020f`.
+Ausgangspunkt `software/testframework/ergebnisse/20261103T103940Z-910665bc/`,
+Quelllauf `software/runs/20261103T101357Z-d77317f7/`.
+Nachgewiesen: Tesseract Seite 2 hat 51 Wörter/10 Zeilen; alle zehn sind im
+tatsächlichen LLM-Eingang, Modellantwort enthält eine Person, keine spätere
+Zeilenverwerfung oder Trainerausschlüsse. Docling hat 66 Zellen auf Seite 2,
+native Tabelle 6×3, keine zuverlässigen Überschriften, keine Teilpersonen.
+Keine Confidence-Löschung in den geprüften Tesseract-/Docling-CLI-Pfaden.
+
+Implementiert und aktiv: zusätzliche Docling-Erfassung vor
+SDK-Zusammenführung (Überlappung mit PDF-Text kann OCR-Zellen sonst verdrängen),
+unabhängiges Beobachtungsregister mit Originaltext/Score/Geometrie/Quellbeleg,
+Ausgabe nicht zugeordneter Texte und Zuordnungsgründe im Hauptbericht/JSON/CSV.
+Fehlende/ungültige Confidence verwirft kein Wort. Hauptprompt v24, OCR-Cache v3,
+nativer Mapper v7 mit Zeilenentscheidungen. Das kompakte Zeilenprotokoll umging zuvor
+die vorhandene Unsicherheitsmarkierung unter Score 30; auch dort bleiben Werte
+jetzt erhalten und werden bei niedrigem Score als unsicher markiert.
+
+Realer Versuch `software/runs/20261103T135955Z-83a79dcb/`: neue OCR-/Docling-
+Auslesung derselben zwei Bilder und zwei lokale Text-LLM-Antworten plus eine
+Namensentscheidung. Vollständige Zeilenvariante 17 statt 10 Personen, aber nur
+24 statt 25 exakte Felder, 19 statt 12 falsche; nicht als Standard übernommen.
+`models.ocr_llm.ocr_row_selection` ist deshalb standardmäßig `pattern`, `all`
+bleibt eine explizite Versuchsvariante. Rohbeobachtung und Diagnose sind immer aktiv.
+Die regulären Eingabe-/Systemtexte sind auf beiden Seiten gegenüber `f90b397`
+identisch; Gleichheitsprüfung separat gespeichert. Eine Benutzer-ID allein genügt
+bei verlässlich zugeordneter ID-Spalte; ohne diesen Beleg bleibt die Namensprüfung.
+Vollständig verworfene Modellzeilen werden mit Evidenzgrund ausgewiesen.
+Separater negativer Vergleich der Versuchsvariante:
+`software/runs/observation-retention-20261103-all-rows/comparison/report.html`.
+Regulärer, konservativer Vergleich mit eingefrorenen bisherigen LLM-Antworten
+und neuer Confidence-/Belegprüfung:
+`software/runs/observation-retention-20261103-checked/comparison/report.html`.
+Standard behält OCR-LLM 25/72 und Docling 19/72 exakt, keine verlorenen Treffer,
+keine neuen nachgewiesenen korrekten Felder. Die vollständige Beobachtungsansicht
+steht daneben in `source/report.html`. Historische Rohantworten/Referenzen unverändert;
+JSON-/CSV-/Excel-Zähler und HTML-Beiträge gegengeprüft, `qa.json` gespeichert.
+Docling vor/nach SDK-Zusammenführung 153/153 bzw. 66/66 Zellen; kein tatsächlicher
+SDK-Verlust auf dieser bildbasierten PDF. Überlappungsverlust bei PDF-Text ist
+als genereller SDK-Pfad nachgewiesen und synthetisch abgesichert.
+652 lokale Volltests in 49,23 s, 48 API-Tests in 7,64 s und zuletzt
+107 gezielte Tests in 2,57 s bestanden; Ruff ohne Befund.
+Abschlussbericht: [software/docs/ocr-observation-retention.md](software/docs/ocr-observation-retention.md).
+Weiterhin offen ist die eigentliche Handschriftqualität bzw. sichere Zuordnung
+bei fehlenden Überschriften; keine zusätzlichen Modelle, Downloads oder Trainings.
+
 ### Dokumentbezogene Überschriften auf Fortsetzungsseiten (03.11.)
 
 Zusatzauftrag aus Anhang `570ba3b0-a3be-432d-a8df-227d0fdda13d`.
@@ -619,3 +667,36 @@ auf die dort datierten Stände.
   und mehrere reale Entwicklungs-PDFs mit zuverlässig erkannten Überschriften
   ergänzen. Bessere Handschrifterkennung bleibt unbewiesen; keine Werte aus
   der Referenz auffüllen und keine der untersuchten Bildvarianten als Sieger übernehmen.
+
+### 2026-11-03 – OCR-Beobachtung vor Teilnehmerzulassung erhalten
+
+- **Auftrag:** vollständigen OCR-Text unabhängig von Confidence erhalten,
+  konkrete Verluste der Folgeseite analysieren und sichtbar von Feldzuordnung trennen.
+- **Dateien:** neues `ocr_observations.py`, Erweiterungen in `ocr.py`, `ocr_layout.py`,
+  `ocr_evidence.py`, `models.py`, `runner.py`, `report.py`, `structured_mapping.py`,
+  `config.py`, `structure_runtime/docling_backend.py`; `configs/benchmark.yaml`
+  mit explizitem `ocr_row_selection: pattern`. Neue `tests/test_observation_retention.py`
+  und `scripts/check_observation_retention.py`; Software-README, Methoden-/Verifikations-
+  dokumentation und neuer `docs/ocr-observation-retention.md` aktualisiert.
+- **Implementiert/aktiv:** Docling-Belege vor SDK-Zusammenführung, vollständige
+  Beobachtungsansicht mit lokalen JSON-/CSV-Belegen, Ablehnungs-/Zeilenprotokoll,
+  Wortbezüge und Score-30-Unsicherheit auch im kompakten OCR-LLM-Protokoll,
+  scoreunabhängiger Erhalt bei fehlender/ungültiger Confidence. ID-Teilperson nur
+  bei belegter ID-Spalte auch ohne Namen zulässig. Notwendige Literal-/Positions-/
+  Rollenprüfungen bleiben bestehen; keine Referenz in der Extraktion.
+- **Nachgewiesen:** Seite 2 hatte schon alle 51 Tesseract-Wörter/zehn Zeilen im
+  Prompt, nur eine Modellperson und keine spätere Zeilenverwerfung. Docling hatte
+  66 Zellen, aber keine sichere Spaltenzuordnung. Vor/nach SDK hier identisch,
+  insgesamt unverändert 189 Tesseract-Wörter und 219 Docling-Zellen. Neuer
+  vorgelagerter Messpunkt verhindert generelle Überlappungsverluste mit PDF-Text,
+  aber kein solcher Verlust auf dieser bildbasierten PDF.
+- **Versuch/Entscheidung:** vollständiger Zeileneingang erhöht die Ausgabe auf
+  17 statt zehn Personen, senkt aber exakt 25 → 24 und erhöht falsch 12 → 19;
+  deshalb `all` optional, `pattern` weiter aktiv. Standardprüfung erhält alle
+  bisherigen Treffer (25/72 OCR-LLM, 19/72 Docling), keine neue Qualität behauptet.
+- **Prüfungen:** 652 Volltests, 48 API-Tests, zuletzt 107 gezielte Tests;
+  Ruff, originale Hashes, unveränderte OCR-Texte, reguläre Promptgleichheit gegen
+  vorherigen Commit und konsistente JSON-/CSV-/Excel-/HTML-Zähler geprüft.
+- **Offen / nächster Schritt:** unabhängige Handschriftregionen transkribieren
+  und weitere reale Entwicklungsdaten ergänzen; danach gezielte Erkennungs-/
+  Zuordnungsvarianten messen. Unzugeordnete Rohtexte nie als richtige Felder zählen.

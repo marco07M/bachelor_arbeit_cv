@@ -4,6 +4,23 @@ import importlib.util
 import io
 
 
+def configure_ocr_capture(model_class, sink):
+    """Snapshot every OCR cell before SDK overlap merging/reindexing, without changing it."""
+    original = getattr(model_class, "_participant_original_post_process", model_class.post_process_cells)
+    model_class._participant_original_post_process = original
+
+    def post_process(model, cells, page, conversion, *args, **kwargs):
+        for cell in cells:
+            if str(cell.text).strip():
+                sink(dict(text=cell.text, confidence=cell.confidence,
+                    bbox=cell.rect.to_bounding_box().model_dump(mode="json") if cell.rect else None,
+                    engine_page=page.page_no, engine_cell_index=cell.index,
+                    from_ocr=True, capture_stage="before_sdk_merge"))
+        return original(model, cells, page, conversion, *args, **kwargs)
+
+    model_class.post_process_cells = post_process
+
+
 def configure_ocr_images(model_class, cleaner):
     """Adapt the pinned Docling CLI hook; table/layout rendering stays untouched."""
     from PIL import Image
@@ -35,10 +52,13 @@ class DoclingBackend:
             TesseractCliOcrOptions,
         )
         from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.models.stages.ocr.tesseract_ocr_cli_model import TesseractOcrCliModel
+
+        self.engine_observations = []
+        configure_ocr_capture(TesseractOcrCliModel, lambda item: self.engine_observations.append(dict(
+            item, native_ref=f"engine_ocr/{len(self.engine_observations)}")))
 
         if settings.get("remove_grid_lines"):
-            from docling.models.stages.ocr.tesseract_ocr_cli_model import TesseractOcrCliModel
-
             source = settings["image_preprocessing_source"]
             spec = importlib.util.spec_from_file_location("participant_image_preprocessing", source)
             transforms = importlib.util.module_from_spec(spec)
@@ -79,6 +99,7 @@ class DoclingBackend:
     def recognize(self, image, pdf_bytes=None):
         from docling.datamodel.base_models import DocumentStream
 
+        self.engine_observations.clear()  # One request, one single-page PDF; no state from previous pages.
         if pdf_bytes is None:
             buffer = io.BytesIO()
             image.convert("RGB").save(buffer, format="PDF", resolution=220)
@@ -102,6 +123,9 @@ class DoclingBackend:
         return dict(tables=tables, markdown=document.export_to_markdown(),
                     plain_text=raw_text or document.export_to_text(), native=document.export_to_dict(),
                     ocr_cells=ocr_cells,
+                    engine_ocr_observations=list(self.engine_observations),
+                    raw_ocr_capture=dict(stage="before_sdk_merge", complete=True,
+                        observations=len(self.engine_observations), post_sdk_cells=len(ocr_cells)),
                     source_kind=source_kind, structure_engine="TableFormer", effective_options=self.effective_options,
                     ocr_statistics=dict(cells=len(ocr_cells), from_ocr=sum(bool(c["from_ocr"]) for c in ocr_cells),
                                         from_pdf=sum(not bool(c["from_ocr"]) for c in ocr_cells)))

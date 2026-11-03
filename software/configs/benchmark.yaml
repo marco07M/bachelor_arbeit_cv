@@ -84,6 +84,7 @@ models:
     temperature: 0.7
     warmup: true
     preserve_partial_fields: true
+    ocr_row_selection: pattern
   vlm:
     repo: Qwen/Qwen3-VL-4B-Instruct
     attention: sdpa_repeated_kv

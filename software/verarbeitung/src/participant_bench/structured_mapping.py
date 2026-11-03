@@ -14,7 +14,7 @@ from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-v6-document-columns"
+VERSION = "tableformer-native-v7-row-observation-trace"
 
 
 def partial_identity_fallback(rows):
@@ -110,6 +110,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
     size = recognized.get("native", {}).get("pages", {}).get("1", {}).get("size", {})
     aliases = recognized.get("organization_header_aliases") or ORGANIZATION_ALIASES
     diagnostics = []
+    row_decisions = []
     for table_index, table in enumerate(recognized.get("tables", [])):
         rows, source, errors = table_rows(table, table_index, size)
         notes.extend(errors)
@@ -124,13 +125,18 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                 set().union(*(field_roles(c["text"], aliases) for c in r["cells"])))]
         last_header = -2
         for row in rows:
+            decision = dict(source_row=row["id"], table_index=table_index, row_index=row["row_index"],
+                native_refs=[c.get("native_ref") for c in row["cells"]])
+            row_decisions.append(decision)
             if current_header_rows and row["row_index"] < min(current_header_rows):
+                decision.update(status="context", reason="before_current_printed_headings")
                 continue  # Current headings take precedence over an older layout, including metadata above them.
             classified = [(cell, field_roles(cell["text"], aliases)) for cell in row["cells"]]
             found = set().union(*(roles for _, roles in classified)) if classified else set()
             header = (bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2
                       or bool(found) and last_header == row["row_index"]-1)
             if header:
+                decision.update(status="context", reason="printed_headings")
                 has_header, resolved = True, False
                 if last_header != row["row_index"]-1:
                     mapping, headings = {}, {}
@@ -157,11 +163,14 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                 if inherited:
                     headings = context["headings"]
             if not mapping:
+                decision.update(status="unassigned", reason=trace.get("reason", "no_reliable_column_mapping"))
                 continue
             if row["row_index"] <= last_header:
+                decision.update(status="context", reason="at_or_before_current_headings")
                 continue
             # HTML may omit cells. Native grids distinguish missing from explicitly empty cells.
             if source == "html" and max((c["column_start"]+c["colspan"] for c in row["cells"]), default=0) != width:
+                decision.update(status="unassigned", reason="incomplete_html_grid")
                 notes.append(f"cell_assignment_failed: table {table_index} row {row['row_index']} incomplete HTML grid")
                 continue
             fields, evidence, warnings = {}, {}, []
@@ -201,7 +210,10 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                     warnings.append("Name split unknown; combined cell retained in source evidence")
             observed_unsplit = combined and value and any(c.isalpha() for c in value) and not any(c.isdigit() for c in value)
             if not any(fields[f].value for f in ("first_name", "last_name", "personnel_number")) and not observed_unsplit:
+                decision.update(status="unassigned", reason="no_grounded_identity_field", field_warnings=warnings)
                 continue
+            decision.update(status="participant", reason="current_cells_in_mapped_columns", field_warnings=warnings,
+                            output_index=len(people))
             boxes = [c["bbox"] for c in row["cells"] if c.get("bbox")]
             row_ref = next((c["text"] for c in row["cells"] if c["column_start"] in mapping.get("row_ref", set())
                             and re.fullmatch(r"[0-9]+", c["text"])), None)
@@ -226,6 +238,10 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                 proof.update(output_index=len(people), table_index=table_index)
                 people.append(person)
                 proofs.append(proof)
+                for item in row_decisions:
+                    if item["source_row"] == proof["source_row"]:
+                        item.update(status="uncertain_participant", reason="repeated_native_identity_fallback",
+                                    output_index=proof["output_index"])
             fallback_count = len(recovered)
             if recovered:
                 notes.append("Unverified partial identity fallback; headings missing, organization remains unknown")
@@ -238,6 +254,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
         if not mapping:
             notes.append(f"column_mapping_failed: table {table_index} has no identifiable printed column headings")
     recognized["mapping_diagnostics"] = diagnostics
+    recognized["row_decisions"] = row_decisions
     if not people:
         notes.append("No reliably assignable participants; native cells and OCR remain available for review")
     return people, proofs, notes, context

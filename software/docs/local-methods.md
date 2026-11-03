@@ -188,6 +188,14 @@ Die durchgeführten Vorverarbeitungs-/Zellversuche begründen keine globale Umst
 Datenerhalt ist keine verbesserte Handschrift-OCR. Befunde, Präzisions-/Recalländerung,
 optionales HTR und reproduzierbare Befehle: [Handschriftbericht](handwriting-optimization.md).
 
+Alle nichtleeren Engine-Beobachtungen werden getrennt von der Feldzulassung
+protokolliert; Docling erfasst zusätzlich vor der SDK-Zusammenführung. Der
+Hauptbericht zeigt nicht zugeordnete Texte und Zeilen-/Feldentscheidungen.
+Tesseract-Scores unter 30 markieren auch im kompakten Zeilenprotokoll Unsicherheit,
+ohne Werte zu löschen. Die vollständige Zeilenvariante `ocr_row_selection: all`
+bleibt nach negativer realer Prüfung optional; Standard ist `pattern`.
+Details und stufenweiser Vergleich: [OCR-Beobachtung und Datenerhalt](ocr-observation-retention.md).
+
 ## Unterschriften getrennt behandeln
 
 Im Hauptprofil ist signature.backend: opencv aktiv. Diese gemeinsame Prüfung

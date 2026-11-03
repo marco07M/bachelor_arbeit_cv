@@ -6,7 +6,7 @@ from itertools import groupby
 
 def line_groups(data: dict) -> list[list[int]]:
     words = data.get("words", [])
-    if not words or any("line" not in word for word in words):
+    if not words or any(not isinstance(word.get("line"), (list, tuple)) or len(word["line"]) != 3 for word in words):
         return []
     return [[index for index, _ in group] for _, group in groupby(
         enumerate(words), key=lambda item: tuple(item[1]["line"])
@@ -45,7 +45,7 @@ def grouped_cells(data, indices):
     return result
 
 
-def with_table_columns(data, image, previous=None, *, document_id=None, page_number=None):
+def with_table_columns(data, image, previous=None, *, document_id=None, page_number=None, row_policy="pattern"):
     """Add geometry only; retain every original word and its ID for independent grounding."""
     from .column_context import geometry, image_boundaries, resolve
     from .column_headers import field_roles
@@ -60,7 +60,7 @@ def with_table_columns(data, image, previous=None, *, document_id=None, page_num
         for cell in groups:
             selected = [data["words"][i] for i in cell["word_ids"]]
             cells.append(dict(index=len(cells), column_start=cell["column"], colspan=1, rowspan=1,
-                text=cell["text"], kind="native", bbox={key: op(word["bbox"][key] for word in selected)
+                text=cell["text"], word_ids=cell["word_ids"], kind="native", bbox={key: op(word["bbox"][key] for word in selected)
                     for key, op in (("x0", min), ("y0", min), ("x1", max), ("y1", max))}))
         if cells:
             source_rows.append(dict(id=f"r{len(source_rows)+1}", table_index=0, row_index=len(source_rows), cells=cells,
@@ -90,13 +90,23 @@ def with_table_columns(data, image, previous=None, *, document_id=None, page_num
         hint = next(iter(name_columns))
     elif mapping:
         hint = None  # Separate name columns must not be collapsed into a guessed combined cell.
-    if inherited:
-        chosen = source_rows  # Continuations may have fewer than four or unevenly spaced rows.
+    heuristic_ids = {row["id"] for row in chosen}
+    if row_policy not in ("pattern", "all"):
+        raise ValueError("Unknown OCR row selection policy")
+    if row_policy == "all" or inherited:
+        chosen = source_rows
+    chosen = [dict(row, selection_hint="person_pattern" if row["id"] in heuristic_ids else "unclassified_observation")
+              for row in chosen]
     chosen = [dict(row, id=f"r{index+1}", original_source_row=row["id"]) for index, row in enumerate(chosen)]
     selected_originals = {row["original_source_row"] for row in chosen}
     enriched.update(text_rows=chosen, name_column_hint=hint, inherited_name_column=inherited,
                     column_mapping={key: sorted(cols) for key, cols in mapping.items()},
                     column_mapping_context=context, mapping_provenance=trace,
+                    selection_diagnostics=dict(source_rows=len(source_rows), heuristic_rows=len(heuristic_ids),
+                        model_input_rows=len(chosen), omitted_rows=len(source_rows)-len(chosen), policy=row_policy),
+                    all_text_rows=source_rows, row_selection_policy=row_policy,
+                    unassigned_word_ids=[i for i in range(len(data.get("words", []))) if not any(
+                        i in cell.get("word_ids", []) for row in source_rows for cell in row["cells"])],
                     context_rows=[row["id"] for row in source_rows if row["id"] not in selected_originals])
     return enriched
 
@@ -113,9 +123,16 @@ def readable_text(data: dict) -> str:
 
 def model_input(data: dict) -> str:
     if "text_rows" in data:
-        return "OCR_TEXT_ROWS:\n" + json.dumps(dict(name_column_hint=data.get("name_column_hint"),
+        payload = dict(name_column_hint=data.get("name_column_hint"),
             column_mapping=data.get("column_mapping", {}), mapping_provenance=data.get("mapping_provenance"),
             column_boundaries=data.get("physical_columns", []),
-            rows=[dict(source_row=row["id"], bbox=row.get("bbox"), cells=row["column_texts"]) for row in data["text_rows"]]),
+            rows=[dict(source_row=row["id"], bbox=row.get("bbox"), cells=row["column_texts"],
+                       **(dict(selection_hint=row.get("selection_hint", "unclassified_observation"))
+                          if data.get("row_selection_policy") == "all" else {})) for row in data["text_rows"]])
+        if data.get("unassigned_word_ids") or data.get("row_selection_policy") == "all":
+            payload["unassigned_observations"] = [dict(word_id=i, text=data["words"][i]["text"],
+                bbox=data["words"][i].get("bbox"), ocr_confidence=data["words"][i].get("ocr_confidence"))
+                for i in data.get("unassigned_word_ids", [])]
+        return "OCR_TEXT_ROWS:\n" + json.dumps(payload,
             ensure_ascii=False, separators=(",", ":"))
     return "OCR_LAYOUT_DATA:\n" + compact_layout(data)

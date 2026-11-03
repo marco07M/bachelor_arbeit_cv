@@ -491,7 +491,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                 else:
                                     model.document_name_order_context = name_orders.context(page["document_id"])
                                     analysis_data = with_table_columns(data, image, text_layouts.get(page["document_id"]),
-                                        document_id=page["document_id"], page_number=page["page_number"]) if method == "ocr_llm" else None
+                                        document_id=page["document_id"], page_number=page["page_number"],
+                                        row_policy=config.models[method].ocr_row_selection) if method == "ocr_llm" else None
                                     if method == "ocr_vlm":
                                         hybrid_record = hybrid_records.get(page["page_id"], {})
                                         if "hints" not in hybrid_record:
@@ -505,6 +506,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                         raw["ocr_layout_analysis"] = {key: analysis_data[key] for key in
                                             ("physical_columns", "text_rows", "name_column_hint", "inherited_name_column", "context_rows",
                                              "column_mapping", "column_mapping_context", "mapping_provenance")}
+                                        raw["ocr_layout_analysis"].update({key: analysis_data[key] for key in
+                                            ("selection_diagnostics", "unassigned_word_ids", "all_text_rows", "row_selection_policy")})
                                         text_layouts[page["document_id"]] = raw["ocr_layout_analysis"]
                                     participants, responses, status, elapsed = model.extract(
                                         image, analysis_data
@@ -728,7 +731,13 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         for page in page_results:
             raw_path = method_dir / f"raw-{page.page_id}.json"
             if raw_path.exists():
-                raw_records.append(read_json(raw_path))
+                raw_record = read_json(raw_path)
+                if "ocr" in raw_record or "structure" in raw_record:
+                    from .ocr_observations import audit
+
+                    raw_record["ocr_observation_audit"] = audit(raw_record, page)
+                    write_json(raw_path, raw_record)
+                raw_records.append(raw_record)
         write_jsonl(method_dir / "raw.jsonl", raw_records)
         write_jsonl(method_dir / "extractions.jsonl", [r.model_dump() for r in page_results])
         timing_rows = [dict(page_id=r.page_id, status=r.status, **r.timings) for r in page_results]
