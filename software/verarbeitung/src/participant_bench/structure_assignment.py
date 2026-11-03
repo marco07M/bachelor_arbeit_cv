@@ -11,7 +11,7 @@ from statistics import median
 from .schema import TEXT_FIELDS, Box, TextField
 from .unlimited_assignment import header_fields, source_rows
 
-VERSION = "structure-spatial-assignment-v6-organization-evidence"
+VERSION = "structure-spatial-assignment-v7-observation-trace"
 
 
 def rectangle(value, width, height):
@@ -278,12 +278,23 @@ def ground_positions(people, evidence, rows, bands):
             if not boxes:
                 continue
             item["bbox"] = union(boxes)
+            observed = [c for c in row.get("native_cells", []) if c.get("bbox") in boxes]
+            item["ocr_observations"] = [dict(text=c.get("raw_text", c["text"]), bbox=c["bbox"],
+                ocr_confidence=c.get("ocr_confidence"), native_ref=c.get("native_ref")) for c in observed]
             if field in bands and any(not bands[field][0] <= box["x0"] < bands[field][1] for box in boxes):
                 setattr(person, field, TextField(state="failed"))
                 item["rejected"] = "outside_header_column"
                 person.review_notes.append(f"{field}: Text liegt außerhalb der zugeordneten Spalte; Wert unbekannt")
             else:
                 getattr(person, field).bbox = Box.model_validate(item["bbox"])
+                scores = [c.get("ocr_confidence") for c in observed if c.get("ocr_confidence") is not None]
+                # Native Paddle/Docling scores are on 0..1; this is a review flag, never a correctness probability.
+                low = any(0 <= score < .5 for score in scores)
+                partial = bool(re.search(r"\.\.\.|…", getattr(person, field).value or ""))
+                item["observation_state"] = "partial" if partial else "uncertain" if low else "observed"
+                if low or partial:
+                    getattr(person, field).state = "uncertain"
+                    person.review_notes.append(f"{field}: beobachteter Teiltext oder niedrige OCR-Engine-Konfidenz; Originalwert erhalten")
         person.review_notes.append("Native Positionen geprüft; OCR- und Namenszuordnung weiterhin manuell kontrollieren")
 
 

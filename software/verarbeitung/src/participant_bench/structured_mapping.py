@@ -13,7 +13,7 @@ from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-v4-audited-partial-fallback"
+VERSION = "tableformer-native-v5-partial-observations"
 
 
 def partial_identity_fallback(rows):
@@ -162,11 +162,13 @@ def extract_structured(recognized, context=None):
                     warnings.append(f"{field}: column_mapping_failed" if len(columns) != 1 else f"{field}: cell_assignment_failed")
                     continue
                 cell = candidates[0]
-                fields[field] = TextField(value=cell["text"], state="read" if cell["text"] else "empty",
+                partial = bool(re.search(r"\.\.\.|…", cell["text"]))
+                fields[field] = TextField(value=cell["text"], state="uncertain" if partial else "read" if cell["text"] else "empty",
                     bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
                 evidence[field] = dict(text=cell["text"], column_start=cell["column_start"],
                     native_ref=cell.get("native_ref"), heading=headings.get(field, []),
                     assignment_rule="native_printed_header_cell" if source == "native" else "html_printed_header_cell")
+                evidence[field]["observation_state"] = "partial" if partial else "observed"
             combined = (mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name"))
             value = fields["last_name"].value
             if combined or (not mapping.get("first_name") and value and "," in value):
@@ -174,8 +176,8 @@ def extract_structured(recognized, context=None):
                 if split:
                     first, last, rule = split
                     box = fields["last_name"].bbox
-                    fields["first_name"] = TextField(value=first, state="read", bbox=box)
-                    fields["last_name"] = TextField(value=last, state="read", bbox=box)
+                    fields["first_name"] = TextField(value=first, state="uncertain" if re.search(r"\.\.\.|…", first) else "read", bbox=box)
+                    fields["last_name"] = TextField(value=last, state="uncertain" if re.search(r"\.\.\.|…", last) else "read", bbox=box)
                     for key, text in (("first_name", first), ("last_name", last)):
                         evidence[key] = dict(evidence.get("last_name", {}), text=text,
                                              assignment_rule=rule)

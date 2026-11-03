@@ -7,6 +7,10 @@ Die unten dokumentierten Vergleichsläufe entstanden vor dem späteren
 Namensnachtrag v22. Für die aktuelle Nachname-zuerst-Regel siehe
 [Feldzuordnung und Rollen](local-methods.md#feldzuordnung-und-rollen).
 
+Spätere Nachträge sind getrennt dokumentiert: [Evaluationsaudit](evaluation-audit.md)
+und [Handschrift-/Datenerhalt-Vergleich vom 03.11.](handwriting-optimization.md).
+Die untenstehenden historischen Messungen bleiben unverändert.
+
 ## Ursache und Änderung
 
 Bei Docling sind zwei Fehlerbilder zu unterscheiden. In synthetischen Dokumenten

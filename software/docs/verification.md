@@ -1,5 +1,32 @@
 # Verifikationsprotokoll
 
+## Handschrift und Erhalt von Teilinformationen, 03.11.2026
+
+**609 lokale Volltests in 81,90 Sekunden**, **48 API-Tests in 17,60 Sekunden**
+bestanden. Zuvor 72 gezielte Tests bestanden. Keine API-Modellaufrufe, keine
+neuen Modellgewichte oder Trainings; Ruff ohne Befund.
+
+Nachgewiesener Paddle-Parserverlust: neun Personen der gespeicherten Handschrift-
+Antwort wurden wegen eines fehlenden Einzelzielfelds verworfen. Neue optionale
+Feldbehandlung behält literal-/positionsgeprüfte Teile. Reiner Validierungs-Replay:
+`runs/handwriting-retention-20261103-final/comparison/report.html`. 29 → 38 exakte,
+7 → 15 falsche, 36 → 19 fehlende Felder bei gleichem Nenner 72. Alle bisherigen
+Treffer und Werte der ersten Seite erhalten. OCR-/LLM-Antworten und ursprüngliche
+Forschungsdateien unverändert; Einzelzähler und Validierungsstufen konsistent.
+
+Kleine OCR-Voruntersuchung unter `runs/handwriting-probe-20261103/`: sieben
+Tesseract-Varianten, 24 TableFormer-Zellausschnitte, Paddle-1600 und zwei
+Docling-Varianten, insgesamt 44 Erkennungsaufrufe. Weitere zwei Paddle-Aufrufe
+mit tatsächlich veränderter Detektionsgröße 3200 stehen separat unter
+`runs/handwriting-paddle-3200-20261103/`. Keine globale Umstellung, kein OCR-
+Qualitätsgewinn aus Zeichenmengen behauptet. Docling ohne Linienentfernung
+verliert hier die bisherige Teilzuordnung und wird nicht übernommen.
+
+Der Nutzer bestätigt handschriftliche Werte in der Excel-Kursreferenz ohne
+Lokalisierung. Diese bleibt Grundlage des dokumentweiten Feldvergleichs;
+Handschrift-CER/WER und getrennte regionale Qualitätsmetriken bleiben ungemessen.
+[Abschlussbericht mit Modellprüfung und HTR-Einordnung](handwriting-optimization.md).
+
 ## Nachtrag: Docling und wissenschaftlicher Evaluationsaudit, 03.11.2026
 
 Abgeschlossen: **591 lokale Tests in 106,49 Sekunden**, **48 Tests des separaten

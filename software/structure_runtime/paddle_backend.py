@@ -51,13 +51,17 @@ class PaddleBackend:
                 raise FileNotFoundError("Local Paddle model incomplete; run setup-structures")
             models[parameter + "_model_name"] = name
             models[parameter + "_model_dir"] = str(path)
+        probe = {key: settings[key] for key in ("text_det_limit_side_len", "text_rec_score_thresh")
+                 if settings.get(key) is not None}
+        self.effective_options = dict(probe, text_recognition_model=PADDLE_MODELS["text_recognition"],
+                                      use_textline_orientation=settings.get("use_textline_orientation", True))
         self.pipeline = PPStructureV3(
             **models, device="gpu:0" if device == "cuda" else "cpu",
             use_doc_orientation_classify=False, use_doc_unwarping=False,
-            use_textline_orientation=True, use_table_recognition=True,
+            use_textline_orientation=settings.get("use_textline_orientation", True), use_table_recognition=True,
             use_formula_recognition=False, use_chart_recognition=False,
             use_seal_recognition=False, use_region_detection=False,
-            enable_mkldnn=False,
+            enable_mkldnn=False, **probe,
         )
         self.device = device
 
@@ -78,6 +82,7 @@ class PaddleBackend:
         # still reads its rows. Never discard those recognized words.
         text = "\n".join(native.get("overall_ocr_res", {}).get("rec_texts", [])) or markdown
         return dict(tables=tables, markdown=markdown or text, plain_text=text, native=native,
+                    effective_options=self.effective_options,
                     source_kind="rendered_page", structure_engine="PP-StructureV3")
 
     def resources(self):

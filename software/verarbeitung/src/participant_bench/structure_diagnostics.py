@@ -14,7 +14,7 @@ from .io import file_hash, read_json, read_jsonl, write_csv, write_json
 from .structure_assignment import header_bands, native_items, prepare_rows, rectangle
 from .structured_mapping import table_rows
 
-VERSION = "organization-stage-diagnosis-v1"
+VERSION = "structure-observation-diagnosis-v2"
 CATEGORIES = ("ocr_detection_failed", "ocr_recognition_failed", "table_structure_failed",
               "cell_assignment_failed", "column_mapping_failed", "llm_extraction_failed", "normalization_failed", "unknown")
 
@@ -136,7 +136,20 @@ def analyze_page(raw, final):
         page_issues.append(dict(cause="table_structure_failed", reason="Invalid native grid; details retained"))
     if not cells:
         page_issues.append(dict(cause="unknown", reason="No positioned OCR cells; cannot distinguish detection and recognition without labeled regions"))
+    field_observations, assigned_refs = [], set()
+    for proof in proofs:
+        for field, item in proof.get("fields", {}).items():
+            observations = item.get("ocr_observations", [])
+            assigned_refs.update(c.get("native_ref") for c in observations if c.get("native_ref"))
+            if item.get("native_ref"):
+                assigned_refs.add(item["native_ref"])
+            field_observations.append(dict(output_index=proof["output_index"], field=field,
+                text=item.get("text"), bbox=item.get("bbox"), observation_state=item.get("observation_state", "not_recorded"),
+                rejected=item.get("rejected"), observations=observations))
+    # Absence of a recorded field reference is diagnostic, not a claim that text is irrelevant.
+    unassigned_cells = [cell for cell in cells if cell.get("native_ref") not in assigned_refs]
     return dict(version=VERSION, method=method, page_id=raw.get("page_id"),
+        field_observations=field_observations, unassigned_ocr_cells=unassigned_cells,
         extraction_stages=recognized.get("extraction_stages", {}),
         effective_options=recognized.get("effective_options", "not recorded in historical output"),
         source_kind=recognized.get("source_kind"), ocr_statistics=recognized.get("ocr_statistics"),
@@ -204,6 +217,10 @@ def diagnose_run(source: Path, output: Path, methods=None, max_pages=None):
             folder.mkdir(parents=True)
             write_json(folder / "stages.json", analysis)
             write_csv(folder / "ocr_cells.csv", analysis["ocr_cells"], fields=None if analysis["ocr_cells"] else ["text", "bbox"])
+            write_csv(folder / "field_observations.csv", analysis["field_observations"],
+                      fields=None if analysis["field_observations"] else ["field", "text", "observation_state"])
+            write_csv(folder / "unassigned_ocr.csv", analysis["unassigned_ocr_cells"],
+                      fields=None if analysis["unassigned_ocr_cells"] else ["text", "bbox", "ocr_confidence"])
             write_json(folder / "tables.json", analysis["tables"])
             write_json(folder / "original_raw.json", raw)
             assignment = raw.get("assignment", {})
@@ -228,7 +245,8 @@ def diagnose_run(source: Path, output: Path, methods=None, max_pages=None):
     write_csv(output / "pages.csv", index, fields=None if index else ["method", "page_id"])
     rows = "".join(f'<tr><td>{html.escape(r["method"])}</td><td>{html.escape(r["page_id"])}</td>'
         f'<td>{r["ocr_cells"]}</td><td>{r["tables"]}</td><td>{r["participants"]}</td><td>{r["organization_fields"]}</td>'
-        f'<td><a href="{r["artifacts"]}/stages.json">Stufen</a> · <a href="{r["artifacts"]}/overlay.png">Overlay</a></td></tr>' for r in index)
+        f'<td><a href="{r["artifacts"]}/stages.json">Stufen</a> · <a href="{r["artifacts"]}/overlay.png">Overlay</a> · '
+        f'<a href="{r["artifacts"]}/field_observations.csv">Feldbelege</a> · <a href="{r["artifacts"]}/unassigned_ocr.csv">Nicht referenzierte OCR-Belege</a></td></tr>' for r in index)
     (output / "report.html").write_text('<!doctype html><html lang="de"><meta charset="utf-8">'
         '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'self\'; style-src \'unsafe-inline\'">'
         '<title>Organisationszuordnung diagnostizieren</title><style>body{font:16px system-ui;margin:2rem}'

@@ -166,6 +166,22 @@ Fehlender OCR-Text allein beweist keine leere Zelle. Kursleiter/Trainer werden
 nur bei belegter Rolle ausgeschlossen; unsichere Rollen bleiben zur Prüfung.
 Ausschlüsse stehen separat in excluded_instructors.csv.
 
+## Handschrift und Teilinformationen
+
+Seit dem Handschriftnachtrag werden fehlende Einzelzielfelder in der lokalen
+OCR-Zuordnung als unbekannt behandelt, ohne die übrige belegte Person zu verwerfen.
+Unbekannte Quellzeilen, falsche Typen, unbelegte Texte und falsche Spalten bleiben
+abgelehnt. Protokollversionen: v17/v18. Native OCR-Konfidenzen und Positionen stehen
+in Feldbeweisen; niedrige Scores und sichtbare Teiltextmarker markieren Unsicherheit,
+ohne Texte zu löschen oder Konfidenzen als Korrektheitswahrscheinlichkeit auszugeben.
+
+Die bisherigen OCR-Gewichte, Linienentfernung und sechs Hauptverfahren bleiben
+erhalten. Paddle-Optionen `text_det_limit_side_len`, `text_rec_score_thresh` und
+`use_textline_orientation` erlauben ausdrücklich konfigurierte getrennte Versuche.
+Die durchgeführten Vorverarbeitungs-/Zellversuche begründen keine globale Umstellung.
+Datenerhalt ist keine verbesserte Handschrift-OCR. Befunde, Präzisions-/Recalländerung,
+optionales HTR und reproduzierbare Befehle: [Handschriftbericht](handwriting-optimization.md).
+
 ## Unterschriften getrennt behandeln
 
 Im Hauptprofil ist signature.backend: opencv aktiv. Diese gemeinsame Prüfung

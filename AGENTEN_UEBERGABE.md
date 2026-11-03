@@ -8,6 +8,44 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
+### Handschriftauftrag vom 03.11.: Datenerhalt und kontrollierte OCR-Proben abgeschlossen
+
+Ausgangspunkt `software/testframework/ergebnisse/20261103T092511Z-5be3affb/`,
+Quelllauf `software/runs/20261103T091220Z-9a1bd0fb/`. Nutzer bestätigt, dass die
+Excel-Kursreferenz auch die handschriftlichen Texte enthält, aber keine
+Lokalisierungen. Dokumentweiter Feldvergleich ist möglich; separate OCR-CER/WER
+der Handschrift bleiben ohne geprüfte regionale/seitige Zuordnung ungemessen.
+
+Nachgewiesener Verlust: Paddle gibt auf Seite 2 neun Personen in der gespeicherten
+LLM-Antwort aus; ein fehlendes Einzelzielfeld ließ bislang alle neun an der
+Schema-Prüfung scheitern. Optionale fehlende Felder bleiben jetzt unbekannt;
+Literal-, Positions-, Rollen- und Typprüfungen bleiben aktiv. Protokoll v17/v18.
+Native Konfidenzen und Textbelege bleiben in Feldbeweisen, niedrige Scores und
+sichtbare Teiltextmarker markieren `uncertain`, ohne Werte zu löschen.
+
+Reiner Validierungs-Replay ohne neue OCR/LLM-Aufrufe:
+`software/runs/handwriting-retention-20261103-final/comparison/report.html`.
+Paddle 9 → 18 Personen, 29 → 38 exakte Felder, 7 → 15 falsche und 36 → 19
+fehlende Felder bei identischem Referenznenner 72. Alle 29 bisherigen Treffer
+erhalten; maschinenschriftliche Werte der ersten Seite unverändert. Das ist
+Datenerhalt, keine verbesserte OCR-Erkennung. Zusätzliche Unsicherheit sichtbar.
+
+OCR-Voruntersuchung `software/runs/handwriting-probe-20261103/`: sieben
+Tesseract-Varianten, 24 native Zellausschnitte und kleine Paddle-/Docling-Proben,
+insgesamt 44 zusätzliche Erkennungsaufrufe; keine neuen Gewichte oder Trainings.
+Zusätzliche Paddle-3200-Probe mit zwei weiteren Aufrufen separat unter
+`software/runs/handwriting-paddle-3200-20261103/`; keine Verbesserung belegt.
+Ohne lokalisierte Transkripte keine OCR-Siegerwahl. Docling ohne Linienentfernung
+mit/ohne FULL_PAGE verliert hier die bisherige Teilzuordnung; nicht übernehmen.
+Keine globale Vorverarbeitungsänderung. **72 gezielte, 609 lokale Volltests in
+81,90 s und 48 API-Tests in 17,60 s bestanden**, Ruff ohne Befund.
+Abschlussbericht: [software/docs/handwriting-optimization.md](software/docs/handwriting-optimization.md).
+Replays behalten identische OCR-/LLM-Antworten und maschinenschriftliche Werte;
+Validierungsstufen, JSON-/CSV-/Excel-Zähler und HTML-Beiträge konsistent.
+Zusätzlich ausgegebene Werte enthalten 13 nichtleere unsichere Felder. Höherer
+Recall bei geringerer Precision offen ausgewiesen. Kein neuer LLM/VLM/HTR-Lauf,
+kein verstecktes Verfahren und kein Qualitätsversprechen für echte Handschrift.
+
 ### Gesamtauftrag vom 03.11.: Docling, Metrikprüfung und vereinheitlichte Berichte
 
 Aktueller Ausgangsvergleich: `software/testframework/ergebnisse/20261103T081036Z-c0340c5a/`,
@@ -250,9 +288,9 @@ Kursauswertung; aus bedingten Seitenwerten keinen Handschrift-Recall ableiten.
 
 ### Prüfstand
 
-Am 2026-11-03 bestanden nach dem Evaluationsaudit **591 vollständige lokale
-Tests** in 106,49 Sekunden sowie **48 Tests des getrennten API-Projekts** in
-10,46 Sekunden auf dem endgültigen geänderten Kerncode. Vergleichsskripttests prüfen unter anderem
+Am 2026-11-03 bestanden nach dem Handschriftnachtrag **609 vollständige lokale
+Tests** in 81,90 Sekunden sowie **48 Tests des getrennten API-Projekts** in
+17,60 Sekunden auf dem endgültigen geänderten Kerncode. Vergleichsskripttests prüfen unter anderem
 veränderte Original-/Laufbilder, Referenzänderungen und maskierte Felder.
 Ruff, Markdown-Dateiverweise und `git diff --check` ohne Befund. 22 lokale
 Pipelineprofile sowie Excel- und Testframework-Konfiguration erfolgreich geladen.
@@ -283,6 +321,45 @@ auf die dort datierten Stände.
   Modellgewichte und personenbezogene Diagnoseartefakte gehören nicht in Git.
 
 ## Änderungsprotokoll
+
+### 2026-11-03 – Handschrift: Datenverlust bei Teilzeilen behoben und OCR-Varianten geprüft
+
+- **Auftrag:** Tesseract/Paddle/Docling auf Handschriftverluste untersuchen,
+  beobachtete Teiltexte erhalten, kleine kontrollierte Varianten vergleichen,
+  Modelleignung und optionale HTR-Erweiterung wissenschaftlich einordnen.
+- **Dateien:** `unlimited_assignment.py`, `structure_assignment.py`,
+  `structured_mapping.py`, `structure_diagnostics.py`, `config.py`,
+  `structure_runtime/paddle_backend.py`, neue Skripte `handwriting_probe.py`
+  und `replay_partial_assignments.py`, `tests/test_handwriting_retention.py`,
+  Software-README, `docs/local-methods.md`, `docs/structure-optimization.md`,
+  neue `docs/handwriting-optimization.md`, `docs/verification.md`, diese Übergabe.
+- **Änderung:** Fehlende einzelne Zielfelder bleiben unbekannt, statt ganze
+  belegte Personen abzulehnen. Übrige Typ-/Literal-/Positionsprüfungen bleiben
+  aktiv. Originalkonfidenzen/-texte in Beweisen erhalten; niedrige Engine-Scores
+  und Teiltextmarker als Unsicherheit markieren. Unreferenzierte OCR-Belege
+  separat exportieren. Optionale Paddle-Probeparameter ohne globale Umstellung.
+- **Nachweis:** Gefrorene Antwort enthält neun Handschrift-Personen, früher
+  wegen eines fehlenden Felds sämtlich Schemaausschlüsse. Replay jetzt neun
+  zusätzliche Personen, neun neue exakte und acht zusätzliche falsche Felder.
+  Alle bisherigen 29 Treffer erhalten; erste Seite inhaltlich unverändert.
+  Neue Precision 71,70 % statt 80,56 %, Recall 52,78 % statt 40,28 %. Das ist
+  Datenerhalt, keine neue OCR-Erkennungsleistung; zusätzliche Fehler sichtbar.
+- **Versuche:** Sieben Tesseract-Varianten auf beiden Seiten, 24 native
+  Zellausschnitte, Paddle mit zwei Detektionsgrößen und Docling ohne Linien-
+  entfernung DEFAULT/FULL_PAGE. 46 zusätzliche OCR-/Strukturaufrufe insgesamt.
+  Keine Modelle geladen, die nicht schon vorhanden waren, keine Downloads.
+  Docling-Kandidaten verlieren die bisherige Teilzuordnung; nicht übernehmen.
+  Mehr Zeichen oder nichtleere Ausschnitte nicht als Qualitätsgewinn interpretieren.
+- **Prüfung:** 72 gezielte Tests, 609 lokale Volltests, 48 API-Tests, Ruff bestanden.
+  Keine API-Modellaufrufe. Historische Artefakte/Referenzen unverändert; gleicher
+  Referenznenner, Reihenfolge und Antworttext kontrolliert. Endgültiger Replay
+  und Abschlussbericht oben verlinkt; Ressourcen- und Variantenartefakte lokal.
+- **Grenzen:** Nutzer nennt Excel-Werte auch für Handschrift, aber keine
+  Lokalisierung. Dokumentweite Kursübereinstimmung ist messbar, separate
+  Handschrift-CER/WER/Regionserkennung nicht. Seitenreferenz vor solchen Messungen
+  manuell prüfen; insbesondere IDs in der Kursliste können auf der PDF leer sein.
+  HTR nur als getrennte spätere Option beschrieben; keine Modellgrenze durch
+  beliebig komplexe Regeln oder erfundene Teiltexte kompensieren.
 
 ### 2026-11-03 – Docling-Teilinformationen, wissenschaftlicher Metrikaudit und Berichte
 

@@ -163,6 +163,10 @@ class StructureConfig(ConfigModel):
     scan_input: Literal["rendered", "native"] = "rendered"
     extraction: Literal["table", "llm"] = "table"
     assignment_max_new_tokens: int = Field(default=4096, ge=128, le=32768)
+    # Optional Paddle probes; None preserves the pinned engine defaults.
+    text_det_limit_side_len: int | None = Field(default=None, ge=320, le=4096)
+    text_rec_score_thresh: float | None = Field(default=None, ge=0, le=1)
+    use_textline_orientation: bool = True
 
 
 class Config(ConfigModel):
