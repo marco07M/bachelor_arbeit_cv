@@ -1,5 +1,21 @@
 # Verifikationsprotokoll
 
+## Dokumentbezogene Spalten auf Fortsetzungsseiten, 03.11.2026
+
+627 lokale Volltests in 166,99 s und 48 API-Tests in 18,99 s bestanden.
+Native und ältere HTML-Zuordnung, Tesseract- und Paddle-Kontext verwenden eine
+gemeinsame Herkunfts-/Geometrieprüfung; aktuelle Überschriften haben Vorrang.
+Deckblatt, leere Zwischenseite, Layoutwechsel, Dokumentgrenzen, Wiederholbarkeit,
+Teiltexte und falsche Benutzer-ID-Spalten sind synthetisch abgesichert.
+
+Realer neuer Paddle-Lauf mit denselben OCR-Belegen: 38/72 exakt unverändert,
+15 → 19 falsche und 19 → 15 fehlende Felder. Keine reale Qualitätsverbesserung
+behauptet. Eine Ablation derselben Antwort ohne geerbte Positionsprüfung hat
+28 statt 19 falsche Felder. Tesseract/Docling ohne zuverlässige Überschriften
+übernehmen keine Struktur; dort keine zusätzlichen Treffer. Ergebnisse bleiben
+lokal unter `runs/document-columns-20261103-final/`, Ablation separat.
+Details und Reproduktion: [Spaltenkontextbericht](document-columns.md).
+
 ## Handschrift und Erhalt von Teilinformationen, 03.11.2026
 
 **609 lokale Volltests in 81,90 Sekunden**, **48 API-Tests in 17,60 Sekunden**

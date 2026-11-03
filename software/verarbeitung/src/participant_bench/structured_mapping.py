@@ -7,13 +7,14 @@ No OCR, language model, fixed pixel columns or reference data enter this module.
 import re
 from collections import defaultdict
 
+from .column_context import geometry, resolve
 from .column_headers import ORGANIZATION_ALIASES, field_roles
 from .name_parts import split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-v5-partial-observations"
+VERSION = "tableformer-native-v6-document-columns"
 
 
 def partial_identity_fallback(rows):
@@ -103,7 +104,7 @@ def table_rows(table, table_index=0, size=None):
             for r in sorted(rows)], "native", []
 
 
-def extract_structured(recognized, context=None):
+def extract_structured(recognized, context=None, *, document_id=None, page_number=None):
     people, proofs, notes = [], [], []
     context = dict(context or {})
     size = recognized.get("native", {}).get("pages", {}).get("1", {}).get("size", {})
@@ -115,17 +116,22 @@ def extract_structured(recognized, context=None):
         mapping, headings = {}, {}
         width = max((row.get("grid_width", max((c["column_start"]+c["colspan"] for c in row["cells"]), default=0))
                      for row in rows), default=0)
-        inherited = context.get("width") == width
-        if inherited:
-            mapping = {key: set(value) for key, value in context.get("mapping", {}).items()}
-            headings = context.get("headings", {})
+        profile = geometry(width, rows)
+        inherited, has_header, resolved = False, False, False
+        trace = {}
+        current_header_rows = [r["row_index"] for r in rows if (lambda found:
+            bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2)(
+                set().union(*(field_roles(c["text"], aliases) for c in r["cells"])))]
         last_header = -2
         for row in rows:
+            if current_header_rows and row["row_index"] < min(current_header_rows):
+                continue  # Current headings take precedence over an older layout, including metadata above them.
             classified = [(cell, field_roles(cell["text"], aliases)) for cell in row["cells"]]
             found = set().union(*(roles for _, roles in classified)) if classified else set()
             header = (bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2
                       or bool(found) and last_header == row["row_index"]-1)
             if header:
+                has_header, resolved = True, False
                 if last_header != row["row_index"]-1:
                     mapping, headings = {}, {}
                 last_header = row["row_index"]
@@ -141,10 +147,15 @@ def extract_structured(recognized, context=None):
                     if len(roles) > 1 and roles != {"first_name", "last_name"}:
                         for field in roles:
                             mapping[field].discard(column)
-                context = dict(width=width, mapping={key: sorted(cols) for key, cols in mapping.items()},
-                               headings=headings)
                 inherited = False
                 continue
+            if not resolved:
+                mapping, context, trace = resolve(mapping, headings, profile, context,
+                    document_id=document_id, page_number=page_number, has_header=has_header, column_count=width)
+                resolved = True
+                inherited = trace["status"] == "inherited_from_previous_page"
+                if inherited:
+                    headings = context["headings"]
             if not mapping:
                 continue
             if row["row_index"] <= last_header:
@@ -167,7 +178,9 @@ def extract_structured(recognized, context=None):
                     bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
                 evidence[field] = dict(text=cell["text"], column_start=cell["column_start"],
                     native_ref=cell.get("native_ref"), heading=headings.get(field, []),
-                    assignment_rule="native_printed_header_cell" if source == "native" else "html_printed_header_cell")
+                    assignment_rule=("inherited_printed_header_cell" if inherited else
+                                     "native_printed_header_cell" if source == "native" else "html_printed_header_cell"),
+                    mapping_provenance=trace)
                 evidence[field]["observation_state"] = "partial" if partial else "observed"
             combined = (mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name"))
             value = fields["last_name"].value
@@ -199,10 +212,14 @@ def extract_structured(recognized, context=None):
             proofs.append(dict(output_index=len(people)-1, source_row=row["id"], table_index=table_index,
                 source_row_index=row["row_index"], grid_source=source, fields=evidence,
                 source_cells=row["cells"], raw_cells=[c["text"] for c in row["cells"]],
-                column_mapping={key: sorted(cols) for key, cols in mapping.items()}, original_headings=headings))
+                column_mapping={key: sorted(cols) for key, cols in mapping.items()}, original_headings=headings,
+                mapping_provenance=trace))
+        if not resolved:
+            mapping, context, trace = resolve(mapping, headings, profile, context,
+                document_id=document_id, page_number=page_number, has_header=has_header, column_count=width)
         fallback_count = 0
         # Explicit but ambiguous headings must never be bypassed by content inference.
-        if not mapping and source == "native" and not any(
+        if not mapping and trace["status"] != "incompatible_table_structure" and source == "native" and not any(
                 field_roles(c["text"], aliases) for row in rows for c in row["cells"]):
             recovered, recovered_proofs = partial_identity_fallback(rows)
             for person, proof in zip(recovered, recovered_proofs):
@@ -213,6 +230,7 @@ def extract_structured(recognized, context=None):
             if recovered:
                 notes.append("Unverified partial identity fallback; headings missing, organization remains unknown")
         diagnostics.append(dict(table_index=table_index, grid_source=source, rows=len(rows), width=width,
+            **trace,
             fallback_participants=fallback_count,
             text_cells=sum(bool(c["text"]) for row in rows for c in row["cells"]),
             columns={key: sorted(cols) for key, cols in mapping.items()}, headings=headings,

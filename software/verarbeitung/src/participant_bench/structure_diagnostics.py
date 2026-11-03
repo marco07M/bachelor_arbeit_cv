@@ -14,7 +14,7 @@ from .io import file_hash, read_json, read_jsonl, write_csv, write_json
 from .structure_assignment import header_bands, native_items, prepare_rows, rectangle
 from .structured_mapping import table_rows
 
-VERSION = "structure-observation-diagnosis-v2"
+VERSION = "structure-observation-diagnosis-v3-document-columns"
 CATEGORIES = ("ocr_detection_failed", "ocr_recognition_failed", "table_structure_failed",
               "cell_assignment_failed", "column_mapping_failed", "llm_extraction_failed", "normalization_failed", "unknown")
 
@@ -156,6 +156,7 @@ def analyze_page(raw, final):
         ocr_cells=cells, tables=grids, recognized_headings=headings, reconstructed_field_bands=bands,
         original_field_bands=assignment.get("current_field_bands", {}),
         used_mapping=recognized.get("mapping_diagnostics", []),
+        document_column_mapping=assignment.get("document_column_mapping", recognized.get("document_column_mapping")),
         participants_before_validation=assignment.get("participants_before_validation"),
         participants_after_literal_grounding=assignment.get("participants_after_literal_grounding"),
         participants_after_position_validation=assignment.get("participants_after_position_validation"),

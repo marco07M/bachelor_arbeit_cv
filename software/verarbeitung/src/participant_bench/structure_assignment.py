@@ -11,7 +11,44 @@ from statistics import median
 from .schema import TEXT_FIELDS, Box, TextField
 from .unlimited_assignment import header_fields, source_rows
 
-VERSION = "structure-spatial-assignment-v7-observation-trace"
+VERSION = "structure-spatial-assignment-v8-document-columns"
+
+
+def document_bands(recognized, rows, bands, previous, *, document_id, page_number):
+    """Extend existing spatial context with scoped measured layout compatibility."""
+    from .column_context import geometry, project_bands, resolve
+
+    edges = recognized.get("image_column_boundaries")
+    profile = geometry(len(edges)-1, boundaries=edges) if edges else None
+    if profile is None and len(recognized.get("tables", [])) == 1:
+        from .structured_mapping import table_rows
+
+        pages = recognized.get("native", {}).get("pages", {})
+        size = pages.get("1", pages.get(1, {})).get("size", {})
+        grid, _, _ = table_rows(recognized["tables"][0], size=size)
+        width = max((r.get("grid_width", 0) for r in grid), default=0)
+        profile = geometry(width, grid)
+    starts = sorted({band[0] for band in bands.values()})
+    mapping = {field: {starts.index(band[0])} for field, band in bands.items()}
+    headings = {field: [dict(text=cell["text"], bbox=cell["bbox"])
+                for row in rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
+                for field in bands}
+    for field in ("signature", "date"):
+        found = [cell for row in rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
+        if found:
+            headings[field] = [dict(text=cell["text"], bbox=cell["bbox"]) for cell in found]
+            if profile:
+                mapping[field] = {i for i, (left, right) in enumerate(zip(profile["edges"], profile["edges"][1:]))
+                                  for cell in found if left <= (cell["bbox"]["x0"]+cell["bbox"]["x1"])/2 < right}
+    ambiguous = ambiguous_header_fields(rows)
+    _, context, trace = resolve(mapping, headings, profile, previous,
+        document_id=document_id, page_number=page_number, has_header=bool(bands) or bool(ambiguous), ambiguous=bool(ambiguous))
+    inherited = {}
+    if trace["status"] in ("detected_on_current_page", "updated_on_current_page"):
+        context["field_bands"] = bands
+    elif trace["status"] == "inherited_from_previous_page":
+        inherited = project_bands(context.get("field_bands", {}), context["geometry"], profile)
+    return inherited, context, trace
 
 
 def rectangle(value, width, height):

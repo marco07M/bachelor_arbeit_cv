@@ -125,6 +125,12 @@ eine Regression im Entwicklungstest. Die frühere Docling-Konfiguration ist als
 bleiben getrennte Experimente. Befunde, Grenzen und reproduzierbare Befehle:
 [Docling-/Paddle-Abschlussbericht](structure-optimization.md).
 
+Einmal erkannte Spaltenüberschriften werden dokumentbezogen weitergegeben, wenn
+Spaltenzahl und gemessene normalisierte Geometrie der Fortsetzung passen.
+Neue aktuelle Überschriften haben Vorrang. Herkunft und Quellseite werden getrennt
+von OCR-Konfidenzen protokolliert. Details, Grenzen und Vergleich:
+[Seitenübergreifende Spaltenzuordnung](document-columns.md).
+
 Tesseract-LLM und Paddle-LLM verwenden ausschließlich die eigenen OCR-Belege;
 ein VLM ergänzt keine Namen. Das LLM erhält lesbare Zeilen, Spalten,
 Quellkennungen und vorhandene Positionen. Ausgegebene Werte werden gegen diese

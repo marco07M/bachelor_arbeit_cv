@@ -3,19 +3,21 @@
 import re
 from collections import defaultdict
 
+from .column_context import geometry, resolve
 from .name_parts import split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import header_fields, source_rows, table_headers
 
-VERSION = "tableformer-heading-mapping-v2-family-first"
+VERSION = "tableformer-heading-mapping-v3-document-columns"
 
 
-def extract_docling(recognized: dict, context: dict | None = None):
+def extract_docling(recognized: dict, context: dict | None = None, *, document_id=None, page_number=None):
     people, evidence, notes = [], [], []
     context = dict(context or {})
     pages = recognized.get("native", {}).get("pages", {})
     size = pages.get("1", pages.get(1, {})).get("size", {})
+    diagnostics = []
     for table_index, table in enumerate(recognized.get("tables", [])):
         rows, errors = source_rows(table.get("html", ""))
         notes.extend(errors)
@@ -25,13 +27,17 @@ def extract_docling(recognized: dict, context: dict | None = None):
         mapping = mappings.get(0, {})
         width = max((cell["column_start"] + cell["colspan"] for row in rows for cell in row["cells"]), default=0)
         header_end = max((row["row_index"] for row in headers), default=-1)
-        if mapping:
-            width = max(cell["column_start"] + cell["colspan"] for row in headers for cell in row["cells"])
-            context = dict(width=width, mapping={key: sorted(value) for key, value in mapping.items()})
-        elif context.get("width") == width:
-            mapping = {key: set(value) for key, value in context["mapping"].items()}
-            notes.append(f"Tabelle {table_index}: Spaltenüberschriften derselben PDF bei gleicher Tabellenbreite übernommen")
-        else:
+        from .structured_mapping import table_rows
+
+        native_rows, _, _ = table_rows(table, table_index, size)
+        profile = geometry(width, native_rows)
+        labels = {field: [dict(text=c["text"], column=c["column_start"], row=r["row_index"])
+                  for r in headers for c in r["cells"] if c["column_start"] in columns]
+                  for field, columns in mapping.items()}
+        mapping, context, trace = resolve(mapping, labels, profile, context,
+            document_id=document_id, page_number=page_number, has_header=bool(headers), column_count=width)
+        diagnostics.append(dict(table_index=table_index, **trace))
+        if not mapping:
             notes.append(f"Tabelle {table_index}: keine eindeutigen Namens-/Spaltenüberschriften; manuelle Prüfung erforderlich")
             continue
         native = table.get("native", {}).get("data", {}).get("table_cells", [])
@@ -106,7 +112,9 @@ def extract_docling(recognized: dict, context: dict | None = None):
                 table_index=table_index, source_row_index=row["row_index"], fields=proofs,
                 raw_cells=[cell["text"] for cell in row["cells"]],
                 column_mapping={key: sorted(value) for key, value in mapping.items()},
+                mapping_provenance=trace,
                 source_cells=[cell for values in by_column.values() for cell in values]))
+    recognized["mapping_diagnostics"] = diagnostics
     if not people:
         notes.append("Keine Teilnehmer eindeutig aus der Tabellenstruktur zugeordnet; Originalzellen zur Kontrolle erhalten")
     return people, evidence, notes, context

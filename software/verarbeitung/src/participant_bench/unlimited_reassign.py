@@ -8,7 +8,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+from PIL import Image
 
+from .column_context import VERSION as COLUMN_CONTEXT_VERSION
+from .column_context import image_boundaries
 from .io import file_hash, read_json, read_jsonl, write_json, write_jsonl
 from .models import create_model, generation_schema
 from .progress import Progress
@@ -40,7 +43,9 @@ def reassign_run(source: Path, config, output: Path | None = None, *, methods=No
     output = output or Path(config.output_dir) / stamp
     output.mkdir(parents=True, exist_ok=False)
     manifest = copy.deepcopy(read_json(source / "manifest.json"))
+    geometry_seconds = {}
     for method, pages in results.items():
+        geometry_started = time.perf_counter()
         method_dir = output / method
         method_dir.mkdir()
         for page in pages:
@@ -50,17 +55,27 @@ def reassign_run(source: Path, config, output: Path | None = None, *, methods=No
                 destination.parent.mkdir(exist_ok=True)
                 shutil.copy2(original, destination)
             raw = read_json(source / method / f"raw-{page.page_id}.json")
+            if method != "unlimited_ocr" and original.is_file():
+                hashes[str(original.relative_to(source))] = file_hash(original)
+                with Image.open(original) as image:
+                    raw["structure"]["image_column_boundaries"] = image_boundaries(image)
             raw.pop("assignment", None)
             raw.pop("signature_checks", None)
+            prior = {key: raw.pop(key) for key in ("document_name_order", "person_role_filter") if key in raw}
+            if prior:
+                raw["historical_postprocessing"] = prior  # Old states/indices do not describe a new assignment.
             write_json(method_dir / f"raw-{page.page_id}.json", raw)
             page.run_id, page.participants, page.calls, page.timings = output.name, [], 0, {}
             page.error, page.review_notes = None, []
+        geometry_seconds[method] = time.perf_counter() - geometry_started
     write_json(output / "manifest.json", manifest)
     (output / "config.yaml").write_text(yaml.safe_dump(config.model_dump(), allow_unicode=True), encoding="utf-8")
     write_json(output / "prompts.json", dict(assignment_prompt_version=PROMPT_VERSION,
                assignment_system=SYSTEM, assignment_schema=generation_schema(AssignmentResponse)))
     kind = "unlimited_assignment_only" if methods == ["unlimited_ocr"] else "structure_assignment_only"
     provenance = dict(kind=kind, methods=methods, source_run=str(source.resolve()),
+                      column_context_version=COLUMN_CONTEXT_VERSION,
+                      geometry_preparation_seconds=geometry_seconds,
                       source_sha256=hashes, new_ocr_inference=False, prompt_version=PROMPT_VERSION,
                       assignment_code_sha256={p.name: file_hash(p) for p in Path(__file__).parent.glob("*.py")})
     write_json(output / "assignment_recheck.json", provenance)

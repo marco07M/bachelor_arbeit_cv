@@ -247,6 +247,9 @@ class StructureModel:
             self.progress.log(f"{self.method}: Seitenanalyse aus lokalem Cache übernommen")
         html = "\n".join(table["html"] for table in result["tables"])
         result = dict(result, organization_header_aliases=self.settings.organization_header_aliases)
+        from .column_context import image_boundaries
+
+        result["image_column_boundaries"] = image_boundaries(image)
         # This mapping uses explicit printed headers only; it never calls an LLM or splits guessed names.
         if self.method == "docling" and self.settings.extraction == "table":
             from .table_mapping import VERSION, extract_docling
@@ -254,9 +257,11 @@ class StructureModel:
             if self.settings.mapping == "structured":
                 from .structured_mapping import VERSION, extract_structured
 
-                people, evidence, notes, context = extract_structured(result, self.mapping_context.get(page["document_id"]))
+                people, evidence, notes, context = extract_structured(result, self.mapping_context.get(page["document_id"]),
+                    document_id=page["document_id"], page_number=page["page_number"])
             else:
-                people, evidence, notes, context = extract_docling(result, self.mapping_context.get(page["document_id"]))
+                people, evidence, notes, context = extract_docling(result, self.mapping_context.get(page["document_id"]),
+                    document_id=page["document_id"], page_number=page["page_number"])
             self.mapping_context[page["document_id"]] = context
             result = dict(result, mapping_version=VERSION, table_mapping_context=context,
                           assignment_backend="deterministic_headers")
@@ -279,7 +284,12 @@ class StructureModel:
 
     def restore_mapping(self, page, raw):
         context = raw.get("structure", {}).get("table_mapping_context")
-        if context:
+        from .column_context import VERSION
+
+        if context == {}:
+            self.mapping_context.pop(page["document_id"], None)
+        if (context and context.get("version") == VERSION and context.get("document_id") == page["document_id"]
+                and isinstance(context.get("source_page"), int) and context["source_page"] <= page["page_number"]):
             self.mapping_context[page["document_id"]] = context
 
     def enforce_limit(self):

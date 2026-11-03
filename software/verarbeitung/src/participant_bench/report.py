@@ -50,7 +50,7 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     from .output_order import document_order, page_key
     from .roster_benchmark.evaluation import identify_course
 
-    rows, excluded_instructors, name_orders = [], [], []
+    rows, excluded_instructors, name_orders, column_mappings = [], [], [], []
     labels = field_labels(columns)
     excel_groups = {}
     page_outputs, text_records, overview, ocr_records, signature_records = [], [], [], [], []
@@ -63,6 +63,15 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
         for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             raw_path = output / method / f"raw-{page.page_id}.json"
             raw = read_json(raw_path) if raw_path.is_file() else {}
+            traces = raw.get("structure", {}).get("mapping_diagnostics", [])
+            single_trace = (raw.get("assignment", {}).get("document_column_mapping") or
+                            raw.get("ocr_layout_analysis", {}).get("mapping_provenance"))
+            if single_trace:
+                traces = [single_trace]
+            for trace in traces:
+                column_mappings.append(dict(method=method, document_id=page.document_id, page_number=page.page_number,
+                    table=trace.get("table_index"), source_page=trace.get("source_page"), status=trace.get("status", "not_recorded"),
+                    reason=trace.get("reason"), geometry=trace.get("geometry")))
             has_assignment = has_assignment or "assignment" in raw
             responses = raw.get("responses", [])
             truncated = any(response.get("output_budget_reached") for response in responses)
@@ -249,6 +258,8 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     write_jsonl(output / "ocr_text.jsonl", ocr_records)
     write_csv(output / "pages.csv", [{k: v for k, v in row.items() if k != "page_text"} for row in text_records])
     write_csv(output / "extractions.csv", rows)
+    write_csv(output / "document_column_mappings.csv", column_mappings,
+              fields=["method", "document_id", "page_number", "table", "source_page", "status", "reason", "geometry"])
     write_csv(output / "document_name_orders.csv", name_orders, fields=["method", "source_file", "document_id",
         "page_number", "origin_page", "name_order", "evidence", "decision_source", "split_rows", "swapped_rows", "review_rows", "conflict"])
     write_csv(output / "excluded_instructors.csv", excluded_instructors, fields=[
@@ -415,6 +426,11 @@ Dies bestätigt weder die Identität noch die Echtheit einer Unterschrift.</p>
 <p>Bleibt die Detailprüfung unklar, kann eine vorhandene Entscheidung des Gesamtbilds erhalten bleiben.
 Dies ist kein zusätzlicher positiver Detailbefund; die Werte werden getrennt angezeigt.</p>
 {signature_view or '<p>Für diesen Lauf ist keine zusätzliche Detailprüfung gespeichert.</p>'}
+<h2>Seitenübergreifende Spaltenzuordnung</h2>
+<p>Geerbte Überschriften beschreiben ausschließlich die Struktur derselben PDF.
+Werte stammen weiterhin aus der aktuellen Seite. Geometrische Kompatibilität ist keine OCR-Konfidenz.</p>
+<p><a href="document_column_mappings.csv">Herkunft und Kompatibilitätsprüfung als CSV</a>.</p>
+{table(column_mappings)}
 <h2>OCR-Klartext und Modelleingabe</h2>
 <p>Diese Ansicht zeigt alle OCR-Wörter als lesbaren Text, auch wenn Teilnehmer erkannt wurden.
 Das OCR-Sprachmodell erhält daraus lesbare Zeilen und Zellen mit nachvollziehbaren Positionsbelegen.

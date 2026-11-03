@@ -93,11 +93,11 @@ def test_docling_does_not_shift_missing_cells_into_other_fields():
     assert not people and any("Spaltenverschiebung" in note for note in notes)
 
 
-def test_docling_continuation_reuses_only_compatible_logical_columns():
+def test_docling_continuation_rejects_equal_cell_count_without_document_geometry():
     _, _, _, context = extract_docling(recognized(TABLE))
     next_table = "<table><tr><td>XYZ</td><td>Muster, Max</td><td></td></tr></table>"
     people, _, _, _ = extract_docling(recognized(next_table), context)
-    assert people[0].first_name.value == "Max" and people[0].personnel_number.state == "empty"
+    assert not people  # Count alone and an anonymous HTML snapshot cannot establish continuation layout.
     people, _, _, _ = extract_docling(recognized(next_table.replace("<td>XYZ</td>", "")), context)
     assert not people
 

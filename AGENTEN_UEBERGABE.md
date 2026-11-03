@@ -8,6 +8,45 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
+### Dokumentbezogene Überschriften auf Fortsetzungsseiten (03.11.)
+
+Zusatzauftrag aus Anhang `570ba3b0-a3be-432d-a8df-227d0fdda13d`.
+Implementiert ist eine gemeinsame Kompatibilitätsprüfung für die bestehenden
+Docling- und räumlichen LLM-Mappingkontexte sowie Tesseract-Zeilenanreicherung.
+Zustand enthält ausschließlich Überschriften, Feldrollen, Dokument-ID, Quellseite
+und normalisierte Geometrie. Übernahme verlangt dieselbe PDF, eine frühere Seite,
+gleiche Spaltenzahl und vergleichbare gemessene Geometrie; bloße Seitenformatgleichheit
+oder Modellwerte früherer Personen reichen nicht. Neue Überschriften haben Vorrang.
+Neue aktuelle Überschriften ersetzen alte Rollen; mehrdeutige Überschriften
+blockieren veralteten Kontext. Leere Seiten erhalten den Zustand. Fortsetzungs-
+Herkunft steht im Hauptbericht/CSV und in den nativen bzw. LLM-Zuweisungsbeweisen.
+Im Hauptprofil über die bestehenden nativen/räumlichen Pfade aktiv; keine neue
+Modell- oder OCR-Konfiguration. Frühere Nachbearbeitungszustände werden bei
+Neuzuordnung archiviert, nicht auf neue Personenwerte angewendet.
+
+627 lokale Volltests in 166,99 s, 48 API-Tests in 18,99 s und abschließend
+61 gezielte Tests in 13,45 s bestanden; Ruff und Berichtszähler geprüft.
+Realer Paddle-Lauf mit zwei neuen lokalen LLM-Aufrufen bei identischer nativer
+OCR: gegenüber dem reparierten Ausgangsstand 38/72 exakt unverändert,
+15 → 19 falsche und 19 → 15 fehlende Felder. Keine zusätzlichen Teilnehmer,
+alle früheren Treffer und maschinenschriftlichen Werte erhalten. Vier weitere
+Organisationswerte sind falsch; kein realer Qualitätsgewinn behauptet.
+Dieselbe neue Antwort ohne geerbte Positionsprüfung liefert 28 statt 19 falsche
+Felder. Die Strukturprüfung verhindert damit netto neun falsche Zuordnungen
+gegenüber dieser Ablation, ohne mehr exakte Treffer zu liefern. Tesseract/Docling
+haben hier keine eindeutigen Überschriften; dort keine neue Übernahme/Treffer.
+
+Abschlussbericht: [software/docs/document-columns.md](software/docs/document-columns.md).
+Lokale Schlussauswertung `software/runs/document-columns-20261103-final/comparison/report.html`,
+Ablation `software/runs/document-columns-20261103-ablation/comparison/report.html`,
+Prüfprovenienz `software/runs/document-columns-20261103-check/check.json`,
+Modelllauf `software/runs/document-columns-20261103-paddle/` (719,40 s;
+GPU parallel belegt, kein belastbarer Laufzeitgewinn). Keine neuen OCR-Aufrufe.
+Unabhängige Handschrifttranskripte und weitere reale Entwicklungsdokumente bleiben
+für allgemeine Qualitätsaussagen erforderlich; keine Referenz in der Extraktion.
+Neue Versionen: Dokumentkontext v1, native Zuordnung v6, räumliche Zuordnung v8,
+LLM-Protokoll v19/v20, Hauptprompt v23. VLM/Hybrid inhaltlich unverändert.
+
 ### Handschriftauftrag vom 03.11.: Datenerhalt und kontrollierte OCR-Proben abgeschlossen
 
 Ausgangspunkt `software/testframework/ergebnisse/20261103T092511Z-5be3affb/`,
@@ -550,3 +589,33 @@ auf die dort datierten Stände.
   Dokumentationsänderungen benötigen keine neuen Softwaretests.
 - **Offen / nächster Schritt:** Den oben beschriebenen Docling-/Paddle-Auftrag
   fortsetzen. Die Einrichtung der Übergabe schließt diesen Auftrag nicht ab.
+
+### 2026-11-03 – Spaltenüberschriften auf Fortsetzungsseiten
+
+- **Auftrag:** eindeutige Überschriften innerhalb einer PDF weiterverwenden,
+  aktuelle Überschriften bevorzugen und inkompatible Tabellen sicher ablehnen.
+- **Dateien:** neue gemeinsame Prüfung `column_context.py`, Erweiterungen in
+  `structured_mapping.py`, `table_mapping.py`, `structure.py`, `structure_assignment.py`,
+  `unlimited_assignment.py`, `ocr_layout.py`, `ocr_evidence.py`, `models.py`, `runner.py`;
+  Herkunft in `report.py`/`structure_diagnostics.py`, sichere Neuzuordnung in
+  `unlimited_reassign.py`. Neue `test_document_columns.py`, ergänzte vorhandene
+  Zuordnungs-/Pipeline-Tests. Neues `scripts/check_document_columns.py`, optionale
+  Ablation in `scripts/replay_partial_assignments.py`; Software-README,
+  `docs/local-methods.md`, `docs/verification.md`, `docs/document-columns.md` und Übergabe.
+- **Zweck:** bestehende Mappingkontexte um PDF-/Seitenbindung, generische
+  Überschriftenbelege, Spaltenrollen, gemessene Geometrie und Herkunft ergänzen.
+  Keine Teilnehmerwerte im vererbten Zustand. Gleiche Spaltenzahl allein genügt nicht;
+  normalisierte Kantenabweichung maximal 0,035 der Seitenbreite bei gleicher Basis.
+- **Prüfungen:** 627 Volltests, 48 API-Tests, anschließend 61 gezielte Tests
+  bestanden. Ruff ohne Befund. Gleichbleibende OCR-/Maschinenschriftwerte,
+  historische Dateihashes, JSON-/CSV-/Excel-Zähler geprüft. Neue und alte
+  Überschriften, Leer-/Deckblatt, Spans, neue Reihenfolge, geringe Breitenänderung,
+  fehlende Geometrie, fremde PDF, Reihenfolge/Resume und Teiltexte abgedeckt.
+- **Gemessen:** real keine zusätzlichen korrekten Felder/Personen; Paddle
+  38/72 exakt, falsch 15 → 19, fehlend 19 → 15. Identische neue Antwort mit/ohne
+  geerbte Positionsprüfung: falsch 19/28 bei gleicher Zahl exakter Treffer.
+  Synthetisch 4/8 → 8/8 exakte Felder; kein Beleg realer OCR-Verbesserung.
+- **Offen / nächster sinnvoller Schritt:** unabhängige regionale Transkripte
+  und mehrere reale Entwicklungs-PDFs mit zuverlässig erkannten Überschriften
+  ergänzen. Bessere Handschrifterkennung bleibt unbewiesen; keine Werte aus
+  der Referenz auffüllen und keine der untersuchten Bildvarianten als Sieger übernehmen.

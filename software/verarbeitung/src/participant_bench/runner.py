@@ -327,6 +327,10 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         errors.extend(read_jsonl(output / "errors.jsonl"))
     for method_index, method in enumerate(config.methods, 1):
         selected_pages = [p for p in prepared_pages if p["include"]]
+        document_positions = {}
+        for page in selected_pages:
+            document_positions.setdefault(page["document_id"], len(document_positions))
+        selected_pages.sort(key=lambda p: (document_positions[p["document_id"]], p["page_number"]))
         progress.log(f"Verfahren [{method_index}/{len(config.methods)}]: {method}; {len(selected_pages)} Seiten")
         method_dir = output / method
         method_dir.mkdir(exist_ok=True)
@@ -399,7 +403,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                             model.restore_mapping(page, previous_raw)
                         name_orders.restore(cached[page["page_id"]], previous_raw)
                         layout = previous_raw.get("ocr_layout_analysis", {})
-                        if layout.get("name_column_hint") is not None:
+                        if layout:
                             text_layouts[page["document_id"]] = layout
                         progress.log(label + "; erfolgreiches Ergebnis aus vorherigem Lauf übernommen")
                         continue
@@ -486,7 +490,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                     result.status = "partial" if notes and not participants else "success"
                                 else:
                                     model.document_name_order_context = name_orders.context(page["document_id"])
-                                    analysis_data = with_table_columns(data, image, text_layouts.get(page["document_id"])) if method == "ocr_llm" else None
+                                    analysis_data = with_table_columns(data, image, text_layouts.get(page["document_id"]),
+                                        document_id=page["document_id"], page_number=page["page_number"]) if method == "ocr_llm" else None
                                     if method == "ocr_vlm":
                                         hybrid_record = hybrid_records.get(page["page_id"], {})
                                         if "hints" not in hybrid_record:
@@ -498,9 +503,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                         analysis_data = hybrid_record
                                     if method == "ocr_llm" and analysis_data is not None:
                                         raw["ocr_layout_analysis"] = {key: analysis_data[key] for key in
-                                            ("physical_columns", "text_rows", "name_column_hint", "inherited_name_column", "context_rows")}
-                                        if analysis_data["name_column_hint"] is not None:
-                                            text_layouts[page["document_id"]] = raw["ocr_layout_analysis"]
+                                            ("physical_columns", "text_rows", "name_column_hint", "inherited_name_column", "context_rows",
+                                             "column_mapping", "column_mapping_context", "mapping_provenance")}
+                                        text_layouts[page["document_id"]] = raw["ocr_layout_analysis"]
                                     participants, responses, status, elapsed = model.extract(
                                         image, analysis_data
                                     )

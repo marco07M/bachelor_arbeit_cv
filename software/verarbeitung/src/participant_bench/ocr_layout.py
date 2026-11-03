@@ -45,19 +45,13 @@ def grouped_cells(data, indices):
     return result
 
 
-def with_table_columns(data, image, previous=None):
+def with_table_columns(data, image, previous=None, *, document_id=None, page_number=None):
     """Add geometry only; retain every original word and its ID for independent grounding."""
-    from .image_preprocessing import grid_masks
-    from .rules import line_positions
+    from .column_context import geometry, image_boundaries, resolve
+    from .column_headers import field_roles
 
-    _, _, vertical = grid_masks(image)
-    lines = line_positions(vertical, 0, 0.05)
-    boundaries = [0.0]
-    for value in lines:
-        if value - boundaries[-1] > .008:
-            boundaries.append(value)
-    boundaries.append(1.0)
-    enriched = dict(data, physical_columns=boundaries if len(boundaries) >= 5 else [])
+    boundaries = image_boundaries(image)
+    enriched = dict(data, physical_columns=boundaries)
     source_rows = []
     for indices in line_groups(data):
         groups = grouped_cells(enriched, indices) if enriched["physical_columns"] else [
@@ -75,13 +69,34 @@ def with_table_columns(data, image, previous=None):
     from .person_rows import select_person_rows
 
     chosen, hint = select_person_rows(source_rows) if enriched["physical_columns"] else (source_rows, None)
-    inherited = False
-    if hint is None and previous and len(previous["physical_columns"]) == len(enriched["physical_columns"]):
-        if all(abs(a-b) < .015 for a,b in zip(previous["physical_columns"], enriched["physical_columns"])):
-            hint, inherited = previous["name_column_hint"], True
+    mapping, headings, header_rows = {}, {}, []
+    for row in source_rows:
+        classified = [(c, field_roles(c["text"])) for c in row["cells"]]
+        found = set().union(*(roles for _, roles in classified)) if classified else set()
+        if boundaries and found & {"first_name", "last_name"} and len(found) >= 2:
+            header_rows.append(row["id"])
+            mapping, headings = {}, {}
+            for cell, roles in classified:
+                for field in roles:
+                    mapping.setdefault(field, set()).add(cell["column_start"])
+                    headings.setdefault(field, []).append(dict(text=cell["text"], column=cell["column_start"], bbox=cell["bbox"]))
+    profile = geometry(len(boundaries)-1, boundaries=boundaries) if boundaries else None
+    mapping, context, trace = resolve(mapping, headings, profile,
+        (previous or {}).get("column_mapping_context"), document_id=document_id, page_number=page_number,
+        has_header=bool(header_rows))
+    inherited = trace["status"] == "inherited_from_previous_page"
+    name_columns = set(mapping.get("first_name", ())) | set(mapping.get("last_name", ()))
+    if len(name_columns) == 1:
+        hint = next(iter(name_columns))
+    elif mapping:
+        hint = None  # Separate name columns must not be collapsed into a guessed combined cell.
+    if inherited:
+        chosen = source_rows  # Continuations may have fewer than four or unevenly spaced rows.
     chosen = [dict(row, id=f"r{index+1}", original_source_row=row["id"]) for index, row in enumerate(chosen)]
     selected_originals = {row["original_source_row"] for row in chosen}
     enriched.update(text_rows=chosen, name_column_hint=hint, inherited_name_column=inherited,
+                    column_mapping={key: sorted(cols) for key, cols in mapping.items()},
+                    column_mapping_context=context, mapping_provenance=trace,
                     context_rows=[row["id"] for row in source_rows if row["id"] not in selected_originals])
     return enriched
 
@@ -99,6 +114,7 @@ def readable_text(data: dict) -> str:
 def model_input(data: dict) -> str:
     if "text_rows" in data:
         return "OCR_TEXT_ROWS:\n" + json.dumps(dict(name_column_hint=data.get("name_column_hint"),
+            column_mapping=data.get("column_mapping", {}), mapping_provenance=data.get("mapping_provenance"),
             column_boundaries=data.get("physical_columns", []),
             rows=[dict(source_row=row["id"], bbox=row.get("bbox"), cells=row["column_texts"]) for row in data["text_rows"]]),
             ensure_ascii=False, separators=(",", ":"))

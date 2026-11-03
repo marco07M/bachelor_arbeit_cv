@@ -175,7 +175,9 @@ def test_following_page_context_is_geometry_only_and_never_crosses_document(tmp_
     settings = config(tmp_path)
     pages = [page(1), page(2), page(1, "zzz-other")]
     for item in pages:
-        write_json(tmp_path / f"raw-{item.page_id}.json", {"structure": paddle(headings=item == pages[0])})
+        recognized = paddle(headings=item == pages[0])
+        recognized["image_column_boundaries"] = [0., .2, .55, .75, 1.]
+        write_json(tmp_path / f"raw-{item.page_id}.json", {"structure": recognized})
     prompts = []
     model = LLM(settings.models["ocr_llm"], prompts)
     assign_pages(pages, tmp_path, settings, Progress(enabled=False), lambda: model, method="paddle_structure")
@@ -201,7 +203,7 @@ def test_learned_position_hints_contain_no_previous_participant_text():
     assert all(value not in text for value in ("Anna", "Wiese", "001234", "MUC"))
 
 
-def test_resume_restores_same_pdf_position_context_from_saved_people(tmp_path):
+def test_resume_does_not_treat_previous_people_as_printed_column_headings(tmp_path):
     from participant_bench.unlimited_assignment import PROMPT_VERSION
 
     settings = config(tmp_path)
@@ -217,8 +219,9 @@ def test_resume_restores_same_pdf_position_context_from_saved_people(tmp_path):
     prompts = []
     model = LLM(settings.models["ocr_llm"], prompts)
     assign_pages([first, second], tmp_path, settings, Progress(enabled=False), lambda: model, method="paddle_structure")
-    assert len(prompts) == 1 and prompts[0]["previous_field_bands"]
-    assert prompts[0]["continuation_candidates"]
+    assert len(prompts) == 1 and not prompts[0]["previous_field_bands"]
+    assert not prompts[0]["continuation_candidates"]
+    assert prompts[0]["document_column_mapping"]["status"] == "no_reliable_mapping"
 
 
 def test_empty_native_result_keeps_review_text_without_loading_llm(tmp_path):
@@ -295,7 +298,10 @@ def test_posthoc_structure_assignment_preserves_source_and_does_not_load_ocr(tmp
     method.mkdir(parents=True)
     item = page(1)
     write_jsonl(method / "extractions.jsonl", [item.model_dump()])
-    write_json(method / f"raw-{item.page_id}.json", {"structure": paddle()})
+    write_json(method / f"raw-{item.page_id}.json", {"structure": paddle(),
+        "document_name_order": {"actions": [{"source_output_index": 0, "action": "review",
+            "original_states": {"first_name": "failed", "last_name": "failed"}}]},
+        "person_role_filter": {"output_index_mapping": [{"output_index": 0, "source_output_index": 999}]}})
     write_json(source / "manifest.json", {"pages": []})
     hashes = {p: file_hash(p) for p in source.rglob('*') if p.is_file()}
     settings = config(tmp_path)
@@ -305,5 +311,8 @@ def test_posthoc_structure_assignment_preserves_source_and_does_not_load_ocr(tmp
     output = unlimited_reassign.reassign_run(source, settings, tmp_path / "result", methods=["paddle_structure"])
     assert (output / "report.html").is_file()
     assert read_json(output / "summary.json")["paddle_structure"]["new_ocr_inference"] is False
+    raw = read_json(output / "paddle_structure" / f"raw-{item.page_id}.json")
+    assert raw["historical_postprocessing"]["document_name_order"]["actions"][0]["action"] == "review"
+    assert raw.get("document_name_order", {}).get("actions", []) != raw["historical_postprocessing"]["document_name_order"]["actions"]
     assert len(read_jsonl(output / "paddle_structure/extractions.jsonl")) == 1
     assert all(file_hash(p) == old for p, old in hashes.items())

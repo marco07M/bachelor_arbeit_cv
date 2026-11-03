@@ -105,6 +105,11 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
         columns = data.get("physical_columns", [])
         occupied = {index for index, (left, right) in enumerate(zip(columns, columns[1:]))
                     for i in span if left <= (words[i]["bbox"]["x0"] + words[i]["bbox"]["x1"]) / 2 < right}
+        mapped = data.get("column_mapping", {}).get(name, [])
+        if len(mapped) == 1 and occupied != set(mapped):
+            fields[name] = TextField(state="failed")
+            warnings.append(dict(field=name, reason="Wortbeleg liegt außerhalb der belegten Dokumentspalte"))
+            continue
         if name in ("first_name", "last_name") and len(occupied) > 1:
             fields[name] = TextField(state="failed")
             warnings.append(dict(field=name, reason="Namensvorschlag überschreitet mehrere physische Tabellenzellen; kein gesamter Zeilentext als Name übernommen"))

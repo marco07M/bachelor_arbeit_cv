@@ -25,7 +25,7 @@ from participant_bench.structure_diagnostics import diagnose_run
 from participant_bench.unlimited_assignment import ground_response, parse_assignment_response
 
 
-def run(source_report, output):
+def run(source_report, output, *, inherit_document_columns=True):
     source_report, output = source_report.resolve(), output.resolve()
     if output.exists():
         raise ValueError("Neuen Ausgabeordner wählen")
@@ -41,6 +41,7 @@ def run(source_report, output):
     for page in pages:
         path = working / "paddle_llm" / f"raw-{page.page_id}.json"
         raw = read_json(path)
+        prior_postprocessing = {key: raw.pop(key) for key in ("document_name_order", "person_role_filter") if key in raw}
         assignment = raw["assignment"]
         rows, _, _ = prepare_rows(raw["structure"], "paddle_structure")
         started = time.perf_counter()
@@ -59,7 +60,8 @@ def run(source_report, output):
         if parsed.name_order is None and assignment.get("name_order"):
             parsed.name_order = NameOrderDecision.model_validate(assignment["name_order"])
         orders.prepare_assignment(parsed, rows, page.document_id, page.page_number)
-        bands = assignment.get("current_field_bands") or assignment.get("previous_field_bands") or {}
+        bands = assignment.get("current_field_bands") or (
+            assignment.get("previous_field_bands") if inherit_document_columns else {}) or {}
         if (
             not assignment.get("current_field_bands")
             and assignment.get("position_context_origin") == "grounded_positions"
@@ -101,12 +103,14 @@ def run(source_report, output):
         filter_page_people(page, raw)
         raw["structure"]["row_evidence"] = proofs
         assignment["historical_validation"] = historical
+        assignment["historical_postprocessing"] = prior_postprocessing
         assignment.update(
             rejected_rows=rejected,
             row_evidence=proofs,
-            replay_kind="partial-field-validation-only",
-            schema_policy="Omitted fields remain unknown; literal, type and position checks unchanged",
+            replay_kind="partial-field-validation-only" if inherit_document_columns else "document-column-ablation",
+            schema_policy="Omitted fields remain unknown; literal/type checks active; inherited band policy recorded separately",
             new_inference=False,
+            inherited_document_columns_enabled=inherit_document_columns,
         )
         write_json(path, raw)
         measurements.append(
@@ -181,6 +185,7 @@ def run(source_report, output):
         output / "replay.json",
         dict(
             original_files_unchanged=True,
+            inherited_document_columns_enabled=inherit_document_columns,
             new_inference=False,
             original_report=str(source_report),
             comparison=str(comparison),
@@ -196,5 +201,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-report", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--without-inherited-columns", action="store_true",
+                        help="Ablation: dieselbe gespeicherte Antwort ohne geerbte Feldbänder prüfen")
     args = parser.parse_args()
-    print(run(args.source_report, args.output))
+    print(run(args.source_report, args.output, inherit_document_columns=not args.without_inherited_columns))
