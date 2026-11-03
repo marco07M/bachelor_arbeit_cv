@@ -121,7 +121,8 @@ def test_masked_ids_and_swapped_field_roles_are_not_invented_or_repaired():
     p = prediction(first="Weber", last="Anna", user="***")
     score, _, fields, _ = evaluate([p], [reference()])
     assert score["assigned_participants"] == 1
-    assert score["overall"]["excluded_masked_predictions"] == 1
+    assert score["overall"]["invalid_prediction_fields"] == 1
+    assert score["overall"]["reference_fields"] == 4
     assert p.person.first_name.value == "Weber" and p.person.last_name.value == "Anna"
     assert next(row for row in fields if row["field"] == "first_name")["exact"] is False
     assert next(row for row in fields if row["field"] == "short_code")["exact"] is True

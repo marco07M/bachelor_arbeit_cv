@@ -92,7 +92,7 @@ def decision(case, fields, references, config, owners, labels, predicted_count):
                   if config.reference.usable_id(ref["user_id"]))
     candidates = []
     for reference in references:
-        expected = normalized_reference(reference, config.matching)
+        expected = normalized_reference(reference, config.matching, config.reference)
         evidence = pair_evidence(observed, expected, config.matching, config.reference, ids[expected["user_id"]])
         utility = evidence.get("optimization_credit") if mode == "best_fit" else (
             (max(predicted_count, len(references)) + 1 if evidence["anchor"] else 0) + evidence["weighted_similarity"])
@@ -155,8 +155,8 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
     for case in cases:
         values = {row["field"]: row for row in grouped[case_key(case)]}
         original = originals.get(prediction_key(case))
-        first = original.first_name.value if original else values["first_name"]["prediction_value"]
-        last = original.last_name.value if original else values["last_name"]["prediction_value"]
+        first = original.first_name.value if original else values["first_name"].get("original_prediction_value", values["first_name"]["prediction_value"])
+        last = original.last_name.value if original else values["last_name"].get("original_prediction_value", values["last_name"]["prediction_value"])
         reference_first, reference_last = values["first_name"]["reference_value"], values["last_name"]["reference_value"]
         why, alternatives = decision(case, grouped[case_key(case)], references[case["class_id"]], config,
                                      assigned[case["method"], case["class_id"]], labels, count[case["method"], case["class_id"]])
@@ -166,13 +166,14 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
         style = "bad" if review else "ok"
         model = shown_name(first, last) if case["document_id"] else "Keine Modellausgabe zugeordnet"
         reference = shown_name(reference_first, reference_last) if case["reference_row"] else "Keine Referenz zugeordnet"
-        details = table(["Feld", "Bewertete Ausgabe", "Referenz", "Ausgabe normalisiert", "Referenz normalisiert",
-                         "Edit-Distanz", "Feldähnlichkeit", "Status"], [
-            [labels[field], values[field]["prediction_value"], values[field]["reference_value"],
-             normalize(values[field]["prediction_value"], field, config.matching),
-             normalize(values[field]["reference_value"], field, config.matching),
-             values[field]["levenshtein_distance"],
-             number(values[field]["similarity"] or None), values[field]["prediction_state"]] for field in FIELDS])
+        details = table(["Feld", "Modellwert (Original)", "Referenz", "Bewertung nach Normalisierung", "Feldähnlichkeit"], [
+            [labels[field], getattr(original, FIELDS[field]).value if original else values[field].get("original_prediction_value", values[field]["prediction_value"]),
+             values[field]["reference_value"],
+             ("Korrekt" if truth(values[field]["exact"]) else "Nicht bewertbar" if not truth(values[field]["assessable"])
+              else "Fehlend" if not values[field]["prediction_value"] else "Falsch") + f" (Feldstatus: {values[field]['prediction_state']})",
+             number(values[field]["similarity"] if values[field]["similarity"] != "" else None)] for field in FIELDS])
+        if truth(case.get("name_swapped")):
+            why += " Namensgruppen im Vergleich vertauscht: höhere Übereinstimmung; Originalwerte unverändert."
         # The existing detail page has a stable, content-derived name; no personal name becomes a path.
         target = f"details/{digest(case['method'])[:10]}-{digest(case['class_id'])[:12]}.html"
         link = f'<p><a href="{esc(target)}">Vollständige Feldberechnung dieser Schulung</a></p>' if (output / target).is_file() else ""
@@ -217,7 +218,8 @@ def render_assignments(output: Path, *, source_run: Path | None = None) -> Path:
                'bleibt die PDF unbewertet; es gibt keine Suche in anderen Kursen.</p>'
                '<p>Jede Zeile zeigt eine tatsächlich gespeicherte Paarung oder einen nicht zugeordneten Namen. '
                'Ausgaben folgen PDF, Seite und ursprünglichem Eintragsindex; reine Referenzfälle stehen am Ende. '
-               'Es werden keine neuen Paarungen berechnet. Modellnamen und Feldrollen bleiben unverändert. '
+               'Es werden keine neuen Paarungen berechnet. Originale Modellnamen bleiben erhalten; ein bei der Bewertung '
+               'verwendeter Tausch der Namensgruppen ist in der Entscheidung vermerkt. '
                'Die Alternative einer Ausgabe kann wegen der globalen Einmalvergabe schon einer anderen Person gehören.</p>'
                f'<p>Modus: <strong>{esc(config.matching.mode)}</strong>. Best-Fit-Paare sind Bewertungszuordnungen '
                'und keine bestätigten Identitäten. Schwache oder mehrdeutige Entscheidungen bleiben prüfpflichtig. '

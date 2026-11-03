@@ -128,10 +128,11 @@ def test_reference_id_masking_uses_names_and_short_code(user):
     assert rows[0]["matching_source"] == "name_short_code_levenshtein"
 
 
-def test_explicitly_masked_prediction_is_excluded_and_reported():
+def test_explicitly_masked_prediction_remains_an_error_and_is_reported():
     score, *_ = compare([prediction(user="***")], [ref()])
-    assert score["overall"]["excluded_masked_predictions"] == 1
-    assert score["overall"]["reference_fields"] == 3 and score["score_percent"] == 100
+    assert score["overall"]["excluded_masked_predictions"] == 0
+    assert score["overall"]["invalid_prediction_fields"] == 1
+    assert score["overall"]["reference_fields"] == 4 and score["score_percent"] == 75
     assert score["review_rows"] == 1
 
 

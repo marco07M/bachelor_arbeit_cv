@@ -1,12 +1,53 @@
 # Projektstand und Übergabe für folgende Agenten
 
-Zuletzt aktualisiert: **2026-11-02** (Europe/Berlin).
+Zuletzt aktualisiert: **2026-11-03** (Europe/Berlin).
 
 Diese Datei auf Wunsch des Nutzers bei Änderungen fortschreiben. Einstieg und
 Pflegepflicht stehen in [AGENTS.md](AGENTS.md). Sie ist die zentrale Übergabe,
 auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
+
+### Gesamtauftrag vom 03.11.: Docling, Metrikprüfung und vereinheitlichte Berichte
+
+Aktueller Ausgangsvergleich: `software/testframework/ergebnisse/20261103T081036Z-c0340c5a/`,
+Quelllauf `software/runs/20261103T075704Z-ae365514/`. Beide Docling-Seiten haben
+OCR und native Tabellen, aber keine erkannten verwertbaren Spaltenüberschriften;
+der bisherige deterministische Mapper gibt deshalb null Personen aus.
+Ein begrenzter nativer Fallback erhält wiederholte Namens-/Nummernzellen als
+unsichere Teilpersonen. Keine Organisations-/Signaturspalten geraten; keine Referenz
+in der Extraktion. Praktischer regulärer Lauf `software/runs/20261103T084429Z-e2834b34/`:
+9 unsichere Teilpersonen auf Seite 1, weiterhin 0 auf Seite 2; 19/72 exakt,
+6 falsche, 47 fehlende Felder im Kursvergleich. Die vorhandene isolierte Laufzeit
+wurde geladen; beide OCR-/TableFormer-Ergebnisse kamen aus dem validierten Cache.
+Keine neuen Erkennungsaufrufe oder Downloads, keine sichere Organisationszuordnung.
+
+Nachgewiesener Bewertungsfehler: maskierte Modell-IDs konnten lesbare Referenz-IDs
+aus dem Nenner entfernen. Korrigiert im Kurs- und älteren Excel-Vergleich.
+Fehlende Teilnehmer waren bereits berücksichtigt, die Soft-F1-Formel ist korrekt.
+Neue Zähler trennen falsch/fehlend/zusätzlich, bekannte Leerzellen und unbekannte
+Referenz; optionale Statusspalten dokumentieren explizite Referenzzustände.
+Technischer Erfolg und bedingte Auswertung vollständig erfolgreicher Kurse separat.
+Namensgruppenvergleich beider Orientierungen im aktiven Testframework eingeschaltet;
+Rohwerte und Reihenfolge bleiben erhalten, Tausche werden protokolliert.
+Metrikversion `roster-levenshtein-v5-reference-denominators`. Die Seiten-Ground-Truth
+erhält getrennte Informations-/Leerzellenmetriken, WER und konsistente CER bei
+unklaren Modellwerten. Historische Allfeldmetriken bleiben daneben erhalten.
+
+Abschlussbericht und wissenschaftliche Empfehlungen:
+[software/docs/evaluation-audit.md](software/docs/evaluation-audit.md).
+Lokale neue Ansichten: `software/runs/evaluation-audit-20261103-final/report.html`
+und darunter `repaired-docling/report.html`. Der Audit isoliert Regeländerung,
+Namenstausch und neue Docling-Ausgaben; die anderen fünf Verfahren wurden nicht
+erneut erkannt. `audit.json` belegt unveränderte historische Dateien und tatsächliche
+Laufbild-Hashes. JSON/CSV/Excel/HTML-Zähler und Referenznenner wurden gegengeprüft.
+Der Namenstausch erklärt die Scoreänderungen bei VLM/Hybrid; keine verbesserte
+Modellerkennung behaupten. Aktuelle Referenz ohne maskierte Modell-IDs:
+die reine Korrektur dieser Ausschlussregel ändert dort keine Scores.
+Abschließende Prüfung: **591 lokale Tests in 106,49 s**, **48 API-Tests in 10,46 s**,
+Ruff und Berichtszähler konsistent. API-Vorlage besitzt dieselben Matchingoptionen;
+kein API-Modellaufruf. Offene Grenze bleibt die sichere Erkennung der Folgeseite
+und eine unabhängige manuell geprüfte Seiten-/Handschriftreferenz.
 
 ### Aufbau und Einstieg
 
@@ -209,9 +250,9 @@ Kursauswertung; aus bedingten Seitenwerten keinen Handschrift-Recall ableiten.
 
 ### Prüfstand
 
-Am 2026-11-02 bestanden nach dem Reihenfolge-Nachtrag **571 vollständige lokale
-Tests** in 93,03 Sekunden sowie **48 Tests des getrennten API-Projekts** in
-9,81 Sekunden auf dem endgültigen geänderten Kerncode. Fünf Vergleichsskripttests prüfen unter anderem
+Am 2026-11-03 bestanden nach dem Evaluationsaudit **591 vollständige lokale
+Tests** in 106,49 Sekunden sowie **48 Tests des getrennten API-Projekts** in
+10,46 Sekunden auf dem endgültigen geänderten Kerncode. Vergleichsskripttests prüfen unter anderem
 veränderte Original-/Laufbilder, Referenzänderungen und maskierte Felder.
 Ruff, Markdown-Dateiverweise und `git diff --check` ohne Befund. 22 lokale
 Pipelineprofile sowie Excel- und Testframework-Konfiguration erfolgreich geladen.
@@ -242,6 +283,42 @@ auf die dort datierten Stände.
   Modellgewichte und personenbezogene Diagnoseartefakte gehören nicht in Git.
 
 ## Änderungsprotokoll
+
+### 2026-11-03 – Docling-Teilinformationen, wissenschaftlicher Metrikaudit und Berichte
+
+- **Auftrag:** Fehlende Docling-Ausgaben reparieren, Bewertungsnenner und
+  Soft-F1/konservative Zuordnung prüfen, fehlende Felder sichtbar machen,
+  redundante Tabellen vereinheitlichen; vorherigen Wunsch nach beiden
+  Namensorientierungen im Referenzvergleich umsetzen.
+- **Dateien:** `structured_mapping.py`, `structure.py`, `structure_diagnostics.py`,
+  `evaluation.py`, `excel_reference.py`, `excel_comparison.py`, `reference_states.py`,
+  `hybrid_evaluation.py`, Konfiguration/Referenzen/Matching/Metriken/Evaluation/
+  drei Berichte unter `roster_benchmark/`; lokale und API-Testframework-Konfiguration,
+  neue `tests/test_metric_audit.py`, betroffene bestehende Tests,
+  `scripts/audit_metrics_docling.py`, Testframework-README,
+  `docs/evaluation-audit.md`, `docs/excel-comparison.md`, `docs/verification.md`.
+- **Änderungen:** Begrenzter nativer Fallback erhält nur wiederholt belegte
+  Namens-/Nummernzellen als unsicher, ohne Organisations-/Signaturwerte zu raten.
+  Nur Referenzzustände begründen Bewertungs-Ausschlüsse; Modell-Platzhalter
+  bleiben Fehler. Neue Informations-/Leerzellenzähler, Recall/Abdeckung,
+  technische Zuverlässigkeit und bedingte erfolgreiche Kurse. Gesamte
+  Namensgruppen optional in beiden Orientierungen vergleichen und protokollieren;
+  Quellen und Rohwerte erhalten. Einheitliche Feldtabellen und Metrikblätter
+  in Excel; Formeln zentral, Nenner-/Zähler-Invarianten automatisch prüfen.
+- **Prüfung:** 591 lokale Tests und 48 API-Tests bestanden; Ruff ohne Befund.
+  Drei lokale Vergleichsberichte gegen eingefrorene Referenz und identische
+  tatsächliche Laufbilder; historische Dateien hashgleich. Zähler aus JSON,
+  CSV, Excel und HTML sowie Detailbeiträge stimmen überein. Docling-Regulärlauf
+  erfolgreich mit 9 unsicheren Teilpersonen aus vorhandenen Erkennungsbelegen,
+  keine neuen Erkennungsaufrufe/Downloads. Die API-Gegenprobe deckte eine
+  abweichende Matchingoption auf; beide öffentlichen Vorlagen jetzt gleich.
+- **Befund/Grenze:** F1-Formel und bisherige Behandlung fehlender Personen waren
+  korrekt. Der Modellmaskierungs-Ausschluss und inkonsistente CER-Nutzung
+  unbekannter Modelltexte waren Fehler. Reale Entwicklungs-PDF: 19/72 Docling-
+  Felder exakt, aber 47 fehlen weiterhin; Folgeseite nicht sicher zugeordnet.
+  Kursreferenz nicht als bestätigte Seitentranskription ausgeben. Keine allgemeinen
+  Handschrift-/Identitätsaussagen. Primär exakten Feld-Recall plus Precision/F1
+  und Vollständigkeit berichten; Softmetriken ergänzend. Details und Artefakte oben.
 
 ### 2026-11-02 – Anwesenheitsreihenfolge in allen Ergebnisansichten
 

@@ -18,6 +18,8 @@ class MatchingConfig(ConfigModel):
     score_uncertain_values: bool = True
     # Absent in historical report snapshots: preserve their original calculation.
     ignore_leading_user_id_zeros: bool = False
+    # Reference-assisted whole-name-group comparison; absent in old snapshots.
+    compare_name_orientations: bool = False
 
 
 class ReferenceConfig(ExcelConfig):

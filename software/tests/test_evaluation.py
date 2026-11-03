@@ -80,6 +80,18 @@ def test_unavailable_method_has_zero_recall_and_all_rows_missing():
     assert scores["fields"]["first_name"]["cer"]["value"] == 1
 
 
+def test_known_empty_is_separate_from_nonempty_information_and_uncertain_text_gets_no_cer_credit():
+    truth = participants()
+    truth[0].personnel_number.value, truth[0].personnel_number.state = "", "empty"
+    predicted = [p.model_copy(deep=True) for p in truth]
+    predicted[1].first_name.state = "uncertain"
+    scores, _ = evaluate([prediction(predicted)], [page(truth)])
+    assert scores["information_exact_match"]["denominator"] == 7
+    assert scores["information_exact_match"]["numerator"] == 6
+    assert scores["fields"]["personnel_number"]["empty_detection"]["correct"] == 1
+    assert scores["fields"]["first_name"]["cer"]["numerator"] == len(truth[1].first_name.value)
+
+
 def test_matching_not_by_personnel_number():
     truth = participants()
     predicted = [p.model_copy(deep=True) for p in reversed(truth)]

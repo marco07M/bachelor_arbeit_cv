@@ -264,6 +264,11 @@ class StructureModel:
             people, evidence, notes = extract_tables(html)
         result = dict(result, row_evidence=evidence, review_notes=notes, cache_hit=cached,
                       cache_key=key, table_count=len(result["tables"]), recognizer_identity=self.identity)
+        result["extraction_stages"] = dict(
+            table_count=len(result["tables"]), text_characters=len(result.get("plain_text", "")),
+            native_ocr_cells=len(result.get("ocr_cells", [])), mapped_participants=len(people),
+            unverified_fallback_participants=sum(bool(proof.get("fallback")) for proof in evidence),
+            mapping_diagnostics=result.get("mapping_diagnostics", []))
         if not people:
             notes.append("Tabellen und vollständiger Seitentext erhalten; semantische Feldzuordnung manuell prüfen")
         if self.settings.extraction == "llm":

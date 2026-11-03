@@ -16,7 +16,7 @@ def percent(value):
 
 
 def render(output, metrics, scope, courses, source, *, columns=None, matching=None):
-    summary, field_rows, model_html, field_html = [], [], [], []
+    summary, field_rows, model_html, field_html, completeness_html, matching_html = [], [], [], [], [], []
     labels = field_labels(columns)
     matching = matching or MatchingConfig()
     def escape(value):
@@ -38,6 +38,11 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
                        if overall.get("raw_exact_reference_accuracy") is not None else None,
                    exact_fields=overall.get("exact_fields"), reference_fields=overall.get("reference_fields"),
                    predicted_fields=overall.get("predicted_fields"),
+                   predicted_participants=score.get("predicted_participants"),
+                   incorrect_fields=overall.get("incorrect_fields"), missing_fields=overall.get("missing_fields"),
+                   extra_fields=overall.get("extra_fields"), excluded_reference_fields=overall.get("excluded_reference_fields"),
+                   soft_recall=overall.get("soft_recall"), field_coverage=overall.get("field_coverage"),
+                   technical_success_rate=score.get("technical", {}).get("page_success_rate"),
                    missing_participants=score.get("missing_participants"), extra_participants=score.get("extra_participants"),
                    ambiguous_participants=score.get("ambiguous_participants"), identity_conflicts=score.get("identity_conflicts"),
                    duplicate_predictions=score.get("duplicate_predictions"),
@@ -45,11 +50,14 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
                    excluded_masked_ids=overall.get("excluded_masked_predictions"),
                    fully_exact_participants=score.get("fully_exact_participants"),
                    reference_participants=score.get("reference_participants"), runtime_seconds=score.get("runtime_seconds"))
+        row.update(overall)
+        row["name_swapped_participants"] = score.get("name_swapped_participants", 0)
         summary.append(row)
         value = score.get("score_percent")
         display = "nicht anwendbar" if value is None else f"{value:.2f} %"
         bar = f'<span class="bar" style="width:{value:.3f}%"></span>' if value is not None else ""
-        model_html.append(f"<tr><td>{escape(method)}</td><td><strong>{display}</strong><div class='track'>{bar}</div></td>"
+        model_html.append(f"<tr><td>{escape(method)}</td><td><strong>{percent(overall.get('exact_reference_accuracy'))}</strong></td>"
+                          f"<td>{percent(overall.get('soft_recall'))}</td><td>{display}<div class='track'>{bar}</div></td>"
                           f"<td>{'—' if score.get('conservative_score_percent') is None else format(score['conservative_score_percent'], '.2f') + ' %'}</td>"
                           f"<td>{score.get('assigned_participants', '—')}</td>"
                           f"<td>{score.get('excluded_instructors', '—')}</td>"
@@ -58,6 +66,20 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
                           f"<td>{score.get('missing_participants', '—')}</td><td>{score.get('extra_participants', '—')}</td>"
                           f"<td>{score.get('review_rows', '—')}</td>"
                           f"<td>{escape(score['extraction_status'])}</td></tr>")
+        completeness_html.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in (
+            method, score.get("reference_participants", "—"), score.get("predicted_participants", "—"),
+            score.get("assigned_participants", "—"), score.get("missing_participants", "—"), score.get("extra_participants", "—"),
+            overall.get("reference_fields", "—"), overall.get("exact_fields", "—"), overall.get("incorrect_fields", "—"),
+            overall.get("missing_fields", "—"), overall.get("extra_fields", "—"), overall.get("excluded_reference_fields", "—"),
+            percent(overall.get("field_coverage")), percent(score.get("technical", {}).get("page_success_rate")),
+            score.get("runtime_seconds", "—"))) + "</tr>")
+        if score.get("conservative_comparison"):
+            for mode, comparison in ((score["matching_mode"], score), ("conservative", score["conservative_comparison"])):
+                counts = comparison["overall"]
+                matching_html.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in (
+                    method, mode, comparison["assigned_participants"], counts["reference_fields"],
+                    counts["predicted_fields"], counts["similarity_credit"], percent(counts["soft_recall"]),
+                    percent(counts["soft_f1"]))) + "</tr>")
         for name in FIELDS:
             if name not in score.get("fields", {}):
                 continue
@@ -65,8 +87,8 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
             field_rows.append(dict(method=method, field=name, field_label=labels[name], **values))
             field_html.append(f"<tr><td>{escape(method)}</td><td>{escape(labels[name])}</td>"
                               f"<td>{percent(values['soft_f1'])}</td><td>{percent(values['exact_reference_accuracy'])}</td>"
-                              f"<td>{percent(values['raw_exact_reference_accuracy'])}</td>"
                               f"<td>{values['exact_fields']} / {values['reference_fields']}</td>"
+                              f"<td>{values.get('incorrect_fields', '—')}</td><td>{values.get('missing_fields', '—')}</td>"
                               f"<td>{values['excluded_reference_fields'] + values['excluded_masked_predictions']}</td></tr>")
     write_csv(output / "summary.csv", summary)
     write_csv(output / "field_scores.csv", field_rows,
@@ -113,25 +135,44 @@ code{{background:#e7eff5;padding:2px 4px}}.scroll{{overflow-x:auto}}
 {('<p><a href="hybrid_analysis.html">Hybridanalyse: Welche VLM-Felder wurden durch OCR besser oder schlechter?</a></p>' if (output / 'hybrid_analysis.html').is_file() else '')}
 <p>{scope['input_pdfs']} PDF-Dateien · {scope['courses_compared']} Schulungen mit Referenz ·
 {scope['reference_rows_in_scope']} Referenzteilnehmer im Vergleich</p>
-<div class="box"><strong>Hauptzahl: Levenshtein-Feld-F1.</strong> Fast richtige Wörter erhalten Teilpunkte.
+<div class="box"><strong>Primär: exakter Feld-Recall (Referenzgenauigkeit).</strong> Er zeigt den Anteil korrekt erkannter erwarteter Werte.
+Daneben stehen Vollständigkeit, Levenshtein-Recall und ergänzend Levenshtein-Feld-F1. Fast richtige Wörter erhalten dort Teilpunkte.
 Fehlende Werte geben null Punkte; zusätzliche Werte vergrößern den Nenner.
 <code>Score = 100 × 2 × Ähnlichkeitssumme / (Referenzfelder + vorhergesagte Felder)</code>.
 Daneben steht derselbe F1 mit ausschließlich exakten Treffern. Beide berücksichtigen fehlende und zusätzliche Werte.
 Die Zähler zeigen zusätzlich, wie viele Referenzfelder exakt erkannt wurden. Keine Kennzahl ist eine Wahrscheinlichkeit.</div>
-<div class="scroll"><table><tr><th>Verfahren</th><th>Levenshtein-Feld-F1</th><th>Konservativer Vergleich</th><th>Paarungen</th><th>Ausgeschlossene Kursleiter</th><th>Exakter Feld-F1</th>
+<p>Kontrollbeispiel: 24 von 40 erwarteten Feldern, alle 24 richtig: Recall 60 %, Precision 100 %, F1 75 %.
+Ein höherer F1 als Recall ist mathematisch korrekt und bedeutet keine vollständige Extraktion.</p>
+<div class="scroll"><table><tr><th>Verfahren</th><th>Exakter Feld-Recall</th><th>Levenshtein-Recall</th><th>Levenshtein-Feld-F1</th><th>F1 bei konservativer Zuordnung</th><th>Paarungen</th><th>Ausgeschlossene Kursleiter</th><th>Exakter Feld-F1</th>
 <th>Exakt / bewertbar</th><th>Fehlende Personen</th><th>Zusätzliche Personen</th><th>Prüfzeilen</th><th>Extraktion</th></tr>
 {''.join(model_html)}</table></div>
+<h2>Vollständigkeit und technische Zuverlässigkeit</h2><div class="scroll"><table><tr>
+<th>Verfahren</th><th>Erwartete Personen</th><th>Extrahierte Personen</th><th>Zugeordnet</th><th>Fehlende Personen</th><th>Zusätzliche Personen</th>
+<th>Erwartete Felder</th><th>Korrekt</th><th>Falsch</th><th>Fehlende Felder</th><th>Zusätzliche Felder</th><th>Nicht bewertbar</th>
+<th>Feldabdeckung</th><th>Technischer Seitenerfolg</th><th>Laufzeit (s)</th></tr>{''.join(completeness_html)}</table></div>
+<p>Korrekt + falsch + fehlend = erwartete bewertbare Felder. Modell-Platzhalter zählen als fehlende nutzbare Information
+und als ausgegebener Fehlwert. Technischer Erfolg verlangt eine gültige Antwort ohne technischen Ausfall; er belegt keine Inhaltsqualität.
+Fehlgeschlagene Seiten und vollständig fehlende Teilnehmer bleiben in der End-to-End-Bewertung.
+Eine bedingte Bewertung vollständig technisch erfolgreicher Kurse steht in metrics.json unter conditional_successful_courses;
+die Kursreferenz erlaubt ohne Seitentranskripte keine bedingte Bewertung einzelner Seiten.</p>
 <p>Die Zuordnung erfolgt unabhängig von der Zeilenreihenfolge innerhalb derselben Schulungs-ID.
 Jede Vorhersage und jede Referenzperson können höchstens einmal Punkte erhalten. Nahezu gleichwertige
 Zuordnungen und widersprüchliche Angaben erfordern manuelle Prüfung; der Umgang damit hängt vom ausgewiesenen Modus ab.
 Die Zuordnung verwendet Referenzwerte; die Ergebnisse messen Referenzübereinstimmung, keine unabhängige Identitätsprüfung.</p>
+<h2>Einfluss der Teilnehmerzuordnung</h2><p>Gleiche Feldmetrik und Referenzbasis, andere Paarungsregel.
+Der konservative Vergleich ist keine andere oder strengere Feldmetrik. Bei unbekannten Referenzfeldern kann
+die Zuordnung verändern, welche ausgegebenen Werte bewertbar sind; deshalb werden auch beide Vorhersagenenner gezeigt.</p>
+<div class="scroll"><table><tr><th>Verfahren</th><th>Zuordnung</th><th>Paare</th><th>Referenzfelder R</th>
+<th>Vorhersagefelder P</th><th>Ähnlichkeitssumme C</th><th>Levenshtein-Recall</th><th>Levenshtein-F1</th></tr>{''.join(matching_html)}</table></div>
 <h2>Felder getrennt</h2><div class="scroll"><table><tr><th>Verfahren</th><th>Feld</th><th>Levenshtein-F1</th>
-<th>Exakt normalisiert</th><th>Exakt Originalschreibweise</th><th>Exakt / bewertbar</th><th>Ausgeschlossen</th></tr>{''.join(field_html)}</table></div>
+<th>Exakter Feld-Recall</th><th>Exakt / bewertbar</th><th>Falsch</th><th>Fehlend</th><th>Ausgeschlossen</th></tr>{''.join(field_html)}</table></div>
 <p>NFC und vereinheitlichte Leerzeichen; Namen/Kurzzeichen laut Konfiguration ohne Beachtung der Groß-/Kleinschreibung.
 {escape(user_id_rule(matching.ignore_leading_user_id_zeros))} Leere/maskierte Referenz-IDs werden ausgeschlossen.
-Explizit maskierte Modell-IDs sind ebenfalls ausgeschlossen und müssen am PDF bestätigt werden;
-fehlende oder unbekannte Modell-IDs bei lesbarer Referenz zählen dagegen als Fehler.
+Modell-Platzhalter und unbekannte Modell-IDs bei lesbarer Referenz zählen als Fehler und erhalten null Teilpunkte.
+Nicht annotierte leere Referenzzellen bleiben unbekannt. Nachweislich leere Zellen werden separat bewertet und geben keine positiven Informationspunkte.
 Unsichere, aber ausgegebene Feldwerte werden gemäß Konfiguration inhaltlich verglichen und bleiben prüfpflichtig.</p>
+<p>Namensgruppen in beiden Richtungen vergleichen: {'aktiv; höhere Namensähnlichkeit je Kandidat, bei Gleichstand Originalrollen' if matching.compare_name_orientations else 'inaktiv'}.
+Ein Tausch wird in Teilnehmer- und Feldbelegen ausgewiesen; Originalextraktionen bleiben unverändert.</p>
 <h2>Schulungen</h2><p>Anzeige maximal 200 Zeilen; vollständige Daten unter <a href="courses.csv">courses.csv</a>.</p>
 <div class="scroll"><table><tr><th>Verfahren</th><th>{escape(labels['class_id'])}</th><th>Levenshtein-F1</th><th>Exakt</th>
 <th>Referenzpersonen</th><th>Vorhersagen</th><th>Fehlend</th><th>Zusätzlich</th></tr>{course_html}</table></div>

@@ -29,8 +29,8 @@ DEFINITIONS = {
     "immer innerhalb derselben Class ID. Widersprüche und Mehrdeutigkeiten bleiben ungeklärt. Kein Fuzzy-Matching.",
     "normalization": "NFC, Leerraum vereinheitlichen, casefold für Namen/Organization; führende Nullen numerischer User IDs "
     "werden nur für Zuordnung und Bewertung entfernt. Originalwerte und Class IDs bleiben erhalten.",
-    "masked": "Leere/maskierte Excel-IDs und unleserliche oder sichtbar maskierte Vorhersage-IDs werden "
-    "aus der ID-Feldmetrik ausgeschlossen. Fehlende Einträge und sonst unbekannte Vorhersagen bleiben Fehler.",
+    "masked": "Nur unbekannte oder maskierte Referenz-IDs sind ausgeschlossen. Unleserliche, maskierte, fehlende "
+    "oder als Platzhalter ausgegebene Modell-IDs gegen lesbare Referenz-IDs bleiben Fehler.",
     "identity_bias": "Zur Zuordnung verwendete Felder sind keine unabhängige Erkennungsmessung. "
     "Unabhängiger ID-Exact-Match wird separat nur für über Name+Organization zugeordnete Personen ausgewiesen.",
     "limitations": "Rosterabgleich misst Übereinstimmung mit Excel, keine bestätigte Seitentranskription. "
@@ -151,8 +151,6 @@ def compare_course(predictions: list[dict], references: list[ReferencePerson], c
             if field == "user_id":
                 if not config.usable_id(expected):
                     eligible, reason = False, "Excel-ID fehlt oder ist maskiert"
-                elif actual and (actual.state == "illegible" or (actual.value and not config.usable_id(actual.value))):
-                    eligible, reason = False, "Vorhersage-ID unleserlich oder maskiert"
             same = None
             if eligible:
                 known = actual is not None and actual.state == "read"

@@ -10,6 +10,7 @@ from scipy.optimize import linear_sum_assignment
 
 from ..evaluation import edits
 from ..identifiers import normalized_user_id
+from ..reference_states import assessable_reference
 from ..schema import Participant
 
 FIELDS = {"first_name": "first_name", "last_name": "last_name", "user_id": "personnel_number", "short_code": "department"}
@@ -32,6 +33,7 @@ class Match:
     source: str
     alternative_gap: float
     review_reasons: tuple[str, ...] = ()
+    name_swapped: bool = False
 
 
 def normalize(value, field, config):
@@ -54,7 +56,34 @@ def values(prediction, config):
             for name, model_name in FIELDS.items() for field in [getattr(prediction.person, model_name)]}
 
 
+def expected_values(reference, config, reference_config):
+    return {field: normalize(getattr(reference, field), field, config)
+            if assessable_reference(reference, field, reference_config) else "" for field in FIELDS}
+
+
+def exact_name_target(row, reference, config):
+    selected, *_ = name_orientation(row, reference, config)
+    return all(selected[field] and selected[field] == reference[field] for field in NAME_WEIGHTS)
+
+
+def name_orientation(row, reference, config):
+    direct = sum(similarity(row[field], reference[field]) for field in ("first_name", "last_name")
+                 if row[field] and reference[field])
+    swapped = dict(row, first_name=row["last_name"], last_name=row["first_name"])
+    reverse = sum(similarity(swapped[field], reference[field]) for field in ("first_name", "last_name")
+                  if swapped[field] and reference[field])
+    use_swap = config.compare_name_orientations and reverse > direct + 1e-10
+    return swapped if use_swap else row, bool(use_swap), direct, reverse
+
+
 def pair_evidence(row, reference, config, reference_config, id_count):
+    row, swapped, direct, reverse = name_orientation(row, reference, config)
+    result = _pair_evidence(row, reference, config, reference_config, id_count)
+    result.update(name_swapped=swapped, direct_name_credit=direct, swapped_name_credit=reverse)
+    return result
+
+
+def _pair_evidence(row, reference, config, reference_config, id_count):
     """The same candidate gates are used for alignment and its human-readable explanation."""
     anchor = (reference_config.usable_id(row["user_id"]) and reference_config.usable_id(reference["user_id"])
               and row["user_id"] == reference["user_id"] and id_count == 1)
@@ -80,9 +109,8 @@ def pair_evidence(row, reference, config, reference_config, id_count):
     if config.mode == "best_fit":
         eligible = {field for field in FIELDS if reference[field] and
                     (field != "user_id" or reference_config.usable_id(reference[field]))}
-        if row["user_id"] and not reference_config.usable_id(row["user_id"]):
-            eligible.discard("user_id")
-        components = {field: similarity(row[field], reference[field]) for field in eligible if row[field]}
+        components = {field: similarity(row[field], reference[field]) for field in eligible if row[field]
+                      and (field != "user_id" or reference_config.usable_id(row[field]))}
         credit = sum(components.values())
         readable = any(value and (field != "user_id" or reference_config.usable_id(value))
                        for field, value in row.items())
@@ -97,8 +125,7 @@ def align_best_fit(predictions, references, config, reference_config):
     """Maximize pair count, then total field similarity; retain weak pairs with explicit review flags."""
     observed = [values(prediction, config) for prediction in predictions]
     normalized = [{field: normalize(value, field, config) for field, value in row.items()} for row in observed]
-    expected = [{field: normalize(getattr(reference, field), field, config) for field in FIELDS}
-                for reference in references]
+    expected = [expected_values(reference, config, reference_config) for reference in references]
     ids = Counter(row["user_id"] for row in expected if reference_config.usable_id(row["user_id"]))
     readable = [i for i, row in enumerate(normalized) if any(
         value and (field != "user_id" or reference_config.usable_id(value)) for field, value in row.items())]
@@ -125,8 +152,7 @@ def align_best_fit(predictions, references, config, reference_config):
         row = normalized[i]
         id_targets = {j for j, ref in enumerate(expected) if reference_config.usable_id(row["user_id"])
                       and row["user_id"] == ref["user_id"]}
-        name_targets = {j for j, ref in enumerate(expected) if all(row[field] and row[field] == ref[field]
-                        for field in NAME_WEIGHTS)}
+        name_targets = {j for j, ref in enumerate(expected) if exact_name_target(row, ref, config)}
         conflict = bool(id_targets and name_targets and not id_targets.intersection(name_targets))
         for j, ref in enumerate(expected):
             evidence = pair_evidence(row, ref, config, reference_config, ids[ref["user_id"]])
@@ -140,6 +166,8 @@ def align_best_fit(predictions, references, config, reference_config):
                 reasons.append("duplicate_prediction")
             metadata[position, j] = evidence, reasons
             candidates.append(dict(prediction_index=i, reference_row=references[j].row_number,
+                                   name_swapped=evidence["name_swapped"], direct_name_credit=evidence["direct_name_credit"],
+                                   swapped_name_credit=evidence["swapped_name_credit"],
                                    identity_similarity=evidence["weighted_similarity"],
                                    matching_source="global_best_fit", optimization_credit=evidence["optimization_credit"],
                                    conservative_qualifies=evidence["conservative_qualifies"]))
@@ -153,7 +181,8 @@ def align_best_fit(predictions, references, config, reference_config):
         evidence, reasons = metadata[position, j]
         if gap <= config.ambiguity_margin + 1e-10:
             reasons.append("ambiguous")
-        matches.append(Match(readable[position], j, evidence["weighted_similarity"], "global_best_fit", gap, tuple(reasons)))
+        matches.append(Match(readable[position], j, evidence["weighted_similarity"], "global_best_fit", gap,
+                             tuple(reasons), evidence["name_swapped"]))
     assigned = {match.prediction for match in matches}
     issues.update({i: "duplicate_prediction" if i in duplicate else "extra" for i in readable if i not in assigned})
     return matches, issues, candidates
@@ -176,8 +205,7 @@ def align(predictions, references, config, reference_config):
         return [], {i: "extra" for i in range(count)}, []
     observed = [values(prediction, config) for prediction in predictions]
     normalized = [{field: normalize(value, field, config) for field, value in row.items()} for row in observed]
-    expected = [{field: normalize(getattr(reference, field), field, config) for field in FIELDS}
-                for reference in references]
+    expected = [expected_values(reference, config, reference_config) for reference in references]
     ids = Counter(row["user_id"] for row in expected if reference_config.usable_id(row["user_id"]))
     issues, fingerprints = {}, defaultdict(list)
     for index, row in enumerate(normalized):
@@ -192,8 +220,7 @@ def align(predictions, references, config, reference_config):
     for index, row in enumerate(normalized):
         id_targets = {i for i, ref in enumerate(expected) if reference_config.usable_id(row["user_id"])
                       and reference_config.usable_id(ref["user_id"]) and row["user_id"] == ref["user_id"]}
-        name_targets = {i for i, ref in enumerate(expected) if all(row[field] and row[field] == ref[field]
-                        for field in ("first_name", "last_name", "short_code"))}
+        name_targets = {i for i, ref in enumerate(expected) if exact_name_target(row, ref, config)}
         if id_targets and name_targets and not id_targets.intersection(name_targets):
             issues[index] = "identity_conflict"
     utilities = np.full((count, ref_count + count), -1e6, dtype=float)
@@ -211,8 +238,10 @@ def align(predictions, references, config, reference_config):
             # A unique exact identifier has priority over any combination of fuzzy-only matches.
             utility = max(count, ref_count) + 1 + score if anchor else score
             utilities[i, j] = utility
-            metadata[i, j] = (1.0 if anchor else score, source)
+            metadata[i, j] = (1.0 if anchor else score, source, evidence["name_swapped"])
             candidates.append({"prediction_index": i, "reference_row": references[j].row_number,
+                               "name_swapped": evidence["name_swapped"], "direct_name_credit": evidence["direct_name_credit"],
+                               "swapped_name_credit": evidence["swapped_name_credit"],
                                "identity_similarity": 1.0 if anchor else score, "matching_source": source})
     selected, optimum = solve(utilities, ref_count)
     matches = []
@@ -225,8 +254,8 @@ def align(predictions, references, config, reference_config):
         if gap <= config.ambiguity_margin + 1e-10:
             issues[i] = "ambiguous"
         else:
-            score, source = metadata[i, j]
-            matches.append(Match(i, j, score, source, gap))
+            score, source, swapped = metadata[i, j]
+            matches.append(Match(i, j, score, source, gap, name_swapped=swapped))
     assigned = {match.prediction for match in matches}
     for i in range(count):
         if i not in assigned:

@@ -9,7 +9,7 @@ from .evaluation import edits
 from .io import read_json, write_csv, write_json
 from .output_order import document_order, ordered_rows
 
-VERSION = "paired-image-ocr-v1"
+VERSION = "paired-image-ocr-v2-reference-states"
 
 
 def comparison_controls(source):
@@ -38,7 +38,8 @@ def compare_fields(baseline, hybrid, *, key_fields, normalize, source="ground_tr
     def indexed(records):
         result = {}
         for item in records:
-            if item.get(key_fields[-1]) is None or item.get("exclusion_reason") == "reference_missing_or_masked":
+            if (item.get(key_fields[-1]) is None or item.get("exclusion_reason") == "reference_missing_or_masked"
+                    or item.get("reference_state") == "empty"):
                 continue
             key = tuple(item.get(field) for field in (*key_fields, "field"))
             if key in result:

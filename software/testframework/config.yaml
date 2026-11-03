@@ -19,6 +19,7 @@ reference:
   delimiter: null  # detect comma, semicolon or tab; alternatively ';'
   merge_identical_duplicates: false
 matching:
+  compare_name_orientations: true  # compare whole name groups, audit swaps; never rewrite extraction
   ignore_leading_user_id_zeros: true
   mode: best_fit
   minimum_similarity: 0.80

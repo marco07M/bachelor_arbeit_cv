@@ -73,7 +73,7 @@ def test_original_uncertain_names_are_visible_separately_from_evaluated_fields(t
     output, _, _, _ = comparison(tmp_path, uncertain=True)
     text = (output / "zuordnungen.html").read_text(encoding="utf-8")
     assert "<strong>Vorname:</strong> Anma" in text and "uncertain" in text
-    assert "Bewertete Ausgabe" in text and "Anna" in text
+    assert "Bewertung nach Normalisierung" in text and "Anna" in text
 
 
 def test_missing_source_falls_back_to_saved_values_but_changed_source_is_rejected(tmp_path):

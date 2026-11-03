@@ -11,16 +11,20 @@ from pathlib import Path
 
 from ..config import METHODS
 from ..excel_columns import field_labels
+from ..excel_reference import ReferencePerson
 from ..identifiers import user_id_rule
 from ..io import digest, file_hash, read_json, read_jsonl, write_json
 from ..schema import PageResult
-from .config import BenchmarkConfig
-from .matching import FIELDS, normalize, pair_evidence, similarity
+from .config import BenchmarkConfig, ReferenceConfig
+from .matching import FIELDS, expected_values, normalize, pair_evidence, similarity
+from .metrics import scores
 
 STATUS = {"matched": "Zugeordnet", "missing": "Referenzperson ohne Zuordnung", "extra": "Ausgabe ohne Zuordnung",
           "ambiguous": "Mehrdeutige Zuordnung", "identity_conflict": "Widerspruch zwischen ID und Namen",
           "duplicate_prediction": "Doppelte Modellausgabe", "empty_prediction": "Keine lesbaren Ausgabefelder"}
 REASONS = {"reference_missing_or_masked": "Referenzwert fehlt oder ist maskiert: aus der Bewertung ausgeschlossen",
+           "reference_empty": "Referenz nachweislich leer: Leerzellenerkennung separat; ergänzte Werte zählen zusätzlich",
+           "invalid_prediction_placeholder": "Modell-Platzhalter trotz lesbarer Referenz: fehlende nutzbare Information, null Punkte",
            "prediction_explicitly_masked_or_placeholder_confirm_in_pdf": "Ausgabe ausdrücklich maskiert/Platzhalter: ausgeschlossen, am PDF bestätigen",
            "not_comparable_extra_field": "Zusätzliches Feld hier nicht bewertbar",
            "fewer_than_two_observed_fields": "Weniger als zwei vergleichbare Namens-/Kurzzeichenfelder",
@@ -90,6 +94,11 @@ def table(headings, rows):
 
 def contribution(row, config):
     eligible = truth(row["assessable"])
+    if "reference_contribution" in row:
+        return dict(reference_fields=int(row["reference_contribution"]),
+                    predicted_fields=int(row["prediction_contribution"]),
+                    similarity_credit=float(row["similarity"] or 0),
+                    exact_fields=int(truth(row["exact"])))
     return dict(reference_fields=int(eligible and bool(row["reference_row"])),
                 predicted_fields=int(eligible and bool(normalize(row["prediction_value"], row["field"], config))),
                 similarity_credit=float(row["similarity"] or 0) if eligible else 0.0,
@@ -107,8 +116,9 @@ def totals(rows, config):
 def formula(count):
     r, p, credit, exact = (count[key] for key in (
         "reference_fields", "predicted_fields", "similarity_credit", "exact_fields"))
-    soft = 100 * 2 * credit / (r + p) if r and r + p else None
-    strict = 100 * 2 * exact / (r + p) if r and r + p else None
+    computed = scores(Counter(count))
+    soft = 100 * computed["soft_f1"] if computed["soft_f1"] is not None else None
+    strict = 100 * computed["exact_f1"] if computed["exact_f1"] is not None else None
     if not r:
         return (f'<div class="formula">R = {r}; P = {p}; C = {number(credit)}; E = {exact}<br>'
                 'Nur Nenner-/Ausschlussbeitrag, kein eigener F1 ohne bewertbare Referenzfelder.</div>')
@@ -121,8 +131,8 @@ def prediction_key(row):
     return row["method"], row["document_id"], row["page_number"], row["output_index"]
 
 
-def normalized_reference(reference, config):
-    return {field: normalize(reference[field], field, config) for field in FIELDS}
+def normalized_reference(reference, config, reference_config=None):
+    return expected_values(ReferencePerson(**reference), config, reference_config or ReferenceConfig())
 
 
 def name_order_hint(observed, references, config):
@@ -144,7 +154,7 @@ def candidate_table(case, fields, references, config, reference_config, labels):
                   if reference_config.usable_id(ref["user_id"]))
     results = []
     for reference in references:
-        expected = normalized_reference(reference, config)
+        expected = normalized_reference(reference, config, reference_config)
         evidence = pair_evidence(observed, expected, config, reference_config, ids[expected["user_id"]])
         selected = str(reference["row_number"]) == case["reference_row"] and case["status"] == "matched"
         reasons = [REASONS[reason] for reason in evidence["rejection_reasons"]]
@@ -204,6 +214,8 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
     if case.get("matching_review_reasons"):
         content += '<p class="bad">Zuordnungsprüfung: ' + esc("; ".join(
             REASONS.get(reason, reason) for reason in case["matching_review_reasons"].split(" | "))) + "</p>"
+    if truth(case.get("name_swapped")):
+        content += "<p>Für diese Referenzpaarung passen vertauschte Namensgruppen besser. Originalwerte bleiben unten sichtbar; die Extraktion wurde nicht geändert.</p>"
     if case["document_id"] and case["page_number"] and source:
         image = source / "pages" / f"{case['document_id']}-p{int(case['page_number']):04d}.png"
         if image.resolve().is_relative_to(source.resolve()) and image.is_file():
@@ -221,8 +233,7 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
         content += ('<p class="bad">Keine gewertete Paarung. Referenzzeilen erhöhen R; nicht zugeordnete Ausgaben '
                     'erhöhen P. Hier werden keine ähnlichen Wörter aus anderen Personenzeilen gutgeschrieben.</p>')
     content += '<div class="scroll"><table><thead><tr>' + "".join(f"<th>{esc(label)}</th>" for label in (
-        "Feld", "Referenz: Original", "Modell: Original (wenn verfügbar)", "Bewerteter Wert", "Feldstatus", "Referenz normalisiert",
-        "Ausgabe normalisiert", "Distanz d", "Max. Länge L", "Teilpunkte", "Beitrag R", "Beitrag P", "Exakt", "Begründung"))
+        "Feld", "Referenz", "Modellwert (Original)", "Bewertung nach Normalisierung", "Ähnlichkeit", "Begründung"))
     content += "</tr></thead><tbody>"
     for row in fields:
         field = row["field"]
@@ -234,12 +245,19 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
             reason = "Tatsächlich zugeordnetes Paar" if status == "matched" else "Keine bewertete Personenpaarung"
             if status == "matched" and not right:
                 reason += "; Referenz lesbar, Ausgabe fehlt: null Punkte, R bleibt im Nenner"
-        raw_value = getattr(raw, FIELDS[field]).value if raw else row["prediction_value"]
+        raw_value = getattr(raw, FIELDS[field]).value if raw else row.get("original_prediction_value", row["prediction_value"])
         credit = (f"1 − {row['levenshtein_distance']} / {max(len(left), len(right))} = {number(count['similarity_credit'])}"
                   if eligible and status == "matched" and right else number(count["similarity_credit"]) if eligible else "ausgeschlossen")
-        cells = [labels[field], row["reference_value"], raw_value, row["prediction_value"], row["prediction_state"],
-                 left, right, row["levenshtein_distance"] or "—", max(len(left), len(right)), credit,
-                 count["reference_fields"], count["predicted_fields"], "ja" if truth(row["exact"]) else "nein" if eligible else "—", reason]
+        assessment = ("Korrekt" if truth(row["exact"]) else "Fehlend" if not right else "Falsch") if eligible else "Nicht bewertbar"
+        if row.get("exclusion_reason") == "invalid_prediction_placeholder":
+            assessment = "Fehlend (Platzhalter)"
+        if row.get("reference_state") == "empty":
+            assessment = "Zusätzlicher Wert" if right else "Leerzelle"
+        reason += f"; Feldstatus: {row['prediction_state']}; Beitrag R={count['reference_fields']}, P={count['predicted_fields']}"
+        if truth(case.get("name_swapped")) and field in ("first_name", "last_name"):
+            reason += f"; bewertete Namensgruppe: {row['prediction_value']}"
+        cells = [labels[field], row["reference_value"], raw_value if raw_value not in (None, "") else "Leer / nicht erkannt",
+                 assessment, credit, reason]
         css = "ok" if truth(row["exact"]) else "bad" if eligible else "muted"
         content += f'<tr data-field="{field}" class="{css}">' + "".join(f"<td>{esc(cell)}</td>" for cell in cells) + "</tr>"
     content += "</tbody></table></div>" + formula(totals(fields, config.matching))

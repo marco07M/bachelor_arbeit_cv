@@ -1,5 +1,29 @@
 # Verifikationsprotokoll
 
+## Nachtrag: Docling und wissenschaftlicher Evaluationsaudit, 03.11.2026
+
+Abgeschlossen: **591 lokale Tests in 106,49 Sekunden**, **48 Tests des separaten
+API-Projekts in 10,46 Sekunden**, Ruff ohne Befund. Neue synthetische Kontrollfälle
+belegen unter anderem 24/40 = 60 % Recall bei 75 % F1, Modell-Platzhalter ohne
+Referenznenner-Verlust, bestätigte Leerzellen, unbekannte Referenzen, technische
+Ausfälle, ganze Namensgruppen in beiden Orientierungen und Ausgabekonsistenz.
+Die erste Gesamtprüfung fand einen verlorenen sichtbaren Feldstatus; korrigiert.
+Eine API-Prüfung fand abweichende Vergleichsoptionen; die Vorlagen sind angeglichen.
+Endprüfungen ohne Fehler. Keine echten Referenzwerte in neuen Tests.
+
+Regulärer Docling-Lauf `runs/20261103T084429Z-e2834b34/`: vorhandene Laufzeit geladen,
+beide OCR-/TableFormer-Caches verwendet, keine neuen Erkennungsaufrufe/Downloads.
+Der neue unsichere Fallback liefert 9 Teilpersonen; Folgeseite weiter ungeklärt.
+Kontrollierter Vergleich `runs/evaluation-audit-20261103-final/report.html` mit
+getrennten Varianten für korrigierte Metrikregeln, beide Namensrollen und neue
+Docling-Ausgaben. Gleiche eingefrorene Referenz, identische tatsächliche Laufbilder,
+historische Dateien unverändert. Alle Methoden besitzen denselben Referenznenner;
+JSON-/CSV-/Excel-Zähler und HTML-Detailbeiträge wurden gegengeprüft.
+
+Ursachen, Formeln, Grenzen und begründete Metrikempfehlung:
+[Evaluationsaudit](evaluation-audit.md). Diese Prüfung belegt Funktions- und
+Bewertungskonsistenz auf Entwicklungsfällen, keine allgemeine Modellqualität.
+
 ## Nachtrag: Originalreihenfolge der Anwesenheitsliste, 02.11.2026
 
 Darstellung und Exporte verwenden Eingabe-PDF, numerische Seite und den

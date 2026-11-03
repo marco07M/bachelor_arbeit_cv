@@ -2,7 +2,8 @@
 
 import csv
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -18,11 +19,23 @@ class ReferenceData:
     sheet: str | None
     duplicate_rows: list[dict]
     user_id_column_present: bool
-    columns: dict[str, str] = field(default_factory=dict)
+    columns: dict[str, str] = dataclass_field(default_factory=dict)
 
 
 def column_indices(headers, config):
     return resolve_columns(headers, config.columns.model_dump(), optional=("user_id",))[0]
+
+
+def status_indices(headers, config):
+    result = {}
+    for field, label in config.columns.model_dump().items():
+        if field != "class_id":
+            matches = [i for i, value in enumerate(headers) if value in (f"{label} – Status", f"{field}__state")]
+            if len(matches) > 1:
+                raise ValueError("Mehrdeutige Referenz-Statusspalten")
+            if matches:
+                result[field] = matches[0]
+    return result
 
 
 def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
@@ -41,14 +54,16 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
                 reader = csv.reader(stream, delimiter=delimiter, strict=True)
                 for _ in range(config.header_row - 1):
                     next(reader, None)
-                indices, labels = resolve_columns(next(reader, []), config.columns.model_dump(), optional=("user_id",))
+                headers = next(reader, [])
+                indices, labels = resolve_columns(headers, config.columns.model_dump(), optional=("user_id",))
+                states = status_indices(headers, config)
                 for number, row in enumerate(reader, config.header_row + 1):
                     if not any(value.strip() for value in row):
                         continue
                     if max(indices.values()) >= len(row):
                         raise ValueError(f"CSV-Zeile {number} enthält zu wenige Spalten")
                     values = {field: row[index].strip() for field, index in indices.items()}
-                    records.append(person(number, values))
+                    records.append(person(number, values, {field: row[i] if i < len(row) else "" for field, i in states.items()}))
         except UnicodeError:
             raise ValueError("CSV-Zeichenkodierung ungültig; UTF-8 exportieren oder reference.encoding angeben") from None
         except csv.Error:
@@ -62,11 +77,12 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
             sheet_title = sheet.title
             header = next(sheet.iter_rows(min_row=config.header_row, max_row=config.header_row), [])
             indices, labels = resolve_columns([cell.value for cell in header], config.columns.model_dump(), optional=("user_id",))
+            states = status_indices([cell.value for cell in header], config)
             for number, row in enumerate(sheet.iter_rows(min_row=config.header_row + 1), config.header_row + 1):
                 values = {field: cell_text(row[index], identifier=field in ("class_id", "user_id"))
                           for field, index in indices.items()}
                 if any(values.values()):
-                    records.append(person(number, values))
+                    records.append(person(number, values, {field: cell_text(row[i]) for field, i in states.items()}))
         finally:
             book.close()
     else:
@@ -78,7 +94,8 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
             raise ValueError(f"Keine lesbare Teilnehmeridentität in Referenzzeile {record.row_number}")
     groups = defaultdict(list)
     for record in records:
-        key = tuple(value for name, value in asdict(record).items() if name != "row_number")
+        key = tuple(tuple(sorted(value.items())) if isinstance(value, dict) else value
+                    for name, value in asdict(record).items() if name != "row_number")
         groups[key].append(record)
     duplicates = [{"source_rows": [record.row_number for record in group], "copies": len(group)}
                   for group in groups.values() if len(group) > 1]
@@ -89,10 +106,16 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
     return ReferenceData(selected, sheet_title, duplicates, "user_id" in indices, labels)
 
 
-def person(number, values):
+def person(number, values, states=None):
     values.setdefault("user_id", "")
     if not values["class_id"]:
         raise ValueError(f"Schulungs-ID fehlt in Referenzzeile {number}")
     if not any(values.get(field) for field in ("user_id", "first_name", "last_name")):
         raise ValueError(f"Keine Teilnehmeridentität in Referenzzeile {number}")
-    return ReferencePerson(row_number=number, **values)
+    states = {field: value.strip().lower() for field, value in (states or {}).items() if value.strip()}
+    if any(state not in ("read", "empty", "unknown", "masked", "illegible", "uncertain") for state in states.values()):
+        raise ValueError(f"Ungültiger Referenzstatus in Zeile {number}")
+    if any((state == "read" and not values.get(field)) or (state == "empty" and values.get(field))
+           for field, state in states.items()):
+        raise ValueError(f"Widersprüchlicher Referenzstatus in Zeile {number}")
+    return ReferencePerson(row_number=number, field_states=states, **values)

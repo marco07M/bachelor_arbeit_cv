@@ -137,6 +137,7 @@ def analyze_page(raw, final):
     if not cells:
         page_issues.append(dict(cause="unknown", reason="No positioned OCR cells; cannot distinguish detection and recognition without labeled regions"))
     return dict(version=VERSION, method=method, page_id=raw.get("page_id"),
+        extraction_stages=recognized.get("extraction_stages", {}),
         effective_options=recognized.get("effective_options", "not recorded in historical output"),
         source_kind=recognized.get("source_kind"), ocr_statistics=recognized.get("ocr_statistics"),
         ocr_cells=cells, tables=grids, recognized_headings=headings, reconstructed_field_bands=bands,

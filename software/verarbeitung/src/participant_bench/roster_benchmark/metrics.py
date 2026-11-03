@@ -5,6 +5,7 @@ from collections import Counter
 from ..evaluation import edits
 from ..output_order import ordered_rows
 from ..person_roles import UNCONFIRMED_ROLE
+from ..reference_states import reference_state
 from .matching import FIELDS, align, normalize, similarity, values
 
 
@@ -16,6 +17,10 @@ def scores(count):
     reference, predicted = count["reference_fields"], count["predicted_fields"]
     total = reference + predicted
     return dict(count, exact_reference_accuracy=divide(count["exact_fields"], reference),
+                exact_precision=divide(count["exact_fields"], predicted),
+                exact_recall=divide(count["exact_fields"], reference),
+                tp=count["exact_fields"], fp=predicted-count["exact_fields"], fn=reference-count["exact_fields"],
+                field_coverage=divide(reference-count["missing_fields"], reference),
                 raw_exact_reference_accuracy=divide(count["raw_exact_fields"], reference),
                 exact_f1=divide(2 * count["exact_fields"], total) if reference else None,
                 soft_precision=divide(count["similarity_credit"], predicted),
@@ -25,7 +30,9 @@ def scores(count):
 
 def empty_counts():
     return Counter(reference_fields=0, predicted_fields=0, exact_fields=0, raw_exact_fields=0,
-                   similarity_credit=0.0, excluded_reference_fields=0, excluded_masked_predictions=0)
+                   similarity_credit=0.0, excluded_reference_fields=0, excluded_masked_predictions=0,
+                   incorrect_fields=0, missing_fields=0, extra_fields=0, invalid_prediction_fields=0,
+                   reference_empty_fields=0, correct_empty_fields=0, hallucinated_empty_fields=0)
 
 
 def course_metrics(class_id, predictions, references, config, reference_config):
@@ -36,8 +43,8 @@ def course_metrics(class_id, predictions, references, config, reference_config):
     fields = {field: empty_counts() for field in FIELDS}
     details, rows = [], []
     full_rows = 0
-    comparable = {field for field in FIELDS if any(getattr(person, field).strip() and
-                   (field != "user_id" or reference_config.usable_id(person.user_id)) for person in references)}
+    comparable = {field for field in FIELDS if any(reference_state(person, field, reference_config) in ("read", "empty")
+                                                 for person in references)}
     for j, reference in enumerate(references):
         match = by_reference.get(j)
         prediction = predictions[match.prediction] if match else None
@@ -46,6 +53,11 @@ def course_metrics(class_id, predictions, references, config, reference_config):
         if role_review:
             review_reasons.append("role_unconfirmed")
         actual = values(prediction, config) if prediction else dict.fromkeys(FIELDS)
+        original = {field: getattr(prediction.person, model_field).value if prediction else None
+                    for field, model_field in FIELDS.items()}
+        swapped = bool(match and match.name_swapped)
+        if swapped:
+            actual["first_name"], actual["last_name"] = actual["last_name"], actual["first_name"]
         row = dict(class_id=class_id, reference_row=reference.row_number,
                    document_id=prediction.document_id if prediction else None,
                    page_number=prediction.page_number if prediction else None,
@@ -54,39 +66,51 @@ def course_metrics(class_id, predictions, references, config, reference_config):
                    identity_similarity=match.similarity if match else None,
                    alternative_gap=match.alternative_gap if match else None,
                    matching_mode=config.mode,
+                   name_swapped=swapped,
                    matching_review_reasons=" | ".join(review_reasons))
         evaluated, correct = 0, 0
         review = not match or match.similarity < 1.0 or bool(review_reasons)
         for field, model_field in FIELDS.items():
             expected, observed = getattr(reference, field), actual[field]
             count = fields[field]
-            eligible = bool(expected.strip()) and (field != "user_id" or reference_config.usable_id(expected))
-            reason = None if eligible else "reference_missing_or_masked"
-            if eligible and field == "user_id" and observed and not reference_config.usable_id(observed):
-                eligible, reason = False, "prediction_explicitly_masked_or_placeholder_confirm_in_pdf"
-                count["excluded_masked_predictions"] += 1
-                review = True
+            state = reference_state(reference, field, reference_config)
+            eligible = state == "read"
+            reason = None if eligible else "reference_empty" if state == "empty" else "reference_missing_or_masked"
+            invalid = bool(eligible and field == "user_id" and observed and not reference_config.usable_id(observed))
+            if invalid:
+                reason = "invalid_prediction_placeholder"
+                count["invalid_prediction_fields"] += 1
             if not eligible:
                 count["excluded_reference_fields"] += int(reason == "reference_missing_or_masked")
             left, right = normalize(expected, field, config), normalize(observed, field, config)
-            exact = bool(observed is not None and left == right) if eligible else None
-            raw_exact = observed == expected if eligible else None
-            credit = similarity(left, right) if eligible and observed is not None else 0.0
+            available = bool(right) and not invalid
+            exact = bool(available and left == right) if eligible else None
+            raw_exact = bool(available and observed == expected) if eligible else None
+            credit = similarity(left, right) if eligible and available else 0.0
+            source_field = {"first_name": "last_name", "last_name": "first_name"}.get(field, field) if swapped else field
+            prediction_state = getattr(prediction.person, FIELDS[source_field]).state if prediction else "missing"
             if eligible:
                 count.update(reference_fields=1, predicted_fields=int(bool(right)),
-                             exact_fields=int(exact), raw_exact_fields=int(raw_exact), similarity_credit=credit)
+                             exact_fields=int(exact), raw_exact_fields=int(raw_exact), similarity_credit=credit,
+                             missing_fields=int(not available), incorrect_fields=int(available and not exact))
                 evaluated += 1
                 correct += int(exact)
-                review = review or not exact or (prediction is not None and
-                                                 getattr(prediction.person, model_field).state == "uncertain")
+                review = review or not exact or prediction_state == "uncertain"
+            elif state == "empty":
+                count.update(reference_empty_fields=1, correct_empty_fields=int(observed is not None and not right),
+                             hallucinated_empty_fields=int(bool(right)), predicted_fields=int(bool(right)),
+                             extra_fields=int(bool(right)))
             details.append(dict(row, field=field, reference_value=expected, prediction_value=observed,
-                                prediction_state=getattr(prediction.person, model_field).state if prediction else "missing",
+                                original_prediction_value=original[field], reference_state=state,
+                                normalized_reference=left, normalized_prediction=right,
+                                prediction_state=prediction_state,
                                 assessable=eligible, exclusion_reason=reason, exact=exact, raw_exact=raw_exact,
+                                reference_contribution=int(eligible),
+                                prediction_contribution=int(bool(right) and (eligible or state == "empty")),
                                 levenshtein_distance=edits(left, right) if eligible else None,
                                 similarity=credit if eligible else None,
-                                review_required=(match is None or bool(review_reasons) or reason == "prediction_explicitly_masked_or_placeholder_confirm_in_pdf"
-                                                 or bool(eligible and (not exact or (prediction is not None and
-                                                         getattr(prediction.person, model_field).state == "uncertain")))),
+                                review_required=(match is None or bool(review_reasons) or invalid or
+                                                 bool(eligible and (not exact or prediction_state == "uncertain"))),
                                 identity_alignment_used_reference=True))
         row["fully_exact"] = bool(match and evaluated and evaluated == correct)
         row["review_required"] = bool(review)
@@ -101,13 +125,14 @@ def course_metrics(class_id, predictions, references, config, reference_config):
         row["review_required"] = True
         rows.append(row)
         for field, observed in values(prediction, config).items():
-            eligible = field in comparable and bool(observed) and (
-                field != "user_id" or reference_config.usable_id(observed))
+            eligible = field in comparable and bool(observed)
             if eligible:
                 fields[field]["predicted_fields"] += 1
+                fields[field]["extra_fields"] += 1
             details.append(dict(row, field=field, reference_value=None, prediction_value=observed,
                                 prediction_state=getattr(prediction.person, FIELDS[field]).state,
                                 assessable=eligible, exclusion_reason=None if eligible else "not_comparable_extra_field",
+                                reference_contribution=0, prediction_contribution=int(eligible),
                                 exact=False if eligible else None, raw_exact=False if eligible else None,
                                 levenshtein_distance=None, similarity=0.0 if eligible else None,
                                 identity_alignment_used_reference=True))
@@ -116,6 +141,7 @@ def course_metrics(class_id, predictions, references, config, reference_config):
         total.update(count)
     result = dict(class_id=class_id, reference_participants=len(references), predicted_participants=len(predictions),
                   matching_mode=config.mode,
+                  name_swapped_participants=sum(match.name_swapped for match in matches),
                   assigned_participants=len(matches), missing_participants=len(references) - len(matches),
                   extra_participants=len(issues), fully_exact_participants=full_rows,
                   ambiguous_participants=sum(value == "ambiguous" for value in issues.values()),
@@ -139,7 +165,7 @@ def aggregate(courses):
         "reference_participants", "predicted_participants", "assigned_participants", "missing_participants",
         "extra_participants", "fully_exact_participants", "ambiguous_participants", "identity_conflicts",
         "duplicate_predictions", "review_rows", "low_similarity_assignments", "ambiguous_assignments",
-        "conflicting_assignments", "duplicate_assignments")}
+        "conflicting_assignments", "duplicate_assignments", "name_swapped_participants")}
     for course in courses:
         for field in FIELDS:
             fields[field].update({key: course["fields"][field][key] for key in empty_counts()})

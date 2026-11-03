@@ -79,13 +79,13 @@ def test_masked_user_ids_are_not_identity_keys(masked):
 
 
 @pytest.mark.parametrize("user,state", [("12***45", "uncertain"), (None, "illegible")])
-def test_masked_pdf_id_uses_names_and_code_and_is_excluded_from_id_metric(user, state):
+def test_masked_pdf_id_uses_names_but_remains_an_id_error(user, state):
     scores, rows, details = evaluate([prediction(person(user=user, user_state=state))], [ref()])
     assert scores["participant_assignment"]["tp"] == 1
     assert rows[0]["matching_source"] == "name_short_code"
-    assert scores["fields"]["user_id"]["exact_match"]["denominator"] == 0
-    assert scores["fields"]["user_id"]["excluded"] == 1
-    assert next(row for row in details if row["field"] == "user_id")["exact"] is None
+    assert scores["fields"]["user_id"]["exact_match"]["denominator"] == 1
+    assert scores["fields"]["user_id"]["excluded"] == 0
+    assert next(row for row in details if row["field"] == "user_id")["exact"] is False
 
 
 def test_masked_excel_id_is_not_compared():

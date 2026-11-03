@@ -64,7 +64,7 @@ def test_detail_export_reconciles_missing_extra_masked_and_fractional_fields(tmp
     assert "Referenzwert fehlt oder ist maskiert" in page
     assert "1 − 1 / 4 = 0,75" in page
     assert "Alle 3 Referenzkandidaten" in page
-    assert "Gewichtete Ähnlichkeit" in page and "Beitrag R" in page and "Beitrag P" in page
+    assert "Gewichtete Ähnlichkeit" in page and "Beitrag R=" in page and "P=" in page
     assert 'href="details.html"' in (output / "report.html").read_text(encoding="utf-8")
 
 
@@ -96,7 +96,7 @@ def test_swapped_names_are_diagnostic_only_without_automatic_credit(tmp_path):
 def test_raw_uncertain_text_remains_visible_when_excluded_from_grading(tmp_path):
     output, _, _, _ = comparison(tmp_path, uncertain=True)
     page = next((output / "details").glob("*.html")).read_text(encoding="utf-8")
-    assert "Anma" in page and "uncertain" in page and "Bewerteter Wert" in page
+    assert "Anma" in page and "uncertain" in page and "Bewertung nach Normalisierung" in page
     assert read_json(output / "details/calculation_checks.json")["vlm"]["contributions_match_saved_metrics"]
 
 
@@ -182,7 +182,7 @@ def test_best_fit_report_keeps_conservative_baseline_and_explicit_review_flags(t
     assert "Modus: globales Best-Fit" in page and "Schwache Paarung" in page
     assert "einschließlich lesbarer IDs" in page and "Prüfgrenzen (keine Sperre)" in page
     main = (output / "report.html").read_text(encoding="utf-8")
-    assert "Konservativer Vergleich" in main and "bestätigen keine Identitäten" in main
+    assert "F1 bei konservativer Zuordnung" in main and "bestätigen keine Identitäten" in main
     assert "best_fit" in (output / "participants.csv").read_text(encoding="utf-8-sig")
     assert read_json(output / "details/calculation_checks.json")["vlm"]["contributions_match_saved_metrics"]
     assert read_json(output / "config.json")["matching"]["mode"] == "best_fit"

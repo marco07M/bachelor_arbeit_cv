@@ -13,7 +13,60 @@ from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-headings-v3-family-first"
+VERSION = "tableformer-native-v4-audited-partial-fallback"
+
+
+def partial_identity_fallback(rows):
+    """Recover repeated native identity cells without pretending that missing headers were read.
+
+    Require at least two rows with a comma-delimited name and a separate numeric
+    identifier in the same column pair. No organization/signature column is guessed.
+    Merged cells and ambiguous competing column pairs are deliberately ineligible.
+    """
+    support = defaultdict(set)
+    for row in rows:
+        cells = [c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1]
+        names = [c for c in cells if re.fullmatch(r"[^\d,]{2,80},\s*[^\d,]{2,80}", c["text"])
+                 and split_combined_name(c["text"])]
+        ids = [c for c in cells if re.fullmatch(r"[0-9]{4,16}", c["text"])]
+        for name in names:
+            for identifier in ids:
+                support[name["column_start"], identifier["column_start"]].add(row["row_index"])
+    pairs = [pair for pair, indices in support.items() if len(indices) >= 2]
+    if len(pairs) != 1:
+        return [], []
+    name_column, id_column = pairs[0]
+    start = min(support[pairs[0]])
+    people, proofs = [], []
+    for row in rows:
+        if row["row_index"] < start:
+            continue
+        cells = {c["column_start"]: c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1}
+        name = cells.get(name_column)
+        if not name or not name["text"] or any(c.isdigit() for c in name["text"]):
+            continue
+        split = split_combined_name(name["text"])
+        identifier = cells.get(id_column)
+        if not split and not (identifier and re.fullmatch(r"[0-9]{4,16}", identifier["text"])):
+            continue
+        first, last = split[:2] if split else (None, None)
+        fields = {key: TextField() for key in TEXT_FIELDS}
+        evidence = {}
+        for key, value, cell in (("first_name", first, name), ("last_name", last, name),
+                                 ("personnel_number", identifier["text"] if identifier else None, identifier)):
+            if value and cell:
+                fields[key] = TextField(value=value, state="uncertain",
+                    bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
+                evidence[key] = dict(text=value, native_ref=cell.get("native_ref"),
+                    column_start=cell["column_start"], assignment_rule="unverified_repeated_identity_cells")
+        people.append(Participant(**fields, review_notes=[
+            "Unverified native-cell fallback: repeated name/number columns, printed headings missing; manual review required",
+            "Organization and signature columns not inferred"]))
+        proofs.append(dict(source_row=row["id"], source_row_index=row["row_index"],
+            grid_source="native", fields=evidence, source_cells=row["cells"],
+            raw_cells=[c["text"] for c in row["cells"]], fallback=True,
+            assignment_rule="unverified_repeated_identity_cells", support_rows=sorted(support[pairs[0]])))
+    return people, proofs
 
 
 def table_rows(table, table_index=0, size=None):
@@ -145,7 +198,21 @@ def extract_structured(recognized, context=None):
                 source_row_index=row["row_index"], grid_source=source, fields=evidence,
                 source_cells=row["cells"], raw_cells=[c["text"] for c in row["cells"]],
                 column_mapping={key: sorted(cols) for key, cols in mapping.items()}, original_headings=headings))
+        fallback_count = 0
+        # Explicit but ambiguous headings must never be bypassed by content inference.
+        if not mapping and source == "native" and not any(
+                field_roles(c["text"], aliases) for row in rows for c in row["cells"]):
+            recovered, recovered_proofs = partial_identity_fallback(rows)
+            for person, proof in zip(recovered, recovered_proofs):
+                proof.update(output_index=len(people), table_index=table_index)
+                people.append(person)
+                proofs.append(proof)
+            fallback_count = len(recovered)
+            if recovered:
+                notes.append("Unverified partial identity fallback; headings missing, organization remains unknown")
         diagnostics.append(dict(table_index=table_index, grid_source=source, rows=len(rows), width=width,
+            fallback_participants=fallback_count,
+            text_cells=sum(bool(c["text"]) for row in rows for c in row["cells"]),
             columns={key: sorted(cols) for key, cols in mapping.items()}, headings=headings,
             organization_mapping="unique" if len(mapping.get("department", [])) == 1 else "ambiguous_or_missing"))
         if not mapping:

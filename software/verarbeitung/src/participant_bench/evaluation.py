@@ -10,6 +10,9 @@ from scipy.optimize import linear_sum_assignment
 from .schema import TEXT_FIELDS
 
 DEFINITIONS = {
+    "information": "information_prf and information_exact_match exclude genuinely empty GT from positive information credit; "
+                   "empty_detection reports empty cells separately. Nonempty hallucinations are information FP. "
+                   "Legacy field_prf/exact_match include known empty cells and are explicitly distinguished.",
     "normalization": "NFC, whitespace collapse, casefold for names/department; personnel number exact raw string.",
     "raw_exact_match": "Unicode string equality without case/whitespace normalization; known None/empty cells equivalent. Same matched rows and denominator as exact_match.",
     "matching": "Within document/page: unique printed row_ref; then vertical box IoU >=0.25; "
@@ -187,11 +190,23 @@ def evaluate(results, ground_truth):
                 counter["tp"] += int(same)
                 counter["fn"] += int(not same)
                 counter["fp"] += int(not same and p_field is not None and known(p_field))
+                information = bool(normalized(gt_field.value, name))
+                predicted_value = normalized(p_field.value, name) if p_field is not None and known(p_field) else ""
+                counter["information_denominator"] += int(information)
+                counter["information_tp"] += int(information and same)
+                counter["information_fn"] += int(information and not same)
+                counter["information_fp"] += int(bool(predicted_value) and not same)
+                counter["information_missing"] += int(information and not predicted_value)
+                counter["empty_reference"] += int(not information)
+                counter["empty_correct"] += int(not information and same)
+                counter["empty_hallucination"] += int(not information and bool(predicted_value))
                 row_correct &= same
                 reference = normalized(gt_field.value, name)
-                predicted = normalized(p_field.value, name) if p_field else ""
+                predicted = predicted_value
                 counter["edits"] += edits(reference, predicted)
                 counter["reference_characters"] += len(reference)
+                counter["word_edits"] += edits(reference.split(), predicted.split())
+                counter["reference_words"] += len(reference.split())
                 details.append(
                     {
                         "document_id": page.document_id,
@@ -232,7 +247,9 @@ def evaluate(results, ground_truth):
             for name in TEXT_FIELDS:
                 field = getattr(pred, name)
                 fields[name]["fp"] += int(known(field))
-                fields[name]["edits"] += len(normalized(field.value, name))
+                fields[name]["information_fp"] += int(known(field) and bool(field.value))
+                fields[name]["edits"] += len(normalized(field.value, name)) if known(field) else 0
+                fields[name]["word_edits"] += len(normalized(field.value, name).split()) if known(field) else 0
             if pred.signature_present is True:
                 signature["fp"] += 1
                 signature["extra_positive"] += 1
@@ -250,18 +267,27 @@ def evaluate(results, ground_truth):
             "raw_exact_match": ratio(counts["literal_tp"], counts["denominator"]),
             "exact_match": ratio(counts["tp"], counts["denominator"]),
             "cer": ratio(counts["edits"], counts["reference_characters"]),
+            "wer": ratio(counts["word_edits"], counts["reference_words"]),
             "prf": prf(counts["tp"], counts["fp"], counts["fn"]),
             "unknown_rate": ratio(counts["prediction_unknown"], counts["denominator"]),
             "coverage": ratio(counts["denominator"] - counts["prediction_unknown"], counts["denominator"]),
             "excluded_gt_unknown": counts["excluded_gt_unknown"],
+            "information_exact_match": ratio(counts["information_tp"], counts["information_denominator"]),
+            "information_prf": prf(counts["information_tp"], counts["information_fp"], counts["information_fn"]),
+            "missing_information_fields": counts["information_missing"],
+            "empty_detection": {key: counts["empty_"+key] for key in ("reference", "correct", "hallucination")},
         }
     all_counts = sum(fields.values(), Counter())
     return {
+        "version": "page-ground-truth-v2-information-and-empty",
         "counts": dict(totals),
         "fields": scores,
         "overall_exact_match": ratio(all_counts["tp"], all_counts["denominator"]),
         "overall_raw_exact_match": ratio(all_counts["literal_tp"], all_counts["denominator"]),
         "field_prf": prf(all_counts["tp"], all_counts["fp"], all_counts["fn"]),
+        "information_exact_match": ratio(all_counts["information_tp"], all_counts["information_denominator"]),
+        "information_prf": prf(all_counts["information_tp"], all_counts["information_fp"], all_counts["information_fn"]),
+        "missing_information_fields": all_counts["information_missing"],
         "entry_prf": prf(totals["entry_tp"], totals["entry_fp"], totals["entry_fn"]),
         "assignment": {
             "match_coverage": ratio(totals["matched_rows"], totals["gt_rows"]),

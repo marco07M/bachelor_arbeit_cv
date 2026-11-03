@@ -119,9 +119,9 @@ mit demselben Kurzzeichen und ohne unterscheidbare ID werden nicht willkürlich
 zusammengeführt. Doppelte Referenzeinträge werden nicht automatisch entfernt.
 
 Leere oder maskierte Excel-IDs, etwa `***`, `12***45` oder `XXXXX`, werden nicht
-als lesbare IDs bewertet. Das gilt auch für ausdrücklich `illegible` gemeldete
-oder sichtbar maskierte Vorhersage-IDs. Eine sonst unbekannte oder fehlende
-Vorhersage wird weiter als Erkennungsfehler gezählt. Maskierungen sind über
+als lesbare IDs bewertet. Dagegen bleiben `illegible`, maskierte, als Platzhalter
+ausgegebene oder fehlende Modell-IDs bei lesbarer Referenz Erkennungsfehler.
+Nur Referenzbelege begründen den Ausschluss. Maskierungen sind über
 `masked_user_id_pattern` und `missing_user_ids` konfigurierbar. Eine schwarze
 Abdeckung im PDF kann der Excel-Abgleich selbst nicht erkennen; unklare Fälle
 müssen am Seitenbild kontrolliert werden.

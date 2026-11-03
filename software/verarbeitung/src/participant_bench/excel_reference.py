@@ -2,7 +2,7 @@
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from zipfile import BadZipFile
 
@@ -54,6 +54,7 @@ class ReferencePerson:
     first_name: str
     last_name: str
     short_code: str
+    field_states: dict[str, str] = field(default_factory=dict)
 
     @property
     def name_key(self) -> tuple[str, str, str] | None:

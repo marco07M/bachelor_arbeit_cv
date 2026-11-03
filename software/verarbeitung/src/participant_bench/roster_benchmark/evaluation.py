@@ -23,7 +23,7 @@ from .matching import Prediction
 from .metrics import aggregate, course_metrics
 from .references import read_reference
 
-VERSION = "roster-levenshtein-v4-source-order"
+VERSION = "roster-levenshtein-v5-reference-denominators"
 DEFINITIONS = {
     "output_order": "PDF input order, page number and original output_index. Reference-only rows follow "
                     "the extracted participants separately; reference order never reorders predictions.",
@@ -39,7 +39,7 @@ DEFINITIONS = {
     "best_fit_objective": "For N readable predictions and M references, each real pair has utility "
                           "4*min(N,M)+1 plus its assessable field-similarity sum; dummy pairs have utility zero. "
                           "This implements lexicographic maximization of pair count and then total field credit. "
-                          "It does not claim to maximize the F1 ratio under pair-dependent masking exclusions.",
+                          "It maximizes field credit, not the F1 ratio when assessability depends on the reference pair.",
     "ambiguity": "If removing a selected pair admits a near-equivalent global solution, best_fit retains the "
                  "evaluation pairing with a review flag; conservative mode discards it. A best-fit pairing is "
                  "not a confirmed identity. The conservative score is reported separately for comparison.",
@@ -47,9 +47,18 @@ DEFINITIONS = {
                      "it is not an independent authentication of participant identity or a calibrated correctness probability.",
     "scope": "Only reference training IDs present in the input PDF filenames enter the denominator. "
              "Unprocessed reference courses and PDFs without a reference course are separately disclosed.",
-    "masking": "Empty/masked reference IDs are excluded. Explicit masked/placeholder prediction IDs are excluded and "
-               "flagged for confirmation in the PDF. Unknown/missing prediction IDs with readable reference IDs remain errors. "
-               "Excluded counts are disclosed because coverage can differ between methods.",
+    "masking": "Only reference evidence determines exclusions. Masked/unknown reference values are excluded. "
+               "Missing, illegible and placeholder model IDs against readable references remain errors with zero credit. "
+               "Nonempty placeholders also count as predicted fields; methods share the same reference denominator.",
+    "empty_reference": "Unannotated blank roster cells are unknown, not asserted empty. Optional field__state or "
+                       "<column> – Status values empty/read/unknown/masked/illegible distinguish evidence. "
+                       "Known-empty detection is separate: no positive information credit; hallucinations increase P.",
+    "completeness": "For readable nonempty reference fields: exact + incorrect + missing = R. Invalid placeholders "
+                    "are a disclosed subset of missing usable information, while counting as nonempty predictions. "
+                    "Coverage = (R-missing)/R; this is availability, not correctness.",
+    "name_orientation": "If compare_name_orientations is enabled, compare whole first/last name groups both ways "
+                        "per candidate, retain direct on ties. Reference-assisted role selection is logged; source "
+                        "values are never rewritten. This is roster agreement, not independent name-role accuracy.",
     "raw": "Pure OCR text cannot be scored as participant fields against a roster. ocr_raw remains not_applicable; "
            "use independent page transcripts and evaluate-ocr for CER/WER.",
     "limitations": "A course roster may contain enrolled or completed users who do not appear in the PDF. "
@@ -127,6 +136,13 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
         references[person.class_id].append(person)
     metrics, course_rows, row_details, field_details, all_candidates, unassessed = {}, [], [], [], [], []
     extraction_hashes = {}
+    expected_pages = {(p["document_id"], p["page_number"]) for p in manifest.get("pages", [])
+                      if p.get("document_id") in mapping and mapping[p["document_id"]] in courses_in_scope}
+    if not expected_pages:
+        for method in selected:
+            for item in read_jsonl(source / method / "extractions.jsonl") if (source / method / "extractions.jsonl").is_file() else []:
+                if mapping.get(item.get("document_id")) in courses_in_scope:
+                    expected_pages.add((item["document_id"], item["page_number"]))
     workbook_groups = {method: [] for method in selected}
     for method in selected:
         status = summary[method].get("status", "unknown")
@@ -143,6 +159,8 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                 pages.append(PageResult.model_validate(item))
             except ValidationError:
                 raise ValueError("Ungültiges Seitenergebnis; Schema und Methode im lokalen Quelllauf prüfen") from None
+        successful = {(p.document_id, p.page_number) for p in pages
+                      if p.status not in ("failed", "unavailable") and p.parse_status == "valid"}
         for page in sorted(pages, key=lambda p: page_key(p, documents_in_order)):
             key = page.document_id, page.page_number
             if key in seen or page.method_id != method:
@@ -192,8 +210,31 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                                excluded_instructors=excluded_instructors,
                                source_extraction_file_present=extraction.is_file(),
                                runtime_seconds=summary[method].get("actual_method_wall_seconds"))
+        technical = dict(expected_pages=len(expected_pages), successful_pages=len(expected_pages & successful),
+                         missing_result_pages=len(expected_pages-seen),
+                         schema_failure_pages=sum(p.parse_status == "invalid" for p in pages
+                                                  if (p.document_id, p.page_number) in expected_pages),
+                         failed_pages=sum(p.status == "failed" for p in pages if (p.document_id, p.page_number) in expected_pages),
+                         unavailable_pages=sum(p.status == "unavailable" for p in pages if (p.document_id, p.page_number) in expected_pages))
+        technical["page_success_rate"] = technical["successful_pages"] / len(expected_pages) if expected_pages else None
+        expected_docs = {doc for doc, course in mapping.items() if course in courses_in_scope}
+        technical["expected_documents"] = len(expected_docs)
+        technical["successful_documents"] = sum(any(key[0] == doc for key in expected_pages) and
+                                                 all(key in successful for key in expected_pages if key[0] == doc)
+                                                 for doc in expected_docs)
+        technical["document_success_rate"] = technical["successful_documents"] / len(expected_docs) if expected_docs else None
+        metrics[method]["technical"] = technical
+        successful_courses = {course for course in courses_in_scope
+                              if any(mapping[doc] == course for doc, _ in expected_pages)
+                              and all(key in successful for key in expected_pages if mapping[key[0]] == course)}
+        conditional = [score for score in course_scores if score["class_id"] in successful_courses]
+        metrics[method]["conditional_successful_courses"] = aggregate(conditional) if conditional else None
+        metrics[method]["exclusion_reasons"] = dict(
+            reference_unknown_or_masked=metrics[method]["overall"]["excluded_reference_fields"],
+            reference_known_empty=metrics[method]["overall"]["reference_empty_fields"])
         if conservative_scores:
             baseline = aggregate(conservative_scores)
+            metrics[method]["conservative_comparison"] = baseline
             metrics[method]["conservative_score_percent"] = baseline["score_percent"]
             metrics[method]["conservative_assigned_participants"] = baseline["assigned_participants"]
         if extraction.is_file() and file_hash(extraction) != extraction_hashes[method]:
@@ -215,6 +256,18 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     for row in field_details:
         row["field_label"] = labels[row["field"]]
     methods_in_order = {method: index for index, method in enumerate(selected)}
+    evaluated = {method: score for method, score in metrics.items() if score["status"] == "evaluated"}
+    denominators = {score["overall"]["reference_fields"] for score in evaluated.values()}
+    if len(denominators) > 1:
+        raise ValueError("Unterschiedliche Referenznenner zwischen Verfahren")
+    for score in evaluated.values():
+        counts = score["overall"]
+        if counts["exact_fields"] + counts["incorrect_fields"] + counts["missing_fields"] != counts["reference_fields"]:
+            raise ValueError("Feldzählung ist nicht mit dem Referenznenner konsistent")
+        if score.get("conservative_comparison", {}).get("overall", counts)["reference_fields"] != counts["reference_fields"]:
+            raise ValueError("Konservative Zuordnung hat einen anderen Referenznenner")
+    write_json(output / "metric_checks.json", dict(reference_denominator_equal=True, field_counts_reconcile=True,
+                                                  reference_fields=next(iter(denominators), None)))
     row_details = ordered_rows(row_details, documents_in_order, methods_in_order)
     field_details = ordered_rows(field_details, documents_in_order, methods_in_order)
     write_json(output / "metrics.json", dict(version=VERSION, scope=scope, methods=metrics, matching_mode=config.matching.mode,
@@ -241,12 +294,31 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                packages={name: importlib.metadata.version(name) for name in ("numpy", "scipy", "openpyxl", "pydantic", "pyyaml")},
                implementation={path.name: file_hash(path) for path in Path(__file__).parent.glob("*.py")},
                shared_implementation={name: file_hash(Path(__file__).parent.parent / name) for name in
-                   ("hybrid_evaluation.py", "evaluation.py", "identifiers.py", "excel_columns.py", "output_order.py")},
+                   ("hybrid_evaluation.py", "evaluation.py", "identifiers.py", "excel_columns.py", "excel_reference.py",
+                    "reference_states.py", "output_order.py")},
                evaluated_at=datetime.now(timezone.utc).isoformat(), duration_seconds=time.perf_counter() - started))
     from .report import render
 
     write_participants_xlsx(output / "participants.xlsx", workbook_groups, columns,
                             references=(person for person in data.people if person.class_id in courses_in_scope))
+    from openpyxl import load_workbook
+
+    book = load_workbook(output / "participants.xlsx")
+    for title, records in (("Metriken", [dict(method=method, **score.get("overall", {}),
+                                           **{key: score.get(key) for key in ("reference_participants", "predicted_participants",
+                                               "assigned_participants", "missing_participants", "extra_participants", "runtime_seconds")},
+                                           technical_success_rate=score.get("technical", {}).get("page_success_rate"))
+                                         for method, score in metrics.items()]),
+                           ("Feldmetriken", [dict(method=method, field=field, **values)
+                                           for method, score in metrics.items() for field, values in score.get("fields", {}).items()])):
+        sheet = book.create_sheet(title)
+        keys = list(dict.fromkeys(key for record in records for key in record))
+        sheet.append(keys)
+        for record in records:
+            sheet.append([record.get(key) for key in keys])
+        sheet.freeze_panes = "A2"
+    book.save(output / "participants.xlsx")
+    book.close()
     if "vlm" in selected and "ocr_vlm" in selected:
         from ..hybrid_evaluation import compare_fields, export_analysis
         from .matching import normalize

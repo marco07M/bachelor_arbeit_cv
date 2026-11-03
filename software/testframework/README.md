@@ -46,8 +46,13 @@ automatisch anhand von Modellvorhersagen verändert.
 Die Extraktion entscheidet Vor-/Nachnamensrollen pro Dokument anhand von
 Überschriften, Tabellenzellen und Namensreihenfolge. Diese Modellentscheidung
 wird für Folgeseiten wiederverwendet und im verlinkten Extraktionsreport sowie
-`document_name_orders.csv` dokumentiert. Die Excel-Datei wird erst anschließend
-zum Vergleich eingelesen; sie entscheidet nicht über die Namensrollen.
+`document_name_orders.csv` dokumentiert. Die Extraktion entscheidet ohne Referenz.
+Im aktiven Vergleich werden anschließend beide Orientierungen vollständiger
+Namensgruppen geprüft (`matching.compare_name_orientations: true`). Die höhere
+Namensähnlichkeit gewinnt, bei Gleichstand bleiben die ursprünglichen Rollen.
+Dies ist eine referenzgestützte Bewertungszuordnung, kein Nachweis korrekt
+extrahierter Namensrollen. Tausche und beide Kandidatenähnlichkeiten werden
+protokolliert; Originalwerte und Quellenreihenfolge bleiben erhalten.
 
 Vor dem Modelllauf nur Ordner, Spalten und gemeinsame Schulungs-IDs prüfen:
 
@@ -71,7 +76,9 @@ nicht zwingend den F1-Quotienten bei paarabhängigen Maskierungsausschlüssen.
 Schwache und nahezu gleichwertige Paarungen bleiben im Best-Fit-Vergleich erhalten
 und werden als prüfpflichtig markiert. Die bisherigen Grenzen von 0,80/0,70
 dienen dann als Prüfhinweise. Diese Best-Fit-Paare bestätigen keine Identitäten.
-Im Referenzabgleich werden Felder weder vertauscht noch durch Referenzwerte korrigiert. Bei weniger
+Im Referenzabgleich dürfen ausschließlich vollständige Namensgruppen gemäß der
+obigen Option für die Bewertung vertauscht werden. Keine Schreibweise und keine
+Originalextraktion wird durch Referenzwerte korrigiert. Bei weniger
 Ausgaben als Referenzen bleiben Personen fehlend; bei mehr Ausgaben bleiben
 zusätzliche Datensätze übrig. Völlig unlesbare Ausgaben erhalten kein erfundenes Paar.
 
@@ -256,11 +263,13 @@ für den lokalen Rechner und den Firmen-PC aktiviert. Historische Reports ohne
 diese Einstellung behalten beim erneuten Öffnen ihrer Detailansicht die alte
 Berechnung. Für eine neue Bewertung gespeicherter Extraktionen genügt `compare`;
 eine erneute Modellinferenz ist nicht nötig.
-Originalschreibweise und normalisierte Exaktheit werden separat ausgewiesen:
+Intern werden Originalschreibweise und normalisierte Exaktheit separat erhalten:
 Ein Treffer nach Entfernung der Nullen kann bei `raw_exact` weiterhin falsch und
 bei `exact` richtig sein. Alle drei HTML-Berichte erklären die gespeicherte Regel.
 
-Die Hauptzahl pro Modell ist der **Levenshtein-Feld-F1**:
+Primär zeigt der Bericht den **exakten Feld-Recall**: exakt erkannte nichtleere
+Informationswerte geteilt durch alle bewertbaren erwarteten Werte. Ergänzend
+stehen Feldabdeckung, exakter Feld-F1 und **Levenshtein-Feld-F1**:
 
 ```text
 100 × 2 × Summe der Feldähnlichkeiten
@@ -277,16 +286,30 @@ bewertbaren Feldern tragen entsprechend stärker zum Gesamtwert bei (Mikroaggreg
 
 Beispiel: Vier ausgegebene und vier lesbare Referenzfelder, davon drei exakt und
 ein Vorname mit einem Fehler wie oben: exakter Feld-F1 **75 %**, Levenshtein-Feld-F1
-**93,75 %**. Die bloße Referenztrefferquote bestraft zusätzliche Zeilen nicht und
-steht deshalb nicht allein als Hauptzahl im Bericht.
+**93,75 %**. Die Referenztrefferquote bestraft zusätzliche Zeilen nicht;
+zusätzliche Ausgaben und F1 werden deshalb daneben ausgewiesen.
 
 Leere/maskierte **Referenz-IDs** sind nicht bewertbar und gehen nicht in den ID-Nenner
-ein. Eindeutig maskierte/Platzhalter-Modellwerte werden ebenfalls ausgeschlossen und
-zur Bestätigung am PDF markiert. Fehlende bzw. unbekannte Modell-IDs mit lesbarer
-Referenz zählen dagegen als Fehler. **Maskierungen möglichst bereits in der manuell
+ein. Maskierte/Platzhalter-Modellwerte bei lesbarer Referenz bleiben Fehler mit null
+Teilpunkten; sie dürfen den Referenznenner nicht verkleinern. Nichtleere Platzhalter
+zählen auch im Vorhersagenenner. **Maskierungen möglichst bereits in der manuell
 geprüften Referenz markieren**: Ein Modell-`null` allein beweist keine Schwärzung.
-Ausschlüsse und verbleibende Feldabdeckung werden angezeigt, weil die bewertete
-Menge sonst zwischen Modellen unterschiedlich sein kann.
+Ausschlüsse, falsche und fehlende Felder sowie Feldabdeckung werden getrennt
+angezeigt. Für alle strukturierten Verfahren wird derselbe Referenznenner geprüft.
+
+Unannotierte leere Referenzzellen gelten als unbekannt. Nachweislich leere Zellen
+können optional über `first_name__state`, `last_name__state`, `user_id__state`,
+`short_code__state` oder `<Originalspaltenname> – Status` markiert werden.
+Erlaubt: `read`, `empty`, `unknown`, `masked`, `illegible`, `uncertain`.
+`empty` verlangt einen leeren Wert. Korrekte Leerzellen geben keine positiven
+Informationspunkte; erfundene Werte erhöhen den Vorhersagenenner. Die vorhandene
+Referenz wird nicht automatisch annotiert oder verändert.
+
+Mathematische Prüfung, Docling-Befunde und Metrikempfehlung:
+[Evaluationsaudit](../docs/evaluation-audit.md). Technischer Seitenerfolg,
+End-to-End-Auswertung und bedingte Auswertung vollständig erfolgreicher Kurse
+werden getrennt gespeichert. Eine Kursliste erlaubt keine bedingte Bewertung
+einzelner Seiten ohne manuell geprüfte Seitentranskripte.
 
 Ausgegebene unsichere Textwerte werden standardmäßig inhaltlich bewertet, bleiben
 aber als prüfpflichtig markiert. Mit `matching.score_uncertain_values: false` zählen
@@ -324,7 +347,7 @@ Ergebnisse lässt er sich ohne Modelllauf ergänzen:
 
 Jeder neue Vergleich enthält zusätzlich `details.html`. Dort lässt sich der
 Gesamtwert bis zum einzelnen Feld zurückverfolgen: Referenzzeile, PDF-Datei,
-Seite, Ausgabeindex, Original- und normalisierte Werte, Feldstatus, Levenshtein-
+Seite, Ausgabeindex, Originalwerte und eine Bewertung nach Normalisierung, Feldstatus, Levenshtein-
 Distanz, maximale Zeichenlänge, Teilpunkte und Beiträge zu Referenz-/Ausgabenenner.
 Die Summen werden gegen die gespeicherten Kennzahlen geprüft. Unterseiten pro
 Verfahren und Schulung bieten Suche und Filter sowie sämtliche Referenzkandidaten
