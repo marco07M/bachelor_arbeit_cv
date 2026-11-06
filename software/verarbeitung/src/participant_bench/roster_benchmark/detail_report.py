@@ -439,4 +439,7 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
     from .assignment_report import render_assignments
 
     render_assignments(output, source_run=source)
+    from .error_report import render_errors
+
+    render_errors(output, source_run=source)
     return path

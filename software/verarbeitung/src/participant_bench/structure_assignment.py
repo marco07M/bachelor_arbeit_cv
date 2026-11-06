@@ -11,7 +11,7 @@ from statistics import median
 from .schema import TEXT_FIELDS, Box, TextField
 from .unlimited_assignment import header_fields, source_rows
 
-VERSION = "structure-spatial-assignment-v8-document-columns"
+VERSION = "structure-spatial-assignment-v9-observed-header-cells"
 
 
 def document_bands(recognized, rows, bands, previous, *, document_id, page_number):
@@ -46,9 +46,86 @@ def document_bands(recognized, rows, bands, previous, *, document_id, page_numbe
     inherited = {}
     if trace["status"] in ("detected_on_current_page", "updated_on_current_page"):
         context["field_bands"] = bands
+        # Completion needs a physical cell, not the broad text bands used for validation.
+        # In particular the last text band can extend through signature columns.
+        context["observed_cell_bands"] = observed_cell_bands(rows, profile)
+        trace["observed_cell_bands"] = context["observed_cell_bands"]
     elif trace["status"] == "inherited_from_previous_page":
         inherited = project_bands(context.get("field_bands", {}), context["geometry"], profile)
+        trace["observed_cell_bands"] = project_bands(context.get("observed_cell_bands", {}), context["geometry"], profile)
     return inherited, context, trace
+
+
+def observed_cell_bands(rows, profile):
+    """Bound two scalar roles by measured grid lines and actual printed headings."""
+    if not profile or profile.get("basis") != "measured_grid_lines":
+        return {}
+    edges, columns = profile["edges"], {}
+    for row in rows:
+        cells = row.get("native_cells", [])
+        found = {f for cell in cells for f in cell.get("header_fields", [])}
+        if not (found & {"first_name", "last_name"} and len(found & set(TEXT_FIELDS)) >= 2):
+            continue
+        for cell in cells:
+            box = cell.get("bbox")
+            if not box:
+                continue
+            for field in cell.get("header_fields", []):
+                for i, (left, right) in enumerate(zip(edges, edges[1:])):
+                    if left <= box["x0"] < box["x1"] <= right:
+                        columns.setdefault(field, set()).add(i)
+    result = {}
+    for field in ("personnel_number", "department"):
+        candidates = columns.get(field, set())
+        if len(candidates) != 1:
+            continue
+        index = next(iter(candidates))
+        if any(index in cols for other, cols in columns.items() if other != field):
+            continue
+        result[field] = [edges[index], edges[index+1]]
+    return result
+
+
+def complete_observed_cells(people, proofs, rows, mapping_trace):
+    """Fill omitted scalar fields only for existing, grounded people in measured header columns.
+
+    No reference, previous participant value, confidence cutoff, name guess or
+    missing-OCR-as-empty inference is involved. Ambiguous or split cells stay unknown.
+    """
+    if mapping_trace.get("status") not in (
+            "detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page"):
+        return []
+    by_id, changes = {row["id"]: row for row in rows}, []
+    for index, (person, proof) in enumerate(zip(people, proofs, strict=True)):
+        row = by_id.get(proof.get("source_row"), {})
+        if not any(getattr(person, f).value for f in ("first_name", "last_name", "personnel_number")):
+            continue
+        for field, (left, right) in mapping_trace.get("observed_cell_bands", {}).items():
+            if field not in ("personnel_number", "department") or getattr(person, field).value is not None:
+                continue  # Explicit empty or a surviving model answer remains authoritative.
+            candidates = [cell for cell in row.get("native_cells", []) if cell.get("text", "").strip()
+                and cell.get("bbox") and not cell.get("header_fields") and
+                left <= (cell["bbox"]["x0"]+cell["bbox"]["x1"])/2 < right]
+            if len(candidates) != 1:
+                continue
+            cell = candidates[0]
+            if cell["bbox"]["x0"] < left or cell["bbox"]["x1"] > right:
+                continue
+            # A masked identifier is not a readable identifier; its OCR observation stays in the ledger.
+            if field == "personnel_number" and re.search(r"[*█■]{2,}|[xX]{3,}", cell["text"]):
+                continue
+            prior = getattr(person, field).model_dump()
+            setattr(person, field, TextField(value=cell["text"], state="uncertain", bbox=Box.model_validate(cell["bbox"])))
+            item = dict(text=cell["text"], bbox=cell["bbox"], native_ref=cell.get("native_ref"),
+                ocr_confidence=cell.get("ocr_confidence"))
+            proof["fields"][field] = dict(text=cell["text"], bbox=cell["bbox"],
+                native_ref=cell.get("native_ref"), ocr_observations=[item],
+                assignment_rule="unique_observed_cell_in_measured_header_column", observation_state="uncertain",
+                mapping_provenance=mapping_trace, replaced_field=prior)
+            person.review_notes.append(f"{field}: eindeutige OCR-Zelle in gemessener Überschriftenspalte ergänzt; manuell prüfen")
+            changes.append(dict(output_index=index, field=field, source_row=proof["source_row"],
+                                **proof["fields"][field]))
+    return changes
 
 
 def rectangle(value, width, height):

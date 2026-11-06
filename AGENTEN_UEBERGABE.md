@@ -1,12 +1,51 @@
 # Projektstand und Übergabe für folgende Agenten
 
-Zuletzt aktualisiert: **2026-11-03** (Europe/Berlin).
+Zuletzt aktualisiert: **2026-11-06** (Europe/Berlin).
 
 Diese Datei auf Wunsch des Nutzers bei Änderungen fortschreiben. Einstieg und
 Pflegepflicht stehen in [AGENTS.md](AGENTS.md). Sie ist die zentrale Übergabe,
 auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
+
+### Extraktionsqualität und separate Fehleranalyse (06.11.)
+
+Ausgangsbericht `software/testframework/ergebnisse/20261106T081128Z-0011a735/`,
+Quelllauf `software/runs/20261106T080030Z-f1e4fa77/`. Bestätigt: OCR-LLM auf
+Seite 2 übergibt alle 51 Wörter, Modell liefert null Personen; Docling hält
+66 Beobachtungen, aber keine verlässliche Spaltenzuordnung und null Personen.
+Paddle erkennt Organisationszellen, das LLM lässt deren Zielfeld leer.
+Implementiert: konservative Ergänzung fehlender skalarer Felder vorhandener
+Personen ausschließlich aus einer einzelnen aktuellen OCR-Zelle innerhalb
+gemessener, durch Überschriften belegter Spaltengrenzen; kompatible Übernahme
+innerhalb derselben PDF. Unsicherheitsmarkierung statt Confidence-Löschung.
+Neue Funktion `complete_observed_cells` in `structure_assignment.py`, Integration
+in `unlimited_assignment.py`; sieben ergänzte Zellen auf der zweiten Paddle-Seite.
+Kontrollierter Replay und zwei neue lokale LLM-Antworten bestätigen: Paddle
+38 → 40 korrekt, 15 → 20 falsch, 19 → 12 fehlend; 18 Personen unverändert.
+Alle bisherigen Treffer und Referenzpaarungen bleiben erhalten. Recall steigt
+52,78 → 55,56 %, exakter F1 fällt 60,80 → 60,61 %; fünf zusätzliche falsche
+Werte sind ein relevanter Zielkonflikt, keine uneingeschränkte Verbesserung.
+OCR-LLM bleibt 23/72 exakt, Docling 19/72; dort keine neue Qualität behauptet.
+Aktiver Schritt nur im räumlichen Zuordnungspfad; keine unsicheren Docling-
+Spaltenrollen ergänzt, keine Modellgewichte oder Referenzen geändert.
+Neue `roster_benchmark/error_report.py` wird über `detail_report.py` erzeugt,
+mit statischer verlinkter HTML-Seite, sechs Filtern, OCR-Belegen, lokalen Crops
+und expliziter Beleglage. Kursreferenzen ohne Paarung bekommen keine erfundene
+Seitenzuordnung. Ausgabe folgt der PDF-/Seiten-/Modellreihenfolge.
+Lokaler Vergleich: `software/runs/extraction-quality-20261106-final/report.html`,
+Analyseseite in `after/extraction_errors.html`, Herkunft/Zähler in `qa.json` und
+`comparison.json`. Neuer realer Paddle-Zuordnungslauf:
+`software/runs/extraction-quality-20261106-live/`, Auswertung daneben in
+`software/runs/extraction-quality-20261106-live-comparison/` (88,29 s nur Zuordnung,
+zwei Generierungen, keine erneute OCR; keine neue End-to-End-Zeit behauptet).
+668 lokale Volltests (48,80 s), 48 API-Tests (8,07 s) und 41 gezielte Tests
+(1,41 s) bestanden; Ruff ohne Befund. Filter mit lokalem
+Node ausgeführt; grafische Sichtprüfung wegen fehlendem Computer-Use-Laufzeitpfad
+nicht möglich. Zahlen von HTML-Feldfällen, CSV und JSON-Metriken stimmen überein.
+Dokumentation: `software/docs/extraction-error-analysis.md`.
+Offen bleiben OCR-Handschriftqualität, belastbare native Folgetabellen und
+unabhängige Referenzlokalisierung; keine erfundenen OCR-Ursachen bei fehlenden Belegen.
 
 ### Vollständige OCR-Beobachtungen und Verlustdiagnose (03.11.)
 
@@ -700,3 +739,46 @@ auf die dort datierten Stände.
 - **Offen / nächster Schritt:** unabhängige Handschriftregionen transkribieren
   und weitere reale Entwicklungsdaten ergänzen; danach gezielte Erkennungs-/
   Zuordnungsvarianten messen. Unzugeordnete Rohtexte nie als richtige Felder zählen.
+
+### 2026-11-06 – Extraktionsqualität und feldweise Fehleranalyse
+
+- **Auftrag:** aktuelle Verluste in OCR-LLM/Paddle/Docling untersuchen, belegte
+  Verluste beheben und separate filterbare HTML-Analyseseite ergänzen.
+- **Dateien:** `structure_assignment.py`, `unlimited_assignment.py` (eindeutige
+  aktuelle skalare OCR-Zellen nach gemessener Überschriftenspalte ergänzen,
+  aktuelle/geerbte Herkunft und vorherigen Zustand protokollieren, v9/v21/v22);
+  `ocr_observations.py` (Paddle-Eingangsbelege und Vorschlagszahlen);
+  `roster_benchmark/error_report.py` und `detail_report.py` (automatisch verlinkte
+  Analyseseite, JSON, Prüfzähler, lokale Crops, CSP-Hash, sechs Filter);
+  `scripts/check_extraction_quality.py`, zwei neue Testmodule,
+  `software/testframework/README.md`, `software/docs/extraction-error-analysis.md`
+  und diese Übergabe.
+- **Ursachen:** Tesseract Seite 2 vollständig übergeben, aber leere LLM-Antwort;
+  Docling ohne eindeutige Überschriften und beschädigter nativer Folgetabelle;
+  Paddle liest Organisationszellen, Modell lässt Zielfelder leer. Keine
+  nachgewiesene Confidence-Löschung in diesen Läufen. Belegablehnungen werden
+  separat von OCR-Lesefehlervermutungen und unbekannten Ursachen angezeigt.
+- **Getestet / aktiv / nachgewiesen:** räumliche Zellergänzung ist aktiv, alle
+  Ergänzungen unsicher markiert; Originaltexte unabhängig von Scores erhalten.
+  Replay bei gleichen Antworten und echter lokaler Paddle-Lauf mit zwei neuen
+  Antworten liefern dieselben Feldwerte. Zwei neue exakte Organisationsfelder
+  auf Seite 2, keine verlorenen Treffer oder geänderten Paarungen. Fünf weitere
+  falsche Werte: Recall verbessert, exakter F1 geringfügig schlechter. Kein
+  pauschaler Qualitätsgewinn; OCR-LLM und Docling unverändert.
+- **Artefakte:** finaler Vorher-/Nachher-Vergleich unter
+  `software/runs/extraction-quality-20261106-final/`, nachher
+  `after/extraction_errors.html`; `comparison.json` und `qa.json` belegen
+  identische Originaldateien, unveränderte Paarungen, Live-/Replay-Gleichheit
+  und Übereinstimmung der HTML-Feldfallzahlen mit CSV-/JSON-Metriken.
+- **Prüfungen:** 668 lokale Volltests in 48,80 s, 48 API-Tests in 8,07 s,
+  41 gezielte Tests in 1,41 s; Ruff ohne Befund. Kombinierte Filter mit Node
+  ausgeführt, HTML-Escaping und CSP geprüft. Grafische Sichtabnahme nicht
+  möglich (Computer-Use-Node-Laufzeitpfad fehlt), in Dokumentation ausgewiesen.
+  Reale Zuordnung 88,29 s ohne erneute OCR; Replay-Nachbearbeitung rund 0,0045 s,
+  ausdrücklich keine neue vollständige Pipeline-Laufzeit.
+- **Offen / nächster Schritt:** bessere OCR-Handschriftqualität und native
+  Spaltenrekonstruktion an unabhängigen Dokumenten untersuchen. Kursreferenzen
+  ohne Paarung bleiben ohne erfundene Seitenlokalisierung; für feldgenaue
+  Trennung von Nicht-Erkennung/Lesefehler/Zuordnungsfehlern fehlen geprüfte
+  Referenzkoordinaten. Historische Läufe, Referenzen und Modellgewichte bleiben
+  unverändert; personenbezogene Ergebnisartefakte werden nicht eingecheckt.

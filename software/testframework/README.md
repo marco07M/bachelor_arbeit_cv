@@ -354,6 +354,16 @@ Verfahren und Schulung bieten Suche und Filter sowie sämtliche Referenzkandidat
 mit Zuordnungsschwellen und Ablehnungsgründen. Hinweise auf vertauschte Namen
 dienen ausschließlich der Diagnose und verändern keine Werte oder Scores.
 
+Zusätzlich verlinkt `extraction_errors.html` die **Extraktionsfehleranalyse**:
+Referenz-/Original-/Bewertungswerte, vollständige OCR-Belege und Tabellenzellen,
+Ablehnungsstufen und lokale Quellbereiche. Filter stehen für Verfahren,
+PDF-Seite, Feldtyp, Fehlerkategorie, Beleglage und Bewertung zur Verfügung.
+Nachgewiesene Ursachen, Vermutungen und unbekannte Ursachen bleiben getrennt.
+Nicht gepaarte Kursreferenzen haben ohne Referenzkoordinaten ausdrücklich
+keine behauptete PDF-Seite. Die Ansicht verändert weder Extraktion noch Scores.
+Hintergrund, Grenzen und kontrollierter Vergleich:
+[Extraktionsqualität und Fehleranalyse](../docs/extraction-error-analysis.md).
+
 Bei bestehenden Berichten ohne erneute Modellaufrufe ergänzen:
 
 ```powershell
@@ -374,6 +384,8 @@ software/testframework/ergebnisse/<VERGLEICHS_ID>/
 ├── report.html                 # Modellvergleich, Teilpunkte, exakte Treffer, Kurse
 ├── zuordnungen.html            # Erkannter Name → Referenzname, Entscheidung und Alternativen
 ├── details.html                # Vollständige Erklärung der gespeicherten Berechnung
+├── extraction_errors.html      # Filterbare Extraktionsfehleranalyse mit OCR-Belegen
+├── error_analysis/             # Feldursachen, Prüfzähler und lokale Bildausschnitte
 ├── details/                    # Einzelvergleiche je Modell/Kurs und Summen-/Herkunftskontrolle
 ├── participants.xlsx           # Original-Spaltennamen: Modelle, Referenz und Quellen
 ├── summary.csv                 # Gesamtzahlen pro Modell

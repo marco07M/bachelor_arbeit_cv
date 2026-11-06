@@ -107,6 +107,24 @@ def audit(raw, page):
                 submission_known = True
             except (TypeError, ValueError, IndexError):
                 pass
+    assignment = raw.get("assignment", {})
+    if assignment:
+        proposed = len(assignment.get("participants_before_validation", []))
+        try:
+            payload = json.loads(assignment.get("text_prompt", "{}"))
+            # Exact text AND native geometry prove an observation was in the saved
+            # prompt. Older prompts without cell evidence remain unknown.
+            prompt_rows = payload.get("current_rows", payload.get("rows", []))
+            if prompt_rows and all("layout_cells" in row for row in prompt_rows):
+                for item in items:
+                    matches = [row["id"] for row in prompt_rows for cell in row["layout_cells"]
+                               if len(cell) >= 2 and cell[0] == item["text"] and cell[1] == item["bbox"]]
+                    if matches:
+                        submitted.add(item["id"])
+                        row_refs[item["id"]] = matches[0]
+                submission_known = True
+        except (ValueError, TypeError, KeyError):
+            pass
     for row in layout.get("text_rows", []):
         indices = {i for cell in row["cells"] for i in cell.get("word_ids", [])}
         if not indices and row.get("original_source_row", "").startswith("r"):
@@ -124,6 +142,7 @@ def audit(raw, page):
     grid = [cell for row in native_rows for cell in row["cells"]]
     people = final.get("participants", [])
     rejected = [item for response in raw.get("responses", []) for item in response.get("rejected_rows", [])]
+    rejected.extend(assignment.get("rejected_rows", []))
     for item in items:
         item.update(page_id=final.get("page_id", raw.get("page_id")), page_number=final.get("page_number"),
                     document_id=final.get("document_id"), source_row=row_refs.get(item["id"]))
@@ -132,9 +151,10 @@ def audit(raw, page):
             return box and candidate and candidate["x0"] <= (box["x0"]+box["x1"])/2 <= candidate["x1"] and (
                 candidate["y0"] <= (box["y0"]+box["y1"])/2 <= candidate["y1"])
         item["table_cells"] = [c.get("native_ref") for c in grid if inside(c.get("bbox")) and item["text"] in c["text"]]
-        item["submitted_to_assignment"] = (item["id"] in submitted if submission_known else None) if "ocr" in raw else (
+        item["submitted_to_assignment"] = (item["id"] in submitted if submission_known else None) if "ocr" in raw or assignment else (
             True if method == "docling" and item["table_cells"] else None)
-        item["input_link_basis"] = "saved_word_or_row_reference" if "ocr" in raw else "native_cell_literal_and_position"
+        item["input_link_basis"] = ("saved_word_or_row_reference" if "ocr" in raw else
+                                    "saved_layout_cell_text_and_position" if assignment else "native_cell_literal_and_position")
         item["structured_fields"] = [dict(output_index=i, field=field, state=person[field]["state"])
             for i, person in enumerate(people) for field in TEXT_FIELDS
             if person[field].get("value") and inside(person[field].get("bbox")) and
@@ -149,7 +169,7 @@ def audit(raw, page):
             "structured_observed" if item["structured_fields"] else "unassigned")
         item["reason"] = ("field_has_literal_position_link" if item["structured_fields"] else
             "no_reliable_ocr_row" if item["id"] in {f"words/{i}" for i in layout.get("unassigned_word_ids", [])} else
-            "not_submitted_by_row_selection" if "ocr" in raw and item["submitted_to_assignment"] is False else
+            "not_submitted_by_row_selection" if item["submitted_to_assignment"] is False else
             "no_reliable_column_mapping_or_table_cell" if method == "docling" and not item["table_cells"] else
             "no_final_field_for_observation")
     count = Counter(item["assignment_state"] for item in items)
