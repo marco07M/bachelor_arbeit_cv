@@ -19,6 +19,7 @@ from .matching import FIELDS
 VERSION = "extraction-error-analysis-v1"
 CATEGORIES = {
     "none": "Kein bewerteter Feldfehler", "unknown": "Ursache unbekannt",
+    "name_swap": "Vor-/Nachname-Vertauschung (Swap)",
     "validation": "Beleg-/Positionsvalidierung", "column_mapping": "Fehlende Spaltenzuordnung",
     "not_submitted": "OCR-Beleg nicht an Zuordnung übergeben",
     "model_omission": "Erkannter Text ohne Feldübernahme",
@@ -83,7 +84,9 @@ def diagnose_field(row, page=None, raw=None, ledger=None):
     """Attribute only saved, local stage transitions; a missing GT string is not OCR failure."""
     raw, ledger = raw or {}, ledger or {}
     status, field = field_status(row), source_field(row)
+    name_swapped = bool(truth(row.get("name_swapped")))
     result = dict(result=status, category="unknown", certainty="unknown", stage="unknown",
+                  name_swapped=name_swapped,
                   reason="Die gespeicherten Daten belegen keine eindeutige Fehlerursache.", evidence=[], observations=[])
     if not page or not row.get("output_index"):
         # CSV output_index '0' is truthy; missing reference rows have an empty index.
@@ -104,11 +107,35 @@ def diagnose_field(row, page=None, raw=None, ledger=None):
     if not region and row_boxes:
         region = {k: op(b[k] for b in row_boxes) for k, op in (("x0", min), ("x1", max), ("y0", min), ("y1", max))}
     related = [o for o in ledger.get("observations", []) if overlaps(region, o.get("bbox"))]
-    result.update(observations=related, bbox=region, source_row=proof.get("source_row"), field_proof=field_proof)
+    provenance = field_proof.get("provenance") or proof.get("provenance")
+    result.update(
+        observations=related,
+        bbox=region,
+        source_row=proof.get("source_row"),
+        field_proof=field_proof,
+        provenance=provenance,
+        original_docling_value=field_proof.get("original_docling_value"),
+    )
     if status in ("correct", "unassessed", "extra"):
+        reason = "Gespeicherter Feldvergleich; die Referenzpaarung ist keine unabhängige Identitätsprüfung."
+        if name_swapped and row.get("field") in ("first_name", "last_name"):
+            reason += " Vor-/Nachnamensrollen wurden im Referenzvergleich über die Swap-Toleranz abgeglichen (Originalausgabe war vertauscht)."
         result.update(category="none" if status == "correct" else status, certainty="proven", stage="evaluation",
-                      reason="Gespeicherter Feldvergleich; die Referenzpaarung ist keine unabhängige Identitätsprüfung.")
+                      reason=reason)
         return result
+    expected = str(row.get("reference_value") or "").strip()
+    if status == "incorrect" and field in ("first_name", "last_name") and expected:
+        opposite_field = "last_name" if field == "first_name" else "first_name"
+        opposite_val = str(getattr(person, opposite_field).value or "").strip()
+        if opposite_val and opposite_val.casefold() == expected.casefold():
+            result.update(
+                category="name_swap",
+                certainty="proven",
+                stage="name_role_assignment",
+                name_swapped=True,
+                reason="Vor- und Nachname sind in der Vorhersage gegenüber der Referenz vertauscht (Swap-Fehler).",
+            )
+            return result
     if target.state == "failed" or field_proof.get("rejected"):
         notes = [n for n in person.review_notes if field in n]
         result.update(category="validation", certainty="proven", stage="validation",
@@ -123,7 +150,6 @@ def diagnose_field(row, page=None, raw=None, ledger=None):
         return result
     # Reference is used here only to explain the already frozen output. No global
     # search or fuzzy association to a different person/page is allowed.
-    expected = str(row.get("reference_value") or "").strip()
     text = " ".join(str(o["text"]) for o in related)
     local_literal = bool(expected and (any(expected == str(o["text"]).strip() for o in related) or
                                      expected in text.split("\n")))
@@ -237,6 +263,14 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
         card += f'<p><strong>{esc(CERTAINTY[certainty])}: {esc(CATEGORIES[category])}</strong> · Stufe: {esc(finding["stage"])}<br>{esc(finding["reason"])}</p>'
         if row.get("name_swapped") and truth(row["name_swapped"]):
             card += '<p>Vor-/Nachnamensrollen wurden ausschließlich im Referenzvergleich vertauscht; Originalausgabe bleibt unverändert.</p>'
+        if finding.get("provenance") == "docling_vlm_assist":
+            orig_docling = finding.get("original_docling_value")
+            card += (
+                f'<p><strong>Herkunft:</strong> Docling + VLM-Hybridstufe '
+                f'(Original-Docling: {esc(str(orig_docling if orig_docling is not None else "—"))})</p>'
+            )
+        elif finding.get("provenance") == "docling":
+            card += '<p><strong>Herkunft:</strong> Docling (deterministisch)</p>'
         if finding["evidence"]:
             card += '<pre>' + esc(json.dumps(finding["evidence"], ensure_ascii=False, indent=2)) + '</pre>'
         if page:

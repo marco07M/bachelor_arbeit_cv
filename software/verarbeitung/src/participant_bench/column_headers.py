@@ -19,7 +19,7 @@ def field_roles(text, aliases=ORGANIZATION_ALIASES):
     from .unlimited_assignment import header_fields
 
     roles = header_fields(text)
-    if normalized_heading(text) in {"unterschrift", "signature", "signatur"}:
+    if normalized_heading(text) in {"unterschrift", "signature", "signatur", "signetur"}:
         roles.add("signature")
     if normalized_heading(text) in {"datum", "date"}:
         roles.add("date")

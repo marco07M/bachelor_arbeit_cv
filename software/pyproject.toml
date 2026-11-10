@@ -51,6 +51,7 @@ torchvision = { index = "pytorch-cu126" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["api_firmen_pc"]
+cache_dir = ".cache/pytest_cache"
 
 [tool.ruff]
 line-length = 110

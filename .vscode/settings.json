@@ -29,5 +29,6 @@
     "**/.venv-before-layout/**": true,
     "**/models/**": true,
     "**/build/**": true
-  }
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }

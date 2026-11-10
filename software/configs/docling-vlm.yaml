@@ -1,0 +1,32 @@
+extends: benchmark.yaml
+main_comparison: false
+methods:
+- docling
+structures:
+  docling:
+    models_dir: models/docling
+    extraction: table
+    vlm_assist: true
+    device: cuda
+    table_mode: accurate
+    do_cell_matching: false
+    mapping: structured
+    organization_header_aliases:
+    - Organization
+    - Organisation
+    - Abteilung
+    - Organisationseinheit
+    - Org.-Einheit
+    - Org.
+    - Bereich
+    - Department
+    - Organizational Unit
+    - Organisational Unit
+    - Kurzzeichen
+    - Kürzel
+    - Kuerzel
+    - Org Unit
+    force_full_page_ocr: false
+    ocr_scale: 3.0
+    scan_input: rendered
+    timeout_seconds: 600

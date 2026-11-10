@@ -40,13 +40,39 @@ def geometry(width, rows=(), boundaries=None):
     return dict(width=width, edges=edges, basis="native_cell_geometry")
 
 
-def compatible(previous, current):
+def column_intervals(mapping, profile):
+    """Normalized X-intervals per mapped column from measured or native geometry."""
+    if not profile or not profile.get("edges"):
+        return {}
+    edges = profile["edges"]
+    intervals = {}
+    for field, cols in mapping.items():
+        valid = sorted(c for c in cols if isinstance(c, int) and 0 <= c < len(edges) - 1)
+        if len(valid) == 1:
+            c = valid[0]
+            intervals[field] = [edges[c], edges[c + 1]]
+        elif field == "signature" and valid:
+            intervals[field] = [edges[valid[0]], edges[valid[-1] + 1]]
+    return intervals
+
+
+def compatible(previous, current, *, text_width=None):
     if not previous or not current:
         return False, "missing_measured_column_geometry"
-    if previous["width"] != current["width"]:
-        return False, "different_column_count"
     if previous.get("basis") != current.get("basis"):
         return False, "different_geometry_basis"
+    if previous["width"] != current["width"]:
+        if (
+            text_width is not None
+            and 0 < text_width <= current["width"] < previous["width"]
+            and max(
+                abs(a - b)
+                for a, b in zip(previous["edges"][: current["width"] + 1], current["edges"], strict=True)
+            )
+            <= MAX_EDGE_SHIFT
+        ):
+            return True, "same_text_column_prefix_geometry"
+        return False, "different_column_count"
     if max(abs(a-b) for a, b in zip(previous["edges"], current["edges"], strict=True)) > MAX_EDGE_SHIFT:
         return False, "column_geometry_changed"
     return True, "same_column_count_and_normalized_geometry"
@@ -89,10 +115,14 @@ def resolve(mapping, headings, profile, previous=None, *, document_id=None, page
                  geometry=profile, reliability="structural_evidence_only")
     if has_header:
         if reliable(mapping) and not ambiguous:
+            intervals = column_intervals(mapping, profile)
+            text_width = max((c for key in TEXT_FIELDS for c in mapping.get(key, ())), default=-1) + 1
             trace.update(status="updated_on_current_page" if earlier else "detected_on_current_page",
-                         source_page=page_number, reason="explicit_current_headings")
+                         source_page=page_number, reason="explicit_current_headings",
+                         column_intervals=intervals)
             snapshot = dict(version=VERSION, document_id=document_id, source_page=page_number,
-                width=profile["width"] if profile else column_count, geometry=profile,
+                width=profile["width"] if profile else column_count, text_width=text_width, geometry=profile,
+                column_intervals=intervals,
                 mapping={key: sorted(cols) for key, cols in mapping.items()}, headings=deepcopy(headings))
             snapshot["column_order"] = [dict(column=c, fields=sorted(key for key, cols in mapping.items() if c in cols))
                                         for c in sorted({c for cols in mapping.values() for c in cols})]
@@ -101,11 +131,24 @@ def resolve(mapping, headings, profile, previous=None, *, document_id=None, page
         trace["reason"] = "ambiguous_current_headings"
         return mapping, {}, trace
     if earlier:
-        ok, reason = compatible(previous.get("geometry"), profile)
+        ok, reason = compatible(previous.get("geometry"), profile, text_width=previous.get("text_width"))
         trace.update(reason=reason, source_page=previous["source_page"],
                      status="inherited_from_previous_page" if ok else "incompatible_table_structure")
         if ok:
-            return {key: set(cols) for key, cols in previous["mapping"].items()}, previous, trace
+            inherited_mapping = {
+                key: {c for c in cols if profile is None or c < profile["width"]}
+                for key, cols in previous["mapping"].items()
+            }
+            inherited_mapping = {key: cols for key, cols in inherited_mapping.items() if cols}
+            trace["column_intervals"] = column_intervals(inherited_mapping, profile) or deepcopy(
+                previous.get("column_intervals", {})
+            )
+            trace["inherited_column_intervals"] = deepcopy(previous.get("column_intervals", {}))
+            return inherited_mapping, previous, trace
+        if reason in ("different_column_count", "missing_measured_column_geometry") and (
+            profile is None or profile["width"] <= previous.get("geometry", {}).get("width", 0)
+        ):
+            trace["inherited_column_intervals"] = deepcopy(previous.get("column_intervals", {}))
     elif previous:
         trace["reason"] = "document_or_page_order_mismatch"
     return {}, previous if scoped else {}, trace

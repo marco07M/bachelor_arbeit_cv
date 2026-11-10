@@ -67,6 +67,7 @@ class OCR:
             "executable": file_hash(Path(self.command)),
             "languages": {p.name: file_hash(p) for p in trained.glob("*.traineddata")},
             "tessdata_path": str(trained.resolve()),
+            "image_preprocessing": file_hash(Path(__file__).with_name("image_preprocessing.py")),
         }
         self.cache = Path(config.cache_dir) / "ocr"
         self.cache.mkdir(parents=True, exist_ok=True)

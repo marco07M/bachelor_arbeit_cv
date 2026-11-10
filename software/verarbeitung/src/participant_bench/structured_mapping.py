@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from .column_context import geometry, resolve
 from .column_headers import ORGANIZATION_ALIASES, field_roles
-from .name_parts import split_combined_name
+from .name_parts import classify_name_pair, infer_column_tiebreaker, split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
@@ -17,27 +17,148 @@ from .unlimited_assignment import source_rows
 VERSION = "tableformer-native-v7-row-observation-trace"
 
 
+def _is_combined_name_cell(text: str) -> bool:
+    if not text or any(c.isdigit() for c in text):
+        return False
+    if re.fullmatch(r"[^\d,]{2,80},\s*[^\d,]{2,80}", text) and split_combined_name(text):
+        return True
+    if "," not in text and len(text.split()) == 2:
+        return classify_name_pair(*text.split()) is not None
+    return False
+
+
+def _two_column_headerless_fallback(rows):
+    """Recover two separate unnamed name columns when >= 2 rows show unambiguous given/surname pairs."""
+    pair_support = defaultdict(set)
+    id_support = defaultdict(set)
+    for row in rows:
+        cells = {c["column_start"]: c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1}
+        for col, cell in cells.items():
+            if re.fullmatch(r"[0-9]{4,16}", cell["text"]):
+                id_support[col].add(row["row_index"])
+        for col_a in sorted(cells):
+            col_b = col_a + 1
+            if col_b not in cells:
+                continue
+            text_a, text_b = cells[col_a]["text"].strip(), cells[col_b]["text"].strip()
+            if not text_a or not text_b or any(c.isdigit() for c in text_a + text_b):
+                continue
+            clean_a, clean_b = text_a.rstrip(",").strip(), text_b.rstrip(",").strip()
+            if (text_a.endswith(",") and all(any(c.isalpha() for c in p) for p in (clean_a, clean_b))) or (
+                classify_name_pair(clean_a, clean_b) is not None
+            ):
+                pair_support[(col_a, col_b)].add(row["row_index"])
+    valid_pairs = [pair for pair, indices in pair_support.items() if len(indices) >= 2]
+    if len(valid_pairs) != 1:
+        return [], []
+    col_a, col_b = valid_pairs[0]
+    id_cols = [col for col, indices in id_support.items() if col not in (col_a, col_b) and len(indices) >= 2]
+    id_column = id_cols[0] if len(id_cols) == 1 else None
+    start = min(pair_support[(col_a, col_b)])
+    counts = {"given_family": 0, "family_given": 0}
+    for row in rows:
+        if row["row_index"] < start:
+            continue
+        cells = {c["column_start"]: c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1}
+        cell_a, cell_b = cells.get(col_a), cells.get(col_b)
+        if not cell_a or not cell_b:
+            continue
+        text_a, text_b = cell_a["text"].strip(), cell_b["text"].strip()
+        if text_a.endswith(","):
+            counts["family_given"] += 1
+        else:
+            cls = classify_name_pair(text_a.rstrip(",").strip(), text_b.rstrip(",").strip())
+            if cls is not None:
+                counts[cls[0]] += 1
+    tiebreaker = "given_family" if counts["given_family"] > counts["family_given"] else "family_given"
+    people, proofs = [], []
+    for row in rows:
+        if row["row_index"] < start:
+            continue
+        cells = {c["column_start"]: c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1}
+        cell_a, cell_b = cells.get(col_a), cells.get(col_b)
+        if not cell_a or not cell_b:
+            continue
+        text_a, text_b = cell_a["text"].strip(), cell_b["text"].strip()
+        clean_a, clean_b = text_a.rstrip(",").strip(), text_b.rstrip(",").strip()
+        if not clean_a or not clean_b or any(c.isdigit() for c in clean_a + clean_b):
+            continue
+        if not all(any(c.isalpha() for c in p) for p in (clean_a, clean_b)):
+            continue
+        if text_a.endswith(","):
+            first, last, first_cell, last_cell = clean_b, clean_a, cell_b, cell_a
+            rule = "explicit_surname_comma_given_name"
+        else:
+            cls = classify_name_pair(clean_a, clean_b)
+            if cls is not None:
+                order, first, last, rule = cls
+            else:
+                order = tiebreaker
+                first, last = (clean_a, clean_b) if order == "given_family" else (clean_b, clean_a)
+                rule = "column_majority_tiebreaker"
+            first_cell, last_cell = (cell_a, cell_b) if order == "given_family" else (cell_b, cell_a)
+        identifier = cells.get(id_column) if id_column is not None else None
+        fields = {key: TextField() for key in TEXT_FIELDS}
+        evidence = {}
+        for key, value, cell, cell_rule in (
+            ("first_name", first, first_cell, rule),
+            ("last_name", last, last_cell, rule),
+            ("personnel_number", identifier["text"] if identifier and re.fullmatch(r"[0-9]{4,16}", identifier["text"]) else None, identifier, "unverified_repeated_identity_cells"),
+        ):
+            if value and cell:
+                fields[key] = TextField(value=value, state="uncertain",
+                    bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
+                evidence[key] = dict(text=value, native_ref=cell.get("native_ref"),
+                    column_start=cell["column_start"], assignment_rule=cell_rule)
+        people.append(Participant(**fields, review_notes=[
+            "Unverified native-cell fallback: repeated name/number columns, printed headings missing; manual review required",
+            "Organization and signature columns not inferred"]))
+        proofs.append(dict(source_row=row["id"], source_row_index=row["row_index"],
+            grid_source="native", fields=evidence, source_cells=row["cells"],
+            raw_cells=[c["text"] for c in row["cells"]], fallback=True,
+            assignment_rule="unverified_repeated_identity_cells", support_rows=sorted(pair_support[(col_a, col_b)])))
+    return people, proofs
+
+
 def partial_identity_fallback(rows):
     """Recover repeated native identity cells without pretending that missing headers were read.
 
-    Require at least two rows with a comma-delimited name and a separate numeric
-    identifier in the same column pair. No organization/signature column is guessed.
+    Require at least two rows with a recognizable combined name (comma-delimited or
+    unambiguous given/surname pair) or two adjacent unnamed name columns.
     Merged cells and ambiguous competing column pairs are deliberately ineligible.
     """
     support = defaultdict(set)
+    name_only_support = defaultdict(set)
     for row in rows:
         cells = [c for c in row["cells"] if c["colspan"] == c["rowspan"] == 1]
-        names = [c for c in cells if re.fullmatch(r"[^\d,]{2,80},\s*[^\d,]{2,80}", c["text"])
-                 and split_combined_name(c["text"])]
+        names = [c for c in cells if _is_combined_name_cell(c["text"])]
         ids = [c for c in cells if re.fullmatch(r"[0-9]{4,16}", c["text"])]
         for name in names:
+            name_only_support[name["column_start"]].add(row["row_index"])
             for identifier in ids:
                 support[name["column_start"], identifier["column_start"]].add(row["row_index"])
     pairs = [pair for pair, indices in support.items() if len(indices) >= 2]
-    if len(pairs) != 1:
+    if len(pairs) == 1:
+        name_column, id_column = pairs[0]
+        support_indices = support[pairs[0]]
+    elif len(pairs) == 0:
+        name_cols = [col for col, indices in name_only_support.items() if len(indices) >= 2]
+        if len(name_cols) == 1:
+            name_column, id_column = name_cols[0], None
+            support_indices = name_only_support[name_column]
+        else:
+            return _two_column_headerless_fallback(rows)
+    else:
         return [], []
-    name_column, id_column = pairs[0]
-    start = min(support[pairs[0]])
+    start = min(support_indices)
+    col_values = [
+        c["text"]
+        for r in rows
+        if r["row_index"] >= start
+        for c in r["cells"]
+        if c["colspan"] == c["rowspan"] == 1 and c["column_start"] == name_column
+    ]
+    tiebreaker = infer_column_tiebreaker(col_values)
     people, proofs = [], []
     for row in rows:
         if row["row_index"] < start:
@@ -46,27 +167,30 @@ def partial_identity_fallback(rows):
         name = cells.get(name_column)
         if not name or not name["text"] or any(c.isdigit() for c in name["text"]):
             continue
-        split = split_combined_name(name["text"])
-        identifier = cells.get(id_column)
+        split = split_combined_name(name["text"], default_order=tiebreaker)
+        identifier = cells.get(id_column) if id_column is not None else None
         if not split and not (identifier and re.fullmatch(r"[0-9]{4,16}", identifier["text"])):
             continue
-        first, last = split[:2] if split else (None, None)
+        first, last, name_rule = split if split else (None, None, "unverified_repeated_identity_cells")
         fields = {key: TextField() for key in TEXT_FIELDS}
         evidence = {}
-        for key, value, cell in (("first_name", first, name), ("last_name", last, name),
-                                 ("personnel_number", identifier["text"] if identifier else None, identifier)):
+        for key, value, cell, cell_rule in (
+            ("first_name", first, name, name_rule),
+            ("last_name", last, name, name_rule),
+            ("personnel_number", identifier["text"] if identifier else None, identifier, "unverified_repeated_identity_cells"),
+        ):
             if value and cell:
                 fields[key] = TextField(value=value, state="uncertain",
                     bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
                 evidence[key] = dict(text=value, native_ref=cell.get("native_ref"),
-                    column_start=cell["column_start"], assignment_rule="unverified_repeated_identity_cells")
+                    column_start=cell["column_start"], assignment_rule=cell_rule)
         people.append(Participant(**fields, review_notes=[
             "Unverified native-cell fallback: repeated name/number columns, printed headings missing; manual review required",
             "Organization and signature columns not inferred"]))
         proofs.append(dict(source_row=row["id"], source_row_index=row["row_index"],
             grid_source="native", fields=evidence, source_cells=row["cells"],
             raw_cells=[c["text"] for c in row["cells"]], fallback=True,
-            assignment_rule="unverified_repeated_identity_cells", support_rows=sorted(support[pairs[0]])))
+            assignment_rule="unverified_repeated_identity_cells", support_rows=sorted(support_indices)))
     return people, proofs
 
 
@@ -104,10 +228,343 @@ def table_rows(table, table_index=0, size=None):
             for r in sorted(rows)], "native", []
 
 
+def _page_size(recognized):
+    pages = recognized.get("native", {}).get("pages", {})
+    if isinstance(pages, dict):
+        for key in ("1", 1, *pages.keys()):
+            size = pages.get(key, {}).get("size", {}) if isinstance(pages.get(key), dict) else {}
+            if size.get("width") and size.get("height"):
+                return size
+    return {}
+
+
+def _normalized_ocr_observations(recognized, size):
+    raw_cells = recognized.get("ocr_cells") or recognized.get("engine_ocr_observations") or []
+    observations = []
+    for idx, obs in enumerate(raw_cells):
+        if not isinstance(obs, dict):
+            continue
+        raw_text = str(obs.get("text", ""))
+        text = " ".join(raw_text.split())
+        if not text:
+            continue
+        raw_box = obs.get("bbox")
+        box = None
+        if isinstance(raw_box, dict):
+            if all(k in raw_box for k in ("x0", "y0", "x1", "y1")):
+                box = {k: float(raw_box[k]) for k in ("x0", "y0", "x1", "y1")}
+            elif size and size.get("width") and size.get("height"):
+                box = rectangle(raw_box, size["width"], size["height"])
+        if not box or box["x1"] <= box["x0"] or box["y1"] <= box["y0"]:
+            continue
+        observations.append(
+            dict(
+                index=obs.get("index", idx),
+                text=text,
+                raw_text=raw_text,
+                bbox=box,
+                confidence=obs.get("confidence", obs.get("ocr_confidence")),
+                native_ref=f"ocr_cells/{obs.get('index', idx)}",
+            )
+        )
+    return observations
+
+
+def _field_for_x(cx, intervals, margin=0.015):
+    sig = intervals.get("signature")
+    if sig and sig[0] <= cx <= sig[1]:
+        # Do not pull signature ink into text fields unless it is inside a text field interval.
+        if not any(
+            intervals.get(f) and intervals[f][0] <= cx <= intervals[f][1]
+            for f in TEXT_FIELDS
+        ):
+            return []
+    matched = []
+    for field in TEXT_FIELDS:
+        band = intervals.get(field)
+        if band and (band[0] - margin) <= cx <= (band[1] + margin):
+            matched.append(field)
+    return matched
+
+
+def _apply_stage2_geometry_fallback(
+    recognized,
+    size,
+    intervals,
+    people,
+    proofs,
+    row_decisions,
+    notes,
+    *,
+    table_index=0,
+    header_bottom=0.0,
+    aliases=ORGANIZATION_ALIASES,
+    trace=None,
+):
+    if not intervals:
+        return 0
+    observations = _normalized_ocr_observations(recognized, size)
+    if not observations:
+        return 0
+    used_indices = set()
+    row_bands = []
+    # Mark observations that already overlap Stage 1 participant cells.
+    for person, proof in zip(people, proofs):
+        if proof.get("table_index", 0) != table_index:
+            continue
+        cell_boxes = [c["bbox"] for c in proof.get("source_cells", []) if isinstance(c.get("bbox"), dict)]
+        if not cell_boxes and person.bbox:
+            cell_boxes = [person.bbox.model_dump()]
+        if not cell_boxes:
+            continue
+        rbox = union(cell_boxes)
+        row_bands.append((rbox["y0"], rbox["y1"], person, proof))
+        for obs in observations:
+            obox = obs["bbox"]
+            ov_y = min(rbox["y1"], obox["y1"]) - max(rbox["y0"], obox["y0"])
+            min_h = max(min(rbox["y1"] - rbox["y0"], obox["y1"] - obox["y0"]), 1e-4)
+            if ov_y / min_h > 0.35:
+                # Check if any existing Stage 1 non-empty field already covers this X-band or text
+                cx = (obox["x0"] + obox["x1"]) / 2
+                fields_here = _field_for_x(cx, intervals)
+                if any(getattr(person, f).value for f in fields_here):
+                    used_indices.add(obs["index"])
+
+    combined_name = (
+        intervals.get("first_name") is not None
+        and intervals.get("first_name") == intervals.get("last_name")
+    )
+
+    # Stage 2a: Complete missing/empty fields on existing Stage 1 rows from unassigned OCR observations.
+    for ry0, ry1, person, proof in row_bands:
+        row_obs = [
+            obs
+            for obs in observations
+            if obs["index"] not in used_indices
+            and obs["bbox"]["y0"] >= max(0.0, header_bottom - 0.005)
+            and (min(ry1, obs["bbox"]["y1"]) - max(ry0, obs["bbox"]["y0"]))
+            / max(min(ry1 - ry0, obs["bbox"]["y1"] - obs["bbox"]["y0"]), 1e-4)
+            > 0.35
+        ]
+        if not row_obs:
+            continue
+        by_field = defaultdict(list)
+        for obs in sorted(row_obs, key=lambda item: item["bbox"]["x0"]):
+            cx = (obs["bbox"]["x0"] + obs["bbox"]["x1"]) / 2
+            for field in _field_for_x(cx, intervals):
+                by_field[field].append(obs)
+        if combined_name and not person.first_name.value and not person.last_name.value and by_field.get("last_name"):
+            items = by_field["last_name"]
+            raw_val = " ".join(item["text"] for item in items).strip(" |_")
+            if raw_val and any(c.isalpha() for c in raw_val) and not any(c.isdigit() for c in raw_val):
+                box = Box.model_validate(union([item["bbox"] for item in items]))
+                split = split_combined_name(raw_val)
+                if split:
+                    first, last, _ = split
+                    person.first_name = TextField(value=first, state="uncertain", bbox=box)
+                    person.last_name = TextField(value=last, state="uncertain", bbox=box)
+                    for k, v in (("first_name", first), ("last_name", last)):
+                        proof["fields"][k] = dict(
+                            text=v,
+                            native_ref=items[0]["native_ref"],
+                            assignment_rule="geometry_fallback_ocr_observation",
+                            observation_state="uncertain",
+                            mapping_provenance=trace or {},
+                        )
+                else:
+                    person.last_name = TextField(value=raw_val, state="uncertain", bbox=box)
+                    proof["fields"]["last_name"] = dict(
+                        text=raw_val,
+                        native_ref=items[0]["native_ref"],
+                        assignment_rule="geometry_fallback_ocr_observation",
+                        observation_state="uncertain",
+                        mapping_provenance=trace or {},
+                    )
+                for item in items:
+                    used_indices.add(item["index"])
+                person.review_notes.append("Stage 2 geometry fallback: name completed from raw OCR observation")
+        for field in TEXT_FIELDS:
+            if combined_name and field in ("first_name", "last_name"):
+                continue
+            if getattr(person, field).value or not by_field.get(field):
+                continue
+            items = by_field[field]
+            raw_val = " ".join(item["text"] for item in items).strip(" |_")
+            if not raw_val:
+                continue
+            if field == "personnel_number" and not any(c.isdigit() for c in raw_val):
+                continue
+            box = Box.model_validate(union([item["bbox"] for item in items]))
+            setattr(person, field, TextField(value=raw_val, state="uncertain", bbox=box))
+            proof["fields"][field] = dict(
+                text=raw_val,
+                native_ref=items[0]["native_ref"],
+                assignment_rule="geometry_fallback_ocr_observation",
+                observation_state="uncertain",
+                mapping_provenance=trace or {},
+            )
+            for item in items:
+                used_indices.add(item["index"])
+            person.review_notes.append(f"Stage 2 geometry fallback: {field} completed from raw OCR observation")
+
+    # Stage 2b: Group remaining orphaned OCR observations below header_bottom into continuation/orphan rows.
+    orphans = []
+    for obs in observations:
+        if obs["index"] in used_indices:
+            continue
+        obox = obs["bbox"]
+        cy = (obox["y0"] + obox["y1"]) / 2
+        if cy <= header_bottom + 0.004:
+            continue
+        if any(
+            (min(ry1, obox["y1"]) - max(ry0, obox["y0"]))
+            / max(min(ry1 - ry0, obox["y1"] - obox["y0"]), 1e-4)
+            > 0.3
+            for ry0, ry1, _, _ in row_bands
+        ):
+            continue
+        cx = (obox["x0"] + obox["x1"]) / 2
+        if not _field_for_x(cx, intervals):
+            continue
+        orphans.append(obs)
+
+    if not orphans:
+        return 0
+
+    orphans.sort(key=lambda item: ((item["bbox"]["y0"] + item["bbox"]["y1"]) / 2, item["bbox"]["x0"]))
+    clusters = []
+    for obs in orphans:
+        obox = obs["bbox"]
+        cy = (obox["y0"] + obox["y1"]) / 2
+        placed = False
+        for cluster in clusters:
+            cbox = union([item["bbox"] for item in cluster])
+            ccy = (cbox["y0"] + cbox["y1"]) / 2
+            ov_y = min(cbox["y1"], obox["y1"]) - max(cbox["y0"], obox["y0"])
+            min_h = max(min(cbox["y1"] - cbox["y0"], obox["y1"] - obox["y0"]), 1e-4)
+            if ov_y / min_h > 0.25 or abs(cy - ccy) <= 0.014:
+                cluster.append(obs)
+                placed = True
+                break
+        if not placed:
+            clusters.append([obs])
+
+    added = 0
+    for cluster_idx, cluster in enumerate(clusters):
+        cluster.sort(key=lambda item: item["bbox"]["x0"])
+        roles_found = set().union(*(field_roles(item["text"], aliases) for item in cluster))
+        if bool(roles_found & {"first_name", "last_name"}) and len(roles_found & set(TEXT_FIELDS)) >= 2:
+            continue
+        by_field = defaultdict(list)
+        for item in cluster:
+            cx = (item["bbox"]["x0"] + item["bbox"]["x1"]) / 2
+            for field in _field_for_x(cx, intervals):
+                by_field[field].append(item)
+        fields = {key: TextField() for key in TEXT_FIELDS}
+        evidence = {}
+        if combined_name and by_field.get("last_name"):
+            items = by_field["last_name"]
+            raw_val = " ".join(item["text"] for item in items).strip(" |_")
+            if raw_val and any(c.isalpha() for c in raw_val) and not any(c.isdigit() for c in raw_val):
+                box = Box.model_validate(union([item["bbox"] for item in items]))
+                split = split_combined_name(raw_val)
+                if split:
+                    first, last, _ = split
+                    fields["first_name"] = TextField(value=first, state="uncertain", bbox=box)
+                    fields["last_name"] = TextField(value=last, state="uncertain", bbox=box)
+                    for k, v in (("first_name", first), ("last_name", last)):
+                        evidence[k] = dict(
+                            text=v,
+                            native_ref=items[0]["native_ref"],
+                            assignment_rule="geometry_fallback_ocr_observation",
+                            observation_state="uncertain",
+                            mapping_provenance=trace or {},
+                        )
+                else:
+                    fields["last_name"] = TextField(value=raw_val, state="uncertain", bbox=box)
+                    evidence["last_name"] = dict(
+                        text=raw_val,
+                        native_ref=items[0]["native_ref"],
+                        assignment_rule="geometry_fallback_ocr_observation",
+                        observation_state="uncertain",
+                        mapping_provenance=trace or {},
+                    )
+        for field in TEXT_FIELDS:
+            if combined_name and field in ("first_name", "last_name"):
+                continue
+            items = by_field.get(field, [])
+            if not items:
+                continue
+            raw_val = " ".join(item["text"] for item in items).strip(" |_")
+            if not raw_val:
+                continue
+            if field == "personnel_number" and not any(c.isdigit() for c in raw_val):
+                continue
+            if field in ("first_name", "last_name") and (
+                not any(c.isalpha() for c in raw_val) or any(c.isdigit() for c in raw_val)
+            ):
+                continue
+            box = Box.model_validate(union([item["bbox"] for item in items]))
+            fields[field] = TextField(value=raw_val, state="uncertain", bbox=box)
+            evidence[field] = dict(
+                text=raw_val,
+                native_ref=items[0]["native_ref"],
+                assignment_rule="geometry_fallback_ocr_observation",
+                observation_state="uncertain",
+                mapping_provenance=trace or {},
+            )
+        has_name = bool(fields["first_name"].value or fields["last_name"].value)
+        has_id = bool(fields["personnel_number"].value)
+        # Require a name, or both personnel_number and department, to prevent noisy numbers from becoming people.
+        if not has_name and not (has_id and fields["department"].value):
+            continue
+        row_id = f"t{table_index}_ocr_r{cluster_idx}"
+        rbox = Box.model_validate(union([item["bbox"] for item in cluster]))
+        people.append(
+            Participant(
+                **fields,
+                bbox=rbox,
+                review_notes=[
+                    "Stage 2 geometry fallback from raw OCR observations using fixed column context; manual review required"
+                ],
+            )
+        )
+        proofs.append(
+            dict(
+                output_index=len(people) - 1,
+                source_row=row_id,
+                table_index=table_index,
+                source_row_index=cluster_idx,
+                grid_source="ocr_geometry_fallback",
+                fields=evidence,
+                source_cells=cluster,
+                raw_cells=[item["text"] for item in cluster],
+                fallback=True,
+                assignment_rule="geometry_fallback_ocr_observation",
+                mapping_provenance=trace or {},
+            )
+        )
+        row_decisions.append(
+            dict(
+                source_row=row_id,
+                table_index=table_index,
+                row_index=cluster_idx,
+                native_refs=[item["native_ref"] for item in cluster],
+                status="uncertain_participant",
+                reason="geometry_fallback_ocr_observation",
+                output_index=len(people) - 1,
+            )
+        )
+        added += 1
+    if added:
+        notes.append("Stage 2 geometry fallback assigned orphaned OCR observations via fixed column X-intervals")
+    return added
+
+
 def extract_structured(recognized, context=None, *, document_id=None, page_number=None):
     people, proofs, notes = [], [], []
     context = dict(context or {})
-    size = recognized.get("native", {}).get("pages", {}).get("1", {}).get("size", {})
+    size = _page_size(recognized)
     aliases = recognized.get("organization_header_aliases") or ORGANIZATION_ALIASES
     diagnostics = []
     row_decisions = []
@@ -120,6 +577,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
         profile = geometry(width, rows)
         inherited, has_header, resolved = False, False, False
         trace = {}
+        header_bottom = 0.0
         current_header_rows = [r["row_index"] for r in rows if (lambda found:
             bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2)(
                 set().union(*(field_roles(c["text"], aliases) for c in r["cells"])))]
@@ -142,6 +600,8 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                     mapping, headings = {}, {}
                 last_header = row["row_index"]
                 for cell, roles in classified:
+                    if cell.get("bbox"):
+                        header_bottom = max(header_bottom, cell["bbox"]["y1"])
                     for field in roles:
                         # A merged heading does not define which of its columns owns the field.
                         if cell["colspan"] == 1:
@@ -194,7 +654,15 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             combined = (mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name"))
             value = fields["last_name"].value
             if combined or (not mapping.get("first_name") and value and "," in value):
-                split = split_combined_name(value)
+                col_values = [
+                    c["text"]
+                    for r in rows
+                    if r["row_index"] > last_header
+                    for c in r["cells"]
+                    if c["column_start"] in mapping.get("last_name", set())
+                ]
+                tiebreaker = infer_column_tiebreaker(col_values)
+                split = split_combined_name(value, default_order=tiebreaker)
                 if split:
                     first, last, rule = split
                     box = fields["last_name"].bbox
@@ -206,8 +674,35 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                     if rule == "default_name_group_order":
                         warnings.append("Namenszelle ohne Komma gemäß Vorgabe Nachname → Vorname zugeordnet")
                 else:
-                    fields["first_name"], fields["last_name"] = TextField(), TextField()
-                    warnings.append("Name split unknown; combined cell retained in source evidence")
+                    words = [w for w in (value or "").split() if any(c.isalpha() for c in w)]
+                    if len(words) == 1 and not any(c.isdigit() for c in (value or "")):
+                        box = fields["last_name"].bbox
+                        fields["first_name"] = TextField()
+                        fields["last_name"] = TextField(value=value, state="uncertain", bbox=box)
+                        evidence["last_name"] = dict(
+                            evidence.get("last_name", {}),
+                            text=value,
+                            assignment_rule="single_token_combined_name_fallback",
+                            observation_state="partial",
+                        )
+                        warnings.append("Single-token combined name retained as uncertain last_name")
+                    else:
+                        fields["first_name"], fields["last_name"] = TextField(), TextField()
+                        warnings.append("Name split unknown; combined cell retained in source evidence")
+            elif fields["first_name"].value and fields["last_name"].value:
+                raw_first, raw_last = fields["first_name"].value.strip(), fields["last_name"].value.strip()
+                clean_first, clean_last = raw_first.rstrip(",").strip(), raw_last.rstrip(",").strip()
+                cls = classify_name_pair(clean_first, clean_last)
+                if raw_first.endswith(",") or (cls is not None and cls[0] == "family_given"):
+                    rule = "explicit_surname_comma_given_name" if raw_first.endswith(",") else cls[3]
+                    fields["first_name"], fields["last_name"] = fields["last_name"], fields["first_name"]
+                    fields["first_name"].value, fields["last_name"].value = clean_last, clean_first
+                    if "first_name" in evidence and "last_name" in evidence:
+                        evidence["first_name"], evidence["last_name"] = evidence["last_name"], evidence["first_name"]
+                        evidence["first_name"]["text"] = clean_last
+                        evidence["last_name"]["text"] = clean_first
+                        evidence["first_name"]["assignment_rule"] = rule
+                        evidence["last_name"]["assignment_rule"] = rule
             observed_unsplit = combined and value and any(c.isalpha() for c in value) and not any(c.isdigit() for c in value)
             if not any(fields[f].value for f in ("first_name", "last_name", "personnel_number")) and not observed_unsplit:
                 decision.update(status="unassigned", reason="no_grounded_identity_field", field_warnings=warnings)
@@ -230,8 +725,23 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             mapping, context, trace = resolve(mapping, headings, profile, context,
                 document_id=document_id, page_number=page_number, has_header=has_header, column_count=width)
         fallback_count = 0
+        intervals = trace.get("column_intervals") or trace.get("inherited_column_intervals") or {}
+        if intervals:
+            fallback_count += _apply_stage2_geometry_fallback(
+                recognized,
+                size,
+                intervals,
+                people,
+                proofs,
+                row_decisions,
+                notes,
+                table_index=table_index,
+                header_bottom=header_bottom,
+                aliases=aliases,
+                trace=trace,
+            )
         # Explicit but ambiguous headings must never be bypassed by content inference.
-        if not mapping and trace["status"] != "incompatible_table_structure" and source == "native" and not any(
+        if not mapping and not fallback_count and trace["status"] != "incompatible_table_structure" and source == "native" and not any(
                 field_roles(c["text"], aliases) for row in rows for c in row["cells"]):
             recovered, recovered_proofs = partial_identity_fallback(rows)
             for person, proof in zip(recovered, recovered_proofs):
@@ -251,10 +761,58 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             text_cells=sum(bool(c["text"]) for row in rows for c in row["cells"]),
             columns={key: sorted(cols) for key, cols in mapping.items()}, headings=headings,
             organization_mapping="unique" if len(mapping.get("department", [])) == 1 else "ambiguous_or_missing"))
-        if not mapping:
+        if not mapping and not fallback_count:
             notes.append(f"column_mapping_failed: table {table_index} has no identifiable printed column headings")
+    if not recognized.get("tables") and context and document_id is not None and isinstance(page_number, int):
+        _, _, trace = resolve(
+            {},
+            {},
+            None,
+            context,
+            document_id=document_id,
+            page_number=page_number,
+            has_header=False,
+            column_count=0,
+        )
+        intervals = trace.get("inherited_column_intervals") or {}
+        if intervals:
+            fallback_count = _apply_stage2_geometry_fallback(
+                recognized,
+                size,
+                intervals,
+                people,
+                proofs,
+                row_decisions,
+                notes,
+                table_index=0,
+                header_bottom=0.0,
+                aliases=aliases,
+                trace=trace,
+            )
+            if fallback_count:
+                diagnostics.append(
+                    dict(
+                        table_index=0,
+                        grid_source="ocr_geometry_fallback",
+                        rows=0,
+                        width=0,
+                        **trace,
+                        fallback_participants=fallback_count,
+                        text_cells=0,
+                        columns={},
+                        headings=context.get("headings", {}),
+                        organization_mapping="unique"
+                        if "department" in intervals
+                        else "ambiguous_or_missing",
+                    )
+                )
     recognized["mapping_diagnostics"] = diagnostics
     recognized["row_decisions"] = row_decisions
+    for proof in proofs:
+        proof.setdefault("provenance", "docling")
+        for fp in proof.get("fields", {}).values():
+            if isinstance(fp, dict):
+                fp.setdefault("provenance", "docling")
     if not people:
         notes.append("No reliably assignable participants; native cells and OCR remain available for review")
     return people, proofs, notes, context

@@ -53,9 +53,11 @@ Benutzername is a combined NAME cell, not an ID. For visible "Surname, First nam
 text before the comma as last_name and after it as first_name; preserve compound names.
 Empty Benutzer cells stay empty. Never shift Kurzzeichen into Benutzer. Keep columns aligned using
 the headers and cell column_start/colspan/rowspan, including empty cells. Ignore date/signature columns.
-Name cells may contain surname and first name together: split only supported literal substrings
-using the header's stated order and visible separators. Compound names must remain complete.
-For separate name columns copy each whole name cell. If the split is ambiguous use null.
+Name cells may contain surname and first name together, and participants may switch between
+'Vorname Nachname', 'Nachname Vorname' and 'Nachname, Vorname' row-by-row even within the same table:
+evaluate each row individually for given name (first_name) versus surname (last_name), using visible
+separators, row-level name evidence, and the column/document order only as a tie-breaker for ambiguous rows.
+Compound names must remain complete. For separate name columns copy each whole name cell. If the split is ambiguous use null.
 Previous_headers supplies header context only. Continuation pages may split/merge columns differently;
 do not blindly reuse column indices. Missing current text always remains unknown.
 Do not classify page relevance. Do not decide signature presence. Do not output confidences or boxes.
@@ -151,7 +153,7 @@ def parse_assignment_response(raw: str, rejected_rows: list, source_rows=None) -
 def header_fields(text):
     words = re.sub(r"[^\w]", "", text.casefold())
     title = re.sub(r"[^\w]", "", re.split(r"[\n(]", text.casefold(), maxsplit=1)[0])
-    if title in {"benutzername", "fullname", "namevorname", "nachnamevorname", "teilnehmername"}:
+    if title in {"benutzername", "benutzemame", "fullname", "namevorname", "nachnamevorname", "teilnehmername", "teilnehmemame"}:
         return {"first_name", "last_name"}
     for name in ("first_name", "last_name"):
         if title in HEADERS[name]:
@@ -288,7 +290,8 @@ def ground_response(response, rows, *, trusted_headers=True, source_label="Unlim
     by_id, counts = {row["id"]: row for row in rows}, Counter(p.source_row for p in response.participants if p.is_participant)
     people, evidence, notes = [], [], []
     def literal(value, cell):
-        return re.search(r"(?<![\w'/’–-])" + re.escape(value) + r"(?![\w'/’–-])", cell["text"])
+        pattern = re.escape(value).replace(r"\.\.\.", r"(?:\.\.\.|…)").replace("…", r"(?:\.\.\.|…)")
+        return re.search(r"(?<![^\W_])(?<!['/’–-])" + pattern + r"(?![^\W_])(?!['/’–-])", cell["text"])
 
     for index, predicted in enumerate(response.participants):
         if not predicted.is_participant:

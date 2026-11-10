@@ -123,7 +123,7 @@ def lossless_image_pdf(image, dpi):
 
 def recognition_key(identity, settings, config, page, method):
     recognition_settings = settings.model_dump(exclude={"mapping", "organization_header_aliases", "extraction",
-        "assignment_format", "assignment_max_new_tokens"})
+        "vlm_assist", "assignment_format", "assignment_max_new_tokens"})
     return digest(dict(identity=identity, settings=recognition_settings, cache_protocol="structure-recognition-timing-v3",
         image=page["run_image_sha256"], document=page["document_id"], page=page["page_number"],
         rotation=[page.get("additional_rotation_clockwise", 0), page.get("curation_rotation_clockwise", 0)],

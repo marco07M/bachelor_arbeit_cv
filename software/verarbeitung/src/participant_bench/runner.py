@@ -220,6 +220,16 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             identities["ocr_assignment_llm"] = model_identity(config.models["ocr_llm"])
         except Unavailable as exc:
             identities["ocr_assignment_llm"] = {"unavailable": str(exc)}
+    vlm_assist_methods = [
+        method
+        for method in config.methods
+        if method == "docling" and "docling" in config.structures and structure_settings(config, method).vlm_assist
+    ]
+    if vlm_assist_methods:
+        try:
+            identities["docling_vlm_assist"] = model_identity(config.models["vlm"])
+        except Unavailable as exc:
+            identities["docling_vlm_assist"] = {"unavailable": str(exc)}
     if config.signature.backend in ("local_vlm", "vlm") and "vlm" in config.models:
         try:
             identities["signature_vlm"] = model_identity(config.models["vlm"])
@@ -652,6 +662,41 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                     resource[key] = max(resource.get(key) or 0, assignment_resource.get(key) or 0)
                 errors.extend(dict(method=method, page_id=page.page_id, reason=page.error)
                               for page in page_results if page.error)
+            if method in vlm_assist_methods:
+                from .hybrid import assist_docling_pages
+
+                def persist_vlm_assist():
+                    for result in page_results:
+                        matching = [i for i, attempt in enumerate(history) if attempt.page_id == result.page_id]
+                        if matching:
+                            history[matching[-1]] = result
+                    write_jsonl(history_path, [row.model_dump() for row in history])
+                    write_jsonl(checkpoint_path, [row.model_dump() for row in page_results])
+
+                vlm_assist_resource = assist_docling_pages(
+                    page_results,
+                    selected_pages,
+                    method_dir,
+                    config,
+                    progress,
+                    lambda: create_model(
+                        "ocr_vlm" if "ocr_vlm" in config.models else "vlm",
+                        config,
+                        progress=progress,
+                        local_class=LocalModel,
+                    ),
+                    persist_vlm_assist,
+                )
+                resource["vlm_assist_model"] = vlm_assist_resource
+                for key in ("load_seconds", "load_attempt_wall_seconds", "warmup_seconds", "warmup_calls"):
+                    resource[key] = resource.get(key, 0) + vlm_assist_resource.get(key, 0)
+                for key in ("peak_gpu_allocated_bytes", "peak_gpu_reserved_bytes"):
+                    resource[key] = max(resource.get(key) or 0, vlm_assist_resource.get(key) or 0)
+                errors.extend(
+                    dict(method=method, page_id=page.page_id, reason=page.error)
+                    for page in page_results
+                    if page.error
+                )
             if method not in VISION_METHODS and config.signature.backend in ("local_vlm", "vlm"):
                 pending = [page for page in page_results if page.participants and not
                            read_json(method_dir / f"raw-{page.page_id}.json").get("signature_checks")]
@@ -764,6 +809,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                 if k
                 in (
                     "structure_seconds",
+                    "vlm_assist_seconds",
                     "signature_seconds",
                     "model_extraction_seconds",
                     "assignment_seconds",
@@ -829,13 +875,16 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "model_backend": (config.models[method].backend if method in config.models else
                               "local" if method in config.structures else "tesseract" if method == "ocr_raw" else "ocr_rules"),
             "assignment_backend": ("local_llm" if method in assignment_methods else
+                                   "deterministic_headers_vlm_assist" if method in vlm_assist_methods else
                                    "deterministic_headers" if method == "docling" else None),
             "structure_backend": ("PP-StructureV3" if method in ("paddle_structure", "paddle_llm", "ocr_vlm") else
                                   "TableFormer" if method == "docling" else None),
             "models_required": ([config.models[method].repo] if method in config.models else []) +
-                               ([config.models["ocr_llm"].repo] if method in assignment_methods else []),
+                               ([config.models["ocr_llm"].repo] if method in assignment_methods else []) +
+                               ([config.models["vlm"].repo] if method in vlm_assist_methods else []),
             "models_used": ([config.models[method].repo] if method in config.models and not unavailable and not resource.get("load_failed") else []) +
-                           ([config.models["ocr_llm"].repo] if method in assignment_methods and resource.get("assignment_model", {}).get("status") != "unavailable" else []),
+                           ([config.models["ocr_llm"].repo] if method in assignment_methods and resource.get("assignment_model", {}).get("status") != "unavailable" else []) +
+                           ([config.models["vlm"].repo] if method in vlm_assist_methods and resource.get("vlm_assist_model", {}).get("status") not in ("unavailable", "not_needed") else []),
             "model_identity": identities.get(method),
             "inference_parameters": config.models[method].model_dump() if method in config.models else None,
             "ocr_cache_cost_basis": "Recorded recognition time is charged on cache hits; loading is measured per method",
@@ -843,6 +892,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
             "signature_model_load_seconds": resource.get("signature_load_attempt_wall_seconds", 0.0),
             "output_unknown_signatures": sum(p.signature_present is None for p in output_participants),
             "generation_calls": (resource.get("assignment_model", {}).get("calls", 0) +
+                                 resource.get("vlm_assist_model", {}).get("calls", 0) +
                                  resource.get("signature_model", {}).get("calls", 0) if method in STRUCTURE_METHODS else
                                  sum(r.calls for r in history)),
             "model_calls": sum(r.calls for r in history) + hybrid_resource.get("calls", 0),

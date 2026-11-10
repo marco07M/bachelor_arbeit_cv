@@ -154,3 +154,45 @@ def test_report_rejects_changed_predictions(tmp_path):
     write_jsonl(source / "paddle_llm/extractions.jsonl", [page().model_dump()])
     with pytest.raises(ValueError, match="verändert"):
         render_errors(output)
+
+
+def test_diagnose_field_explicitly_flags_name_swap_error_and_swap_tolerance():
+    swapped_person = VisualParticipant(first_name="Berg", last_name="Anna", personnel_number=None, department=None).participant()
+    swapped_person.bbox = Box(x0=.1, x1=.8, y0=.2, y1=.3)
+    swapped_page = PageResult(
+        run_id="test",
+        document_id="doc",
+        page_id="doc-p0001",
+        page_number=1,
+        method_id="paddle_llm",
+        status="partial",
+        parse_status="valid",
+        participants=[swapped_person],
+    )
+    strict_row = field(
+        field="first_name",
+        reference_value="Anna",
+        prediction_value="Berg",
+        normalized_prediction="berg",
+        exact="False",
+        name_swapped="",
+    )
+    finding = diagnose_field(strict_row, swapped_page, {}, {"observations": []})
+    assert finding["result"] == "incorrect"
+    assert finding["category"] == "name_swap"
+    assert finding["certainty"] == "proven"
+    assert finding["name_swapped"] is True
+
+    tolerated_row = field(
+        field="first_name",
+        reference_value="Anna",
+        prediction_value="Anna",
+        normalized_prediction="anna",
+        exact="True",
+        name_swapped="True",
+    )
+    tolerated = diagnose_field(tolerated_row, swapped_page, {}, {"observations": []})
+    assert tolerated["result"] == "correct"
+    assert tolerated["name_swapped"] is True
+    assert "Swap-Toleranz" in tolerated["reason"]
+

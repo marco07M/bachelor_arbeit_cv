@@ -1,12 +1,189 @@
 # Projektstand und Übergabe für folgende Agenten
 
-Zuletzt aktualisiert: **2026-11-06** (Europe/Berlin).
+Zuletzt aktualisiert: **2026-11-10** (Europe/Berlin).
 
 Diese Datei auf Wunsch des Nutzers bei Änderungen fortschreiben. Einstieg und
 Pflegepflicht stehen in [AGENTS.md](AGENTS.md). Sie ist die zentrale Übergabe,
 auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
+
+### Optionale Docling-VLM-Hybridstufe (`docling-vlm`, `vlm_assist`) ohne Veränderung der `docling`-Baseline (10.11.)
+
+Implementiert, getestet, als separates Ablationsprofil (`software/configs/docling-vlm.yaml`)
+konfiguriert und anhand der gecachten Referenzartefakte nachgewiesen:
+1. **Strikte Kapselung der `docling`-Baseline (`config.py`, `structure.py`, `software/configs/docling-vlm.yaml`):**
+   - `StructureConfig` in `config.py` besitzt den expliziten Opt-in-Schalter
+     `vlm_assist: bool = False` (Standardwert `False`).
+   - Im Hauptvergleich (`main_comparison: true`, `software/configs/benchmark.yaml` sowie
+     `software/configs/docling.yaml`) bleibt `vlm_assist` auf `False`; ein Einschalten
+     von `vlm_assist: true` bei `main_comparison: true` wird durch den Validator in
+     `Config.unique_methods` mit einem `ValueError` abgelehnt.
+   - `recognition_key` in `structure.py` schließt `vlm_assist` aus dem
+     Erkennungs-Cache-Schlüssel aus, sodass `docling` und `docling-vlm` denselben
+     warmen TableFormer-Erkennungs-Cache nutzen.
+   - Separates Konfigurationsprofil `software/configs/docling-vlm.yaml`
+     (`extends: benchmark.yaml`, `main_comparison: false`, `methods: [docling]`,
+     `structures.docling.vlm_assist: true`) angelegt.
+2. **Ressourcenschonende, selektive Docling+VLM-Hybridstufe (`hybrid.py`, `runner.py`):**
+   - Sequenzielle GPU-Ausführung für 16 GiB VRAM: `runner.py` entlädt zunächst den
+     `docling`-Subprozess (`model.close()`) vollständig, bevor bei aktivem `vlm_assist`
+     das vorhandene lokale VLM (`Qwen/Qwen3-VL-4B-Instruct`, `models.vlm`) geladen wird.
+   - `needs_docling_vlm_assist` prüft pro Seite, ob unvollständige/unsichere Namensfelder,
+     OCR-Artefakte (`_`, `|`, `…`), Stufe-2-Geometrie-Fallbacks oder nicht zugeordnete
+     Tabellenzeilen vorliegen. Vollständig und sicher gelesene Maschinenschrift-Seiten
+     (`state == "read"`, `reasons = ["all_docling_rows_complete_and_read"]`) werden ohne
+     VLM-Aufruf übersprungen (`status = "skipped_complete_docling"`).
+   - `serialize_docling_hints` übergibt die TableFormer-Zellgeometrie, Spaltenzuordnung
+     und vorläufigen Docling-Zeilen im Format `docling-vlm-assist-v1` an das VLM und
+     nutzt `vlm_cells.py` (`parse_visual_response`) sowie `DocumentNameOrders` und
+     `filter_page_people`.
+   - `merge_docling_vlm_participants` bewahrt verankerte, hochkonfidente gedruckte
+     Docling-Felder (`provenance = "docling"`), ergänzt/korrigiert unsichere, fehlende
+     oder handschriftliche Felder (`provenance = "docling_vlm_assist"`,
+     `assignment_rule = "docling_vlm_hybrid_cell"`) und fügt vom TableFormer übersehene
+     handschriftliche Zeilen (`assignment_rule = "docling_vlm_hybrid_row"`) hinzu.
+3. **Provenance-Kennzeichnung in Rohdaten und Berichten (`structured_mapping.py`, `table_mapping.py`, `report.py`, `roster_benchmark/error_report.py`):**
+   - Jedes Feld in `row_evidence` trägt `provenance = "docling"` bzw.
+     `provenance = "docling_vlm_assist"` (inkl. `original_docling_value` und
+     `original_docling_state`).
+   - `error_report.py` gibt `provenance` und `original_docling_value` in
+     `diagnose_field`, `error_analysis/fields.json` und auf den HTML-Fehlerkarten aus;
+     `runner.py` und `report.py` weisen Laufzeiten (`vlm_assist_seconds`), Aufrufzahlen
+     und Modellnutzung separat aus.
+4. **Nachweis:**
+   - **Live-End-to-End-Lauf über das Testframework (`software/runs/20261110T111644Z-aa89a376` -> Auswertung `software/testframework/ergebnisse/20261110T111751Z-9b5da18c/`):**
+     Auf `140829.pdf` überspringt `docling-vlm` Seite 1 (Maschinenschrift) in `0,1 s` aus dem warmen TableFormer-Cache mit `0` VLM-Aufrufen (`36` Felder mit `provenance="docling"`) und ruft `Qwen3-VL-4B-Instruct` nur für Seite 2 (Handschrift-Folgeseite, `1` VLM-Aufruf in `34,7 s`, `27` Felder mit `provenance="docling_vlm_assist"`) auf. Gegenüber der reinen `docling`-Baseline (`software/testframework/ergebnisse/20261110T101647Z-c41da01d/`) steigt der Levenshtein-Feld-F1 live von `65,19 %` auf **`77,77 %` (`+12,58 Prozentpunkte`)**, die exakten Felder steigen von `28/72 (38,89 %)` auf **`35/72 (48,61 %)`** (strikt ohne Swap-Toleranz von `22/72` auf **`28/72`**), die zugeordneten Teilnehmer steigen von `16/18` auf **`18/18` (`0` fehlend, `0` überzählig)** und die Vor-/Nachnamen-Dreher sinken von `6` auf **`1`** bei einer Gesamtlaufzeit von **`62,3 s`** (gegenüber `88,1 s` bei `vlm` und `110,7 s` bei `ocr_vlm`).
+   - Auf den gecachten Artefakten zu Dokument `140829` (`20261110T085608Z-d06794be` +
+     VLM-Ausgabe aus `20261110T100955Z-3cb60325`) steigen die exakten Felder von
+     `28/72 (38,89 %)` auf `41/72 (56,94 %)` und der Gesamtscore (Best-Fit-F1) von
+     `65,19 %` auf `82,76 %`.
+   - Alle 675 lokalen Unit- und Regressionstests (`pytest software/tests`, inkl. 2 neuer
+     Tests in `test_unified_pipelines.py`) sowie `ruff check` bestanden.
+
+### Zeilenindividuelle Vorname-/Nachname-Erkennung bei fehlenden Überschriften und wechselnder Reihenfolge (10.11.)
+
+Implementiert, getestet, aktiv konfiguriert und anhand gecachter sowie synthetischer
+Referenzdaten nachgewiesen:
+1. **Zeilenindividuelle Priorität vor Spalten-Default (`name_parts.py`, `document_names.py`, `structured_mapping.py`, `table_mapping.py`):**
+   - `name_parts.py` klassifiziert Namensteile deterministisch (ohne LLM und ohne
+     Nutzung der Ground Truth) über explizite Kommatrennung
+     (`explicit_surname_comma_given_name`), Adels-/Namenspräfixe (`von`, `van`, `de`,
+     `del`, `da`, `von der`, `van der` usw.), deutsche/internationale Vornamen- und
+     Nachnamenindikatoren sowie morphologische Nachnamensuffixe (`classify_name_pair`,
+     `lexical_given_family`, `lexical_family_given`).
+   - Eindeutige Zeilenbelege (`"Max Mustermann"`, `"Schmidt, Anna"`, `"Weber Lukas"`,
+     `"Julia Fischer"`) haben sowohl in `split_combined_name`, `structured_mapping.py`
+     und `table_mapping.py` als auch in `DocumentNameOrders.prepare_assignment` und
+     `DocumentNameOrders.apply` (`document_names.py`) strikten Vorrang vor der globalen
+     Spalten-/Dokumentorientierung.
+   - Die spaltenweite Mehrheitsorientierung (`infer_column_tiebreaker`,
+     `_assignment_tiebreaker`, `_page_tiebreaker`) greift ausschließlich als
+     Tie-Breaker bei echten mehrdeutigen Zeilen (z. B. zwei Vornamen als Gesamtname wie
+     `"Thomas Martin"` oder zwei unbekannte Tokens) und überschreibt niemals eine
+     bereits eindeutig klassifizierte Nachbarzeile.
+   - Kopflose Tabellen (`partial_identity_fallback` und `_two_column_headerless_fallback`
+     in `structured_mapping.py`) unterstützen nun sowohl kombinierte Namensspalten als
+     auch zwei benachbarte unbenannte Namensspalten mit zeilenweise wechselnder
+     Reihenfolge (ab mindestens zwei belegten Personen-Zeilen).
+2. **Optimierung der bestehenden LLM-/VLM-Verfahren (`document_names.py`, `models.py`, `unlimited_assignment.py`):**
+   - Die Systeminstruktionen für `ocr_llm`, `paddle_llm`, `vlm` und `ocr_vlm` weisen
+     das Modell explizit an, bei fehlenden Spaltenüberschriften oder zeilenweise
+     wechselnder Eintragungsreihenfolge (`"Vorname Nachname"`, `"Nachname Vorname"`,
+     `"Nachname, Vorname"`) jede Zeile individuell semantisch zu prüfen und die
+     dokumentweite `name_order` als Tie-Breaker für mehrdeutige Zeilen zu verwenden.
+   - `DocumentNameOrders.prepare_assignment` und `DocumentNameOrders.apply` überschreiben
+     eine zeilenindividuell stimmige LLM-/VLM-Zuordnung nicht mehr durch einen starren
+     spaltenweiten Swap; `docling` und `ocr_raw` bleiben unverändert ohne LLM.
+3. **Transparente Swap-Diagnose (`roster_benchmark/error_report.py`):**
+   - `diagnose_field` weist verbleibende Vor-/Nachname-Vertauschungen ohne aktive
+     Swap-Toleranz explizit als eigene Fehlerkategorie `name_swap`
+     (`"Vor-/Nachname-Vertauschung (Swap)"`, `certainty="proven"`,
+     `stage="name_role_assignment"`) aus und kennzeichnet durch Swap-Toleranz
+     aufgefangene Treffer transparent mit `name_swapped=True`.
+4. **Nachweis:**
+   - Auf dem gecachten Referenzlauf zu Dokument `140829` (`software/runs/20261103T084429Z-e2834b34/docling`)
+     sinkt `name_swapped_participants` für `docling` von `6` auf `0`; die Anzahl
+     exakter Felder **ohne** Evaluations-Swap-Toleranz (`compare_name_orientations=False`)
+     steigt auf diesem Dokument von `7` auf `15` (und im Gesamtlauf über 72
+     Referenzfelder von `20/72 (27,78 %)` auf `28/72 (38,89 %)`, identisch zum Wert mit
+     aktiver Swap-Toleranz).
+   - Alle 673 lokalen Unit- und Regressionstests (`pytest software/tests`, inkl. 3 neuer
+     Tests in `test_document_names.py` und `test_extraction_errors.py`) sowie
+     `ruff check` bestanden.
+
+### Ausbalancierte Pipeline für gemischte Dokumente in `ocr_llm` und `docling` (10.11.)
+
+Konfiguriert, implementiert, getestet und anhand des gemischten Referenzdokuments
+(`140829.pdf`, Seite 1: 8 maschinenschriftliche + 1 handschriftlicher Eintrag,
+Seite 2: 9 handschriftliche Einträge ohne eigene Spaltenkopfzeile) nachgewiesen:
+1. **Zerstörungsfreie Vorverarbeitung (`image_preprocessing.py`, `ocr.py`, `docling_backend.py`):**
+   Lokale Hintergrundnormalisierung (`MORPH_CLOSE` mit `25×25`-Kernel und
+   Graustufen-Division `cv2.divide`) vor der Otsu-Schwelle in `remove_grid_lines`
+   ersetzt die bisherige globale Binarisierung. Dadurch bleiben grau hinterlegte
+   Tabellenkopfzeilen (Median-Grauwert ~169 auf Seite 1) vollständig erhalten,
+   während ausschließlich echte Tabellenlinien (`40×1` / `1×40`) auf dem
+   hintergrundnormalisierten Graustufenbild geweißt werden. Zudem OCR-Ligaturvarianten
+   (`benutzemame`, `teilnehmemame` in `unlimited_assignment.py` sowie `signetur`
+   in `column_headers.py`) ergänzt, idempotentes Wrapping in `docling_backend.py`
+   abgesichert und `image_preprocessing.py` in die `OCR`-Cache-Identität (`ocr.py`)
+   aufgenommen.
+2. **Zweistufiges Beobachtungs- und Evidenz-Modell (`ocr_layout.py`, `ocr_evidence.py`, `models.py`, `unlimited_assignment.py`):**
+   In `ocr_layout.py` werden unterhalb erkannter Tabellenkopfzeilen auch
+   niedrigkonfidente/handschriftliche Zeilen in den Textspalten (`selection_hint="unclassified_observation"`)
+   mit zell- und zeilenweiser `ocr_confidence` an `ocr_llm` übergeben, während
+   Vor-Tabellen-Metadatenzeilen ausgeschlossen werden. `ALL_ROW_INSTRUCTIONS` in
+   `models.py` wird nun auch im Standardmodus `pattern` aktiviert, sobald
+   unklassifizierte oder geerbte Zeilen im Prompt enthalten sind. Randartefakte
+   (`_`, `|`) an Tokens in `models.py`, `unlimited_assignment.py` und
+   `ocr_evidence.py` blockieren den Literalbeleg nicht mehr; niedrigkonfidente
+   (`< 30`) oder partielle Belege werden konsistent als `state="uncertain"` markiert.
+3. **Selektives Geometrie-Fallback mit festem Spaltenkontext (`column_context.py`, `structured_mapping.py`):**
+   `column_context.py` speichert die normierten Spalten-X-Intervalle (`column_intervals`)
+   und `text_width` der ersten Teilnehmerseite und erlaubt auf Folgeseiten neben
+   exakter Spaltenanzahl auch kompatible Textspalten-Präfixe
+   (`same_text_column_prefix_geometry`, wenn auf Folgeseiten nur nachgelagerte
+   Signaturspalten entfallen). `structured_mapping.py` führt für `docling`
+   (weiterhin strikt ohne LLM) ein zweistufiges Mapping aus: Stufe 1 übernimmt
+   reguläre TableFormer-Zellen unverändert; Stufe 2 ergänzt ausschließlich
+   leere/nicht zugeordnete Felder sowie verwaiste OCR-Rohbeobachtungen (`ocr_cells`)
+   unterhalb der Tabelle über Y-Überlappung und feste Spalten-X-Intervalle als
+   `state="uncertain"`.
+4. **Nachweis (Validierungslauf `software/runs/20261110T083413Z-10042efe/`, Auswertung `software/runs/validation_balanced_pipeline/20261110T083532Z-dbdf20c4/` ggü. Baseline `20261106T080030Z-f1e4fa77/`):**
+   - `ocr_llm`: zugeordnete Teilnehmer `9 → 17` (Seite 1: `9`, Seite 2: `0 → 8`),
+     exakte Felder `25/72 (34,72 %) → 29/72 (40,28 %)` (`user_id` `7 → 8`,
+     `short_code` `0 → 3`), fehlende Felder `47 → 24`, zusätzliche Felder `0`,
+     Levenshtein-Feld-F1 (Best-Fit) `53,15 % → 64,85 %` (konservativ `53,15 % → 56,48 %`).
+   - `docling`: zugeordnete Teilnehmer `8 → 16` (Seite 1: `9` über explizite
+     Kopfzeile statt Fallback, Seite 2: `0 → 7` über Spaltenvererbung + Stufe-2-Fallback),
+     exakte Felder `22/72 (30,56 %) → 28/72 (38,89 %)` (`first_name` `8 → 10`,
+     `last_name` `8 → 9`, `short_code` `0 → 3`), fehlende Felder `48 → 17`,
+     zusätzliche Felder `0`, Levenshtein-Feld-F1 (Best-Fit) `45,83 % → 65,19 %`
+     (konservativ `45,83 % → 55,43 %`).
+   - Alle 670 lokalen Unit- und Regressionstests (`pytest software/tests`, inkl.
+     neuer synthetischer Tests für graue Kopfzeilen und gemischte Seiten +
+     Folgeseite) sowie `ruff check` bestanden.
+
+### Umgebungsprüfung und Verifikation des lokalen Testframeworks (09.11.)
+
+Lokale Umgebung verifiziert: Python 3.12.15, `uv 0.13.1`, CUDA aktiv (NVIDIA
+GeForce RTX 4090 Laptop GPU), `uv sync --locked --extra models --offline` ohne
+Fehlbestand (71 Pakete aufgelöst, 55 geprüft). Isoliertes Verzeichnis
+`software/api_firmen_pc/` unberührt gelassen. Minimal-invasiv behoben:
+Berechtigungsfehler (`PermissionError`) auf fremden System-Temp-Ordnern
+(`pytest-of-Marco`) und altem `.pytest_cache` sowie relative Pfadauflösung beim
+Aufruf von `pytest software/tests` aus dem Repository-Root durch
+`cache_dir = ".cache/pytest_cache"` in `software/pyproject.toml` und neues
+`software/tests/conftest.py` (setzt Arbeitsverzeichnis `software/` und lokales
+`basetemp` unter `.cache/pytest_tmp`). Zusätzlich `PYTHONUTF8=1` und
+`PYTHONIOENCODING=utf-8` in `software/start_testframework.cmd` ergänzt.
+Alle 668 lokalen Unit-/Regressionstests (`pytest software/tests`, 59,65 s) und
+`ruff check` bestanden. Testframework-Vorabprüfung (`--pruefen`), synthetischer
+Vergleichslauf (`20261109T120211Z-d892972b`, Levenshtein-Feld-F1 82,69 %),
+synthetischer End-to-End-Lauf mit `ocr_raw` und `docling`
+(`20261109T120326Z-beeb4b0a`, Docling 100,00 % / 11 von 11 Referenzfeldern exakt)
+sowie Standardlauf mit `ocr_raw` (`20261109T120951Z-0d00bc7a`) fehlerfrei mit
+Exit-Code 0 und vollständigen HTML-/JSON-/CSV-/XLSX-Artefakten abgeschlossen.
 
 ### Extraktionsqualität und separate Fehleranalyse (06.11.)
 
@@ -782,3 +959,275 @@ auf die dort datierten Stände.
   Trennung von Nicht-Erkennung/Lesefehler/Zuordnungsfehlern fehlen geprüfte
   Referenzkoordinaten. Historische Läufe, Referenzen und Modellgewichte bleiben
   unverändert; personenbezogene Ergebnisartefakte werden nicht eingecheckt.
+
+### 2026-11-09 – Projektinitialisierung, Umgebungsprüfung und lokale Testframework-Verifikation
+
+- **Auftrag:** Repository-Struktur und lokale Python-Umgebung (`uv`, Python 3.12)
+  prüfen, Abhängigkeiten gegen `software/uv.lock` verifizieren,
+  `software/start_testframework.cmd` und `software/testframework/main.py`
+  analysieren sowie Unit-Tests und lokale Testframework-Durchläufe ohne externe
+  Groß-Downloads und ohne Eingriff in `software/api_firmen_pc/` erfolgreich
+  ausführen.
+- **Dateien:** `software/pyproject.toml`, `software/tests/conftest.py` (neu),
+  `software/start_testframework.cmd` sowie `AGENTEN_UEBERGABE.md`.
+- **Zweck / Änderungen:**
+  - `software/pyproject.toml`: `cache_dir = ".cache/pytest_cache"` unter
+    `[tool.pytest.ini_options]` ergänzt, um `PermissionError` auf dem durch
+    einen anderen Benutzer gesperrten `.pytest_cache`-Verzeichnis zu vermeiden.
+  - `software/tests/conftest.py`: setzt bei Teststart das Arbeitsverzeichnis auf
+    `software/` und `basetemp` standardmäßig auf `software/.cache/pytest_tmp`,
+    sodass sowohl `pytest -q` aus `software/` als auch `pytest software/tests`
+    aus dem Repository-Root ohne `PermissionError` auf `AppData\Local\Temp\pytest-of-Marco`
+    und ohne relative Pfadfehler durchlaufen.
+  - `software/start_testframework.cmd`: `PYTHONUTF8=1` und
+    `PYTHONIOENCODING=utf-8` für konsistente UTF-8-Konsolenausgabe unter Windows
+    gesetzt.
+- **Implementiert / getestet / aktiv konfiguriert / nachgewiesen:**
+  - *Aktiv konfiguriert & verifiziert:* Python 3.12.15 (`software/.venv`),
+    `uv 0.13.1`, CUDA (NVIDIA GeForce RTX 4090 Laptop GPU), `uv sync --locked --extra models --offline`
+    konsistent (71 Pakete aufgelöst, 55 geprüft).
+  - *Getestet:* 668 lokale Unit- und Regressionstests via
+    `.\software\.venv\Scripts\python.exe -m pytest software/tests -q` in 59,65 s
+    bestanden (0 Fehler, 0 Warnungen); `ruff check` und `git diff --check` ohne
+    Befund.
+  - *Anhand von Referenz- und Demodaten nachgewiesen:*
+    - `start_testframework.cmd --pruefen`: Exit-Code 0 (1 Eingabe-PDF, 170 Referenzzeilen,
+      11 Kurse, 1 gemeinsamer Kurs).
+    - `testframework/main.py compare` auf `testframework/beispiele/generiert/`:
+      Ergebnisordner `software/testframework/ergebnisse/20261109T120211Z-d892972b/`,
+      erwarteter Levenshtein-Feld-F1 von 82,69 % (10/11 Referenzfelder exakt) reproduziert.
+    - `start_testframework.cmd --input testframework/beispiele/generiert/pdfs --reference testframework/beispiele/generiert/referenz.csv --method ocr_raw --method docling`:
+      Extraktionslauf `software/runs/20261109T120214Z-f8f03d48/` und Vergleich
+      `software/testframework/ergebnisse/20261109T120326Z-beeb4b0a/` mit Exit-Code 0
+      (Docling: Levenshtein-Feld-F1 100,00 %, 11/11 Referenzfelder exakt).
+    - `start_testframework.cmd --method ocr_raw` auf Standard-Eingabeordner:
+      Extraktionslauf `software/runs/20261109T120944Z-f2d31016/` und Vergleich
+      `software/testframework/ergebnisse/20261109T120951Z-0d00bc7a/` mit Exit-Code 0,
+      SHA256-Hashes der Eingabe-PDF und Referenzdatei unverändert.
+    - Sämtliche Output-Artefakte (`report.html`, `details.html`, `zuordnungen.html`,
+      `extraction_errors.html`, `metrics.json`, `identity.json`, `config.json`,
+      `reference_snapshot.json`, `participants.xlsx` sowie CSV-Tabellen) vollständig erzeugt.
+- **Offen / nächster sinnvoller Schritt:** Testumgebung ist vollständig
+  verifiziert und reproduzierbar; als nächster fachlicher Schritt können weitere
+  unabhängige Entwicklungsdokumente und manuell geprüfte Seitenreferenzen für die
+  Handschrift- und Folgeseiten-Evaluation herangezogen werden.
+
+### 2026-11-10 – Ausbalancierte Pipeline für gemischte Dokumente in `ocr_llm` und `docling`
+
+- **Auftrag:** Vorverarbeitung, Rohdaten-Durchreichung und Tabellenzuordnung für
+  `ocr_llm` und `docling` als ausbalancierten Mittelweg für gemischte
+  Teilnehmerlisten (Maschinenschrift + Handschrift + kopflose Folgeseiten)
+  optimieren, ohne die Definition der sechs Hauptverfahren zu verändern (`docling`
+  bleibt ohne LLM), ohne OCR-Rohbeobachtungen zu löschen und ohne Ground Truth in
+  der Extraktion zu verwenden.
+- **Dateien:**
+  - `software/verarbeitung/src/participant_bench/image_preprocessing.py`
+  - `software/verarbeitung/src/participant_bench/ocr.py`
+  - `software/structure_runtime/docling_backend.py`
+  - `software/verarbeitung/src/participant_bench/column_headers.py`
+  - `software/verarbeitung/src/participant_bench/unlimited_assignment.py`
+  - `software/verarbeitung/src/participant_bench/ocr_layout.py`
+  - `software/verarbeitung/src/participant_bench/ocr_evidence.py`
+  - `software/verarbeitung/src/participant_bench/models.py`
+  - `software/verarbeitung/src/participant_bench/column_context.py`
+  - `software/verarbeitung/src/participant_bench/structured_mapping.py`
+  - `software/tests/test_handwriting_retention.py`
+  - `AGENTEN_UEBERGABE.md`
+- **Zweck / Änderungen:**
+  - `image_preprocessing.py`: In `remove_grid_lines(image)` vor der Otsu-Binarisierung
+    eine lokale Hintergrundschätzung mittels morphologischem Schließen
+    (`cv2.MORPH_CLOSE`, Kernel `25×25`) und Division (`cv2.divide`) eingeführt;
+    Linienmasken (`40×1` horizontal, `1×40` vertikal) weißen ausschließlich
+    erkannte Gitterlinien auf dem hintergrundnormalisierten Graustufenbild.
+    Verhindert das bisherige Auslöschen grau hinterlegter Tabellenkopfzeilen und
+    erhält schwache Stiftstriche auf Folgeseiten.
+  - `ocr.py` & `docling_backend.py`: `file_hash(image_preprocessing.py)` in
+    `OCR.identity` aufgenommen; `configure_ocr_images` in `docling_backend.py`
+    idempotent gemacht und `cell.rect`-Guard bei der Serialisierung von `ocr_cells`
+    ergänzt.
+  - `column_headers.py` & `unlimited_assignment.py`: OCR-Varianten `signetur`,
+    `benutzemame` und `teilnehmemame` (`rn`→`m`-Ligatur) in der Header-Erkennung
+    ergänzt; Wortgrenzen-Regex in `literal()` auf `(?<![^\W_])(?<!['/’–-])...`
+    präzisiert, sodass Scan-Randunterstriche (`_`) an Personalnummern/Namen nicht
+    scheitern, Bindestrich-Teilwörter (`Groß` in `Groß-Müller`) aber weiterhin
+    strikt abgelehnt werden.
+  - `ocr_layout.py`, `models.py` & `ocr_evidence.py`: Zweistufiges
+    Beobachtungs-/Evidenzmodell für `ocr_llm`: sichere Maschinenschriftzeilen
+    behalten `selection_hint="person_pattern"`; niedrigkonfidente oder
+    handschriftliche Tabellenzeilen unterhalb der Kopfzeile bleiben im Modus
+    `pattern` als `selection_hint="unclassified_observation"` samt
+    `min_ocr_confidence` erhalten, während Vor-Tabellen-Metadatenzeilen
+    ausgeschlossen werden. `ALL_ROW_INSTRUCTIONS` wird in `models.py` automatisch
+    eingebunden, sobald `unclassified_observation`-Zeilen vorliegen.
+    Niedrigkonfidente (`ocr_confidence < 30`) oder partielle Belege werden in
+    `ocr_evidence.py` als `state="uncertain"` markiert.
+  - `column_context.py` & `structured_mapping.py`: `column_intervals` und
+    `text_width` im dokumentweiten Spaltenkontext verankert; Kompatibilitätsprüfung
+    akzeptiert auf Folgeseiten auch `same_text_column_prefix_geometry` (innerhalb
+    `MAX_EDGE_SHIFT = 0.035`), wenn auf der Folgeseite lediglich nachgelagerte
+    Signaturspalten fehlen. Zweistufiges `docling`-Mapping in `structured_mapping.py`
+    ergänzt leere/nicht zugeordnete Felder bestehender Zeilen (Stufe 2a) sowie
+    verwaiste `ocr_cells`-Zeilen unterhalb der TableFormer-Tabelle (Stufe 2b)
+    anhand der fixierten Spalten-X-Intervalle als `state="uncertain"`.
+- **Implementiert / getestet / aktiv konfiguriert / nachgewiesen:**
+  - *Implementiert & aktiv konfiguriert:* Alle genannten Änderungen sind im
+    Standardprofil (`software/configs/benchmark.yaml` und
+    `software/testframework/config.yaml`) aktiv; `docling` nutzt weiterhin kein LLM.
+  - *Getestet:* 192 gezielte Tests in den 7 Kern-Testmodulen (`2,21 s`) sowie alle
+    670 lokalen Unit- und Regressionstests (`pytest software/tests`, inkl. 2 neuer
+    synthetischer Tests in `test_handwriting_retention.py` für graue Kopfzeilen und
+    gemischte Seiten mit kopfloser Folgeseite) bestanden; `ruff check` ohne Befund.
+  - *Anhand von Referenzdaten nachgewiesen:* Validierungslauf
+    `software/runs/20261110T083413Z-10042efe/` und Auswertung
+    `software/runs/validation_balanced_pipeline/20261110T083532Z-dbdf20c4/`
+    gegenüber Baseline `20261106T080030Z-f1e4fa77/` auf Dokument `140829`
+    (18 Referenzteilnehmer, 72 Referenzfelder):
+    - `ocr_llm`: `predicted_participants` `9 → 17` (`missing_participants` `9 → 1`,
+      `extra_participants` `0`), `exact_fields` `25/72 (34,72 %) → 29/72 (40,28 %)`,
+      `missing_fields` `47 → 24`, `extra_fields` `0`, `field_coverage` `34,72 % → 66,67 %`,
+      `soft_f1` (Best-Fit) `53,15 % → 64,85 %`, `soft_f1` (konservativ) `53,15 % → 56,48 %`.
+    - `docling`: `predicted_participants` `8 → 16` (`missing_participants` `10 → 2`,
+      `extra_participants` `0`), `exact_fields` `22/72 (30,56 %) → 28/72 (38,89 %)`,
+      `missing_fields` `48 → 17`, `extra_fields` `0`, `field_coverage` `33,33 % → 76,39 %`,
+      `soft_f1` (Best-Fit) `45,83 % → 65,19 %`, `soft_f1` (konservativ) `45,83 % → 55,43 %`.
+    - Verlustfreie Beobachtungsbilanz (`ocr_observations.audit`): 0 verworfene
+      SDK-Zellen, alle Rohbeobachtungen auf Seite 1 (`172` bzw. `155`) und Seite 2
+      (`78` statt zuvor `51` bzw. `64`) vollständig im Ledger erhalten.
+- **Offen / nächster sinnvoller Schritt:** Die verbleibenden Abweichungen auf
+  Seite 2 resultieren primär aus der reinen Zeichenerkennungsqualität (Tesseract-OCR)
+  bei stark kursiver Handschrift; als nächster Schritt empfiehlt sich die Prüfung
+  auf weiteren mehrseitigen Dokumenten des Korpus sowie der Vergleich mit den
+  visuellen Verfahren (`vlm`, `ocr_vlm`) und `paddle_llm`.
+
+### 2026-11-10 — Zeilenindividuelle Vorname-/Nachname-Erkennung bei fehlenden Spaltenüberschriften und wechselnder Eintragungsreihenfolge
+
+- **Auftrag:** Untersuchung und Optimierung der zeilenindividuellen
+  Vorname-/Nachname-Aufteilung und -Zuordnung (`name_parts.py`, `document_names.py`,
+  `structured_mapping.py`, `table_mapping.py`, `models.py`,
+  `unlimited_assignment.py`, `roster_benchmark/error_report.py`), sodass bei fehlenden
+  Spaltenüberschriften und zeilenweise wechselnder Eintragungsreihenfolge
+  (`"Vorname Nachname"`, `"Nachname Vorname"`, `"Nachname, Vorname"`) jede Zeile
+  individuell entschieden wird und die Spaltenorientierung ausschließlich als
+  Tie-Breaker bei echten Mehrdeutigkeiten (`"Thomas Martin"`) dient, ohne `docling`
+  oder `ocr_raw` um ein LLM zu erweitern.
+- **Geänderte Dateien:**
+  - `software/verarbeitung/src/participant_bench/name_parts.py`
+  - `software/verarbeitung/src/participant_bench/document_names.py`
+  - `software/verarbeitung/src/participant_bench/structured_mapping.py`
+  - `software/verarbeitung/src/participant_bench/table_mapping.py`
+  - `software/verarbeitung/src/participant_bench/models.py`
+  - `software/verarbeitung/src/participant_bench/unlimited_assignment.py`
+  - `software/verarbeitung/src/participant_bench/roster_benchmark/error_report.py`
+  - `software/tests/test_document_names.py`
+  - `software/tests/test_extraction_errors.py`
+  - `AGENTEN_UEBERGABE.md`
+- **Zweck / Änderungen:**
+  - `name_parts.py`: Deterministische Token- und Paarklassifikation
+    (`classify_name_token`, `classify_name_pair`, `has_surname_prefix`) für deutsche
+    und internationale Vor-/Nachnamen, Adels-/Namenspartikeln (`SURNAME_PARTICLES`,
+    `MULTIWORD_SURNAME_PREFIXES`) und morphologische Nachnamensuffixe
+    (`SURNAME_SUFFIXES`) ergänzt. `split_combined_name` priorisiert explizite Kommas
+    (`explicit_surname_comma_given_name`) und eindeutige zeilenindividuelle Evidenz
+    (`lexical_given_family`, `lexical_family_given`) vor `default_order`. Neue
+    Hilfsfunktion `infer_column_tiebreaker` berechnet die Mehrheitsorientierung einer
+    Spalte ausschließlich aus eindeutig klassifizierten Zeilen als Tie-Breaker für
+    mehrdeutige Zeilen (z. B. zwei Vornamen wie `"Thomas Martin"`).
+  - `document_names.py`: In `DocumentNameOrders.prepare_assignment` und
+    `DocumentNameOrders.apply` hat eindeutige zeilenindividuelle Evidenz Vorrang vor
+    `selected.order`, sodass korrekte Einzelzeilen in gemischten Tabellen nicht mehr
+    durch einen globalen Spalten-Swap invertiert werden. Mehrdeutige Zeilen nutzen
+    `_assignment_tiebreaker` bzw. `_page_tiebreaker`. `INSTRUCTIONS` und
+    `infer_text_order` weisen die bestehenden LLM-/VLM-Verfahren an, jede Zeile
+    individuell auf Vor-/Nachname zu prüfen und die Dokumentorientierung als
+    Tie-Breaker zu nutzen.
+  - `structured_mapping.py` & `table_mapping.py`: Übergabe des spaltenweiten
+    Tie-Breakers an `split_combined_name`, Korrektur zeilenindividuell vertauschter
+    Einträge in getrennten Vor-/Nachnamenspalten sowie Erweiterung von
+    `partial_identity_fallback` (inkl. `_two_column_headerless_fallback`) für kopflose
+    Tabellen mit einer kombinierten oder zwei getrennten unbenannten Namensspalten.
+  - `models.py` & `unlimited_assignment.py`: Präzisierung der Systemprompts für
+    `ocr_llm`, `paddle_llm`, `vlm` und `ocr_vlm` für zeilenweise wechselnde
+    Namensreihenfolgen.
+  - `roster_benchmark/error_report.py`: Neue Fehlerkategorie `name_swap`
+    (`"Vor-/Nachname-Vertauschung (Swap)"`) in `CATEGORIES` und `diagnose_field`
+    sowie explizites Flag `name_swapped` zur transparenten Trennung zwischen
+    striktem ungeswapptem Feld-Recall und Swap-Toleranz.
+- **Implementiert / getestet / aktiv konfiguriert / nachgewiesen:**
+  - *Implementiert & aktiv konfiguriert:* Alle Änderungen sind im Standardprofil aktiv;
+    `docling` und `ocr_raw` bleiben vollständig ohne LLM, und es erfolgt keinerlei
+    Zugriff auf Ground-Truth-Daten während der Extraktion.
+  - *Getestet:* Gezielte Suite (`pytest software/tests/test_document_names.py software/tests/test_document_columns.py software/tests/test_evaluation.py software/tests/test_extraction_errors.py`:
+    `71 passed`), Gesamttestsuite (`pytest software/tests`: `673 passed`) sowie
+    `ruff check` ohne Befund bestanden.
+  - *Anhand von Referenzdaten nachgewiesen:* Auf dem gecachten Referenzlauf zu
+    Dokument `140829` (`software/runs/20261103T084429Z-e2834b34/docling` gegen
+    `reference_snapshot.json`) sinkt `name_swapped_participants` für `docling` von `6`
+    auf `0`; die exakten Felder ohne Swap-Toleranz (`compare_name_orientations=False`)
+    steigen auf diesem Dokument von `7` auf `15` (bzw. über alle 72 Referenzfelder
+    von `20/72` auf `28/72`).
+- **Offen / nächster sinnvoller Schritt:** Seltene Namen, bei denen weder Vor- noch
+  Nachname lexikalisch/morphologisch bekannt ist und kein Komma vorliegt, folgen
+  weiterhin dem Spalten-Tie-Breaker bzw. bei den vier LLM-/VLM-Verfahren der
+  semantischen Modellentscheidung; als nächster Schritt empfiehlt sich ein
+  End-to-End-Benchmarklauf über alle sechs Verfahren auf dem Gesamtkorpus.
+
+### 2026-11-10 – Konzeption und Implementierung einer optionalen Docling-VLM-Hybridstufe (`docling-vlm`)
+
+- **Auftrag:** Untersuchung und Implementierung einer optional zuschaltbaren
+  Kombination aus `docling` (TableFormer + Spaltenkontext) und dem lokalen VLM
+  (`Qwen/Qwen3-VL-4B-Instruct`) für handschriftliche Einträge und die
+  Vorname-/Nachname-Zuordnung unter strikter Beibehaltung der LLM-/VLM-freien
+  `docling`-Baseline in `software/configs/benchmark.yaml`.
+- **Geänderte Dateien:**
+  - `software/verarbeitung/src/participant_bench/config.py`
+  - `software/verarbeitung/src/participant_bench/structure.py`
+  - `software/verarbeitung/src/participant_bench/hybrid.py`
+  - `software/verarbeitung/src/participant_bench/structured_mapping.py`
+  - `software/verarbeitung/src/participant_bench/table_mapping.py`
+  - `software/verarbeitung/src/participant_bench/runner.py`
+  - `software/verarbeitung/src/participant_bench/report.py`
+  - `software/verarbeitung/src/participant_bench/roster_benchmark/error_report.py`
+  - `software/configs/docling-vlm.yaml` (neu)
+  - `software/tests/test_unified_pipelines.py`
+  - `AGENTEN_UEBERGABE.md`
+- **Zweck / Änderungen:**
+  - `config.py`, `structure.py` & `software/configs/docling-vlm.yaml`: Explizite
+    Opt-in-Option `vlm_assist: bool = False` in `StructureConfig` ergänzt, im
+    Hauptvergleich (`main_comparison: true`) strikt gesperrt, vom
+    TableFormer-Erkennungs-Cache-Schlüssel (`recognition_key`) entkoppelt und im
+    separaten Ablationsprofil `software/configs/docling-vlm.yaml` aktiviert.
+  - `hybrid.py` & `runner.py`: Funktionen `serialize_docling_hints`,
+    `needs_docling_vlm_assist`, `merge_docling_vlm_participants` und
+    `assist_docling_pages` implementiert. Nach dem Entladen des `docling`-Workers wird
+    `Qwen/Qwen3-VL-4B-Instruct` nur für Seiten mit unvollständigen/unsicheren Feldern,
+    Handschrift-Folgeseiten oder nicht zugeordneten Tabellenzeilen aufgerufen; saubere
+    Druckseiten (`all_docling_rows_complete_and_read`) werden ohne VLM-Aufruf
+    übersprungen. Verankerte gedruckte `docling`-Felder bleiben mit
+    `provenance="docling"` erhalten, während unsichere/fehlende/handschriftliche Felder
+    mit `provenance="docling_vlm_assist"` und Dokumentation von
+    `original_docling_value` ergänzt werden.
+  - `structured_mapping.py`, `table_mapping.py`, `report.py` &
+    `roster_benchmark/error_report.py`: Durchgängige Provenance-Kennzeichnung
+    (`provenance="docling"` vs. `"docling_vlm_assist"`) in `row_evidence`,
+    `diagnose_field`, `error_analysis/fields.json` und `extraction_errors.html` sowie
+    separate Ausweisung von `vlm_assist_seconds`, `vlm_assist_model` und
+    `deterministic_headers_vlm_assist` in `resources.json`, `summary.json` und
+    `report.html`.
+  - `software/tests/test_unified_pipelines.py`: Zwei neue Unit-Tests
+    (`test_docling_standard_profile_never_invokes_vlm_and_main_protocol_rejects_vlm_assist`
+    und `test_docling_vlm_assist_merges_incomplete_and_handwritten_rows_with_provenance`)
+    ergänzt.
+- **Implementiert / getestet / aktiv konfiguriert / nachgewiesen:**
+  - *Implementiert & aktiv konfiguriert:* Im Hauptprofil `software/configs/benchmark.yaml`
+    und in `software/configs/docling.yaml` bleibt `vlm_assist: false` (100 % LLM-/VLM-frei);
+    im neuen Profil `software/configs/docling-vlm.yaml` ist `vlm_assist: true` aktiv
+    konfiguriert.
+  - *Getestet:* Gezielte Testsuite (`pytest software/tests/test_vlm_cells.py software/tests/test_structure_methods.py software/tests/test_unified_pipelines.py software/tests/test_local_isolation.py`:
+    `70 passed`), Gesamttestsuite (`pytest software/tests`: `675 passed in 64.83s`)
+    sowie `ruff check` ohne Befund bestanden.
+  - *Anhand von Referenzdaten nachgewiesen:*
+    - **Live-Testframework-Lauf (`software/runs/20261110T111644Z-aa89a376`, Auswertung `software/testframework/ergebnisse/20261110T111751Z-9b5da18c/`):**
+      Auf `140829.pdf` steigt der Levenshtein-Feld-F1 live von `65,19 %` (`docling` ohne VLM) auf **`77,77 %` (`+12,58 pp`)**, die exakten Felder steigen von `28/72` auf **`35/72`** (strikt ohne Swap-Toleranz von `22/72` auf **`28/72`**), alle **`18/18` Teilnehmer** werden zugeordnet (`0` fehlend, `0` überzählig) und die Namensdreher sinken von `6` auf **`1`** bei `62,3 s` Gesamtlaufzeit (`0` VLM-Aufrufe auf Seite 1, `1` VLM-Aufruf auf Seite 2).
+    - **Replay auf gecachten Artefakten (`20261110T085608Z-d06794be` + `20261110T100955Z-3cb60325`):**
+      Steigerung der exakten Felder von `28/72 (38,89 %)` auf `41/72 (56,94 %)` (bzw. strikt ohne Swap-Toleranz von `22/72` auf `34/72`) und des Best-Fit-Scores von `65,19 %` auf `82,76 %`.
+- **Offen / nächster sinnvoller Schritt:** Optionales Einbinden des `docling-vlm`-Profils in `software/start_testframework.cmd` (falls der Nutzer den Ablationslauf bei jedem Standard-Start automatisch mit ausführen möchte) oder Ablationslauf über alle 6 PDFs in `daten/listen/`.

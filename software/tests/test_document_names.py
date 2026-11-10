@@ -301,3 +301,123 @@ def test_real_parser_pipeline_passes_only_same_document_context_and_exports_deci
     assert len(decisions) == 3 and decisions[0]["name_order"] == "family_given"
     assert "Dokumentweite Zuordnung von Vor- und Nachname" in (output / "report.html").read_text(encoding="utf-8")
     assert all(file_hash(path) == expected for path, expected in hashes.items())
+
+
+def _headerless_native_table(rows):
+    width = len(rows[0])
+    cells = [
+        dict(
+            text=text,
+            start_row_offset_idx=r,
+            end_row_offset_idx=r + 1,
+            start_col_offset_idx=c,
+            end_col_offset_idx=c + 1,
+            row_span=1,
+            col_span=1,
+            column_header=False,
+            bbox=dict(l=c * 120, t=r * 50, r=c * 120 + 100, b=r * 50 + 40, coord_origin="TOPLEFT"),
+        )
+        for r, row in enumerate(rows)
+        for c, text in enumerate(row)
+    ]
+    html = "<table>" + "".join("<tr>" + "".join(f"<td>{t}</td>" for t in row) + "</tr>" for row in rows) + "</table>"
+    return dict(
+        tables=[dict(html=html, native=dict(data=dict(num_rows=len(rows), num_cols=width, table_cells=cells)))],
+        plain_text="native OCR retained",
+        markdown=html,
+        native=dict(pages={"1": dict(size=dict(width=width * 120, height=800))}),
+    )
+
+
+def test_mixed_row_name_order_without_headers_in_single_and_two_columns():
+    from participant_bench.structured_mapping import extract_structured
+
+    expected = [
+        ("Max", "Mustermann"),
+        ("Anna", "Schmidt"),
+        ("Lukas", "Weber"),
+        ("Julia", "Fischer"),
+    ]
+    single_col_source = _headerless_native_table([
+        ["Max Mustermann", "000101"],
+        ["Schmidt, Anna", "000102"],
+        ["Weber Lukas", "000103"],
+        ["Julia Fischer", "000104"],
+    ])
+    people_single, _, _, _ = extract_structured(single_col_source)
+    assert [(p.first_name.value, p.last_name.value) for p in people_single] == expected
+
+    two_col_source = _headerless_native_table([
+        ["Max", "Mustermann", "000101"],
+        ["Schmidt,", "Anna", "000102"],
+        ["Weber", "Lukas", "000103"],
+        ["Julia", "Fischer", "000104"],
+    ])
+    people_two, _, _, _ = extract_structured(two_col_source)
+    assert [(p.first_name.value, p.last_name.value) for p in people_two] == expected
+
+    payload = dict(
+        name_order=dict(order="family_given", basis="default", evidence="Standard"),
+        identity_headers=[None, None],
+        page_text=None,
+        participants=[
+            dict(row_ref="1", first_name="Max", last_name="Mustermann", identity_cells=["Max Mustermann", "000101"]),
+            dict(row_ref="2", first_name="Schmidt", last_name="Anna", identity_cells=["Schmidt, Anna", "000102"]),
+            dict(row_ref="3", first_name="Weber", last_name="Lukas", identity_cells=["Weber Lukas", "000103"]),
+            dict(row_ref="4", first_name="Julia", last_name="Fischer", identity_cells=["Julia Fischer", "000104"]),
+        ],
+    )
+    raw_response = json.dumps(payload)
+    people_vlm, _, _, _ = parse_visual_response(raw_response)
+    page = PageResult(
+        run_id="fixture",
+        document_id="mixed-doc",
+        page_id="mixed-doc-p0001",
+        page_number=1,
+        method_id="vlm",
+        status="success",
+        parse_status="valid",
+        participants=people_vlm,
+    )
+    raw = dict(responses=[dict(raw_response=raw_response, name_order=payload["name_order"], parse_status="valid")])
+    DocumentNameOrders().apply(page, raw)
+    assert [(p.first_name.value, p.last_name.value) for p in page.participants] == expected
+
+
+def test_two_given_names_tiebreaker_respects_column_majority_without_corrupting_neighbors():
+    from participant_bench.structured_mapping import extract_structured
+
+    given_majority_source = _headerless_native_table([
+        ["Max Mustermann", "000101"],
+        ["Schmidt, Anna", "000102"],
+        ["Weber Lukas", "000103"],
+        ["Julia Fischer", "000104"],
+        ["Ben Schulz", "000105"],
+        ["Thomas Martin", "000106"],
+    ])
+    people_given_maj, _, _, _ = extract_structured(given_majority_source)
+    assert [(p.first_name.value, p.last_name.value) for p in people_given_maj] == [
+        ("Max", "Mustermann"),
+        ("Anna", "Schmidt"),
+        ("Lukas", "Weber"),
+        ("Julia", "Fischer"),
+        ("Ben", "Schulz"),
+        ("Thomas", "Martin"),
+    ]
+
+    family_majority_source = _headerless_native_table([
+        ["Max Mustermann", "000101"],
+        ["Schmidt, Anna", "000102"],
+        ["Weber Lukas", "000103"],
+        ["Fischer Julia", "000104"],
+        ["Thomas Martin", "000105"],
+    ])
+    people_family_maj, _, _, _ = extract_structured(family_majority_source)
+    assert [(p.first_name.value, p.last_name.value) for p in people_family_maj] == [
+        ("Max", "Mustermann"),
+        ("Anna", "Schmidt"),
+        ("Lukas", "Weber"),
+        ("Julia", "Fischer"),
+        ("Martin", "Thomas"),
+    ]
+

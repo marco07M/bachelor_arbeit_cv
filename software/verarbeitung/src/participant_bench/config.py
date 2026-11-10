@@ -163,6 +163,7 @@ class StructureConfig(ConfigModel):
     assignment_format: Literal["legacy_v13", "positioned_v14"] = "legacy_v13"
     scan_input: Literal["rendered", "native"] = "rendered"
     extraction: Literal["table", "llm"] = "table"
+    vlm_assist: bool = False
     assignment_max_new_tokens: int = Field(default=4096, ge=128, le=32768)
     # Optional Paddle probes; None preserves the pinned engine defaults.
     text_det_limit_side_len: int | None = Field(default=None, ge=320, le=4096)
@@ -208,6 +209,11 @@ class Config(ConfigModel):
             llm = self.models.get("ocr_llm")
             if llm is None or llm.backend != "local":
                 raise ValueError("OCR-Zellzuordnung benötigt ein lokales models.ocr_llm; keine API")
+        if "docling" in self.methods and "docling" in self.structures and self.structures["docling"].vlm_assist:
+            vlm = self.models.get("vlm")
+            if vlm is None or vlm.backend != "local":
+                raise ValueError("Docling-VLM-Hybridstufe benötigt ein lokales models.vlm")
+            self.models.setdefault("ocr_vlm", vlm.model_copy(deep=True))
         if self.main_comparison:
             if set(self.methods) & set(LEGACY_METHODS):
                 raise ValueError("Legacy-Verfahren gehören nicht in den Hauptvergleich")
@@ -215,7 +221,10 @@ class Config(ConfigModel):
                 spec = self.models.get(name)
                 if spec and (spec.backend != "local" or spec.repo != expected or spec.do_sample):
                     raise ValueError(f"Hauptvergleich benötigt {name}={expected}, lokal und deterministisch")
-            if "docling" in self.methods and structure_settings(self, "docling").extraction != "table":
+            if "docling" in self.methods and (
+                structure_settings(self, "docling").extraction != "table"
+                or structure_settings(self, "docling").vlm_assist
+            ):
                 raise ValueError("Docling verwendet im Hauptvergleich deterministisches Tabellenmapping ohne LLM")
         return self
 

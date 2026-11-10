@@ -273,3 +273,225 @@ def test_repeated_kv_attention_preserves_values_and_causal_mask(masked, query_le
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
     register_repeated_kv_sdpa()
     assert ALL_MASK_ATTENTION_FUNCTIONS["sdpa_repeated_kv"] is ALL_MASK_ATTENTION_FUNCTIONS["sdpa"]
+
+
+def test_docling_standard_profile_never_invokes_vlm_and_main_protocol_rejects_vlm_assist(tmp_path, monkeypatch):
+    import pymupdf
+
+    from participant_bench import runner, structure
+    from participant_bench.io import read_json, read_jsonl
+
+    bench = load_config(Path("configs/benchmark.yaml"))
+    docling_cfg = load_config(Path("configs/docling.yaml"))
+    assert bench.structures["docling"].vlm_assist is False
+    assert docling_cfg.structures["docling"].vlm_assist is False
+
+    invalid = bench.model_dump()
+    invalid["structures"]["docling"]["vlm_assist"] = True
+    with pytest.raises(ValueError, match="Hauptvergleich"):
+        Config.model_validate(invalid)
+
+    folder = tmp_path / "input"
+    folder.mkdir()
+    with pymupdf.open() as source:
+        source.new_page()
+        source.save(folder / "123456.pdf")
+
+    config = Config.model_validate(
+        dict(
+            docling_cfg.model_dump(),
+            output_dir=str(tmp_path / "runs"),
+        )
+    )
+    config.pdf.auto_orient = False
+
+    class SimulatedDocling:
+        def extract_page(self, image, page):
+            people, evidence, notes, _ = extract_docling(recognized(TABLE))
+            return (
+                people,
+                {
+                    "tables": [{"html": TABLE}],
+                    "markdown": TABLE,
+                    "plain_text": "observed text",
+                    "native": {},
+                    "row_evidence": evidence,
+                    "review_notes": notes,
+                },
+                "success",
+                0.01,
+            )
+
+        def resources(self):
+            return {}
+
+        def close(self):
+            pass
+
+    def create_checked_model(method_name, *args, **kwargs):
+        if method_name in ("vlm", "ocr_vlm"):
+            raise AssertionError("Standard docling profile must never load or call VLM")
+        return SimulatedDocling()
+
+    monkeypatch.setattr(runner, "create_model", create_checked_model)
+    monkeypatch.setattr(structure, "structure_identity", lambda *args, **kwargs: {"engine": "docling"})
+    monkeypatch.setattr(runner, "environment", lambda *args: {})
+    output, summary = runner.run(config, folder, offline=True)
+    pages = read_jsonl(output / "docling/extractions.jsonl")
+    assert len(pages) == 1 and len(pages[0]["participants"]) == 1
+    raw = read_json(next((output / "docling").glob("raw-*.json")))
+    assert "docling_vlm_assist" not in raw
+    assert raw["structure"]["row_evidence"][0]["fields"]["first_name"]["provenance"] == "docling"
+    assert summary["docling"]["assignment_backend"] == "deterministic_headers"
+
+
+def test_docling_vlm_assist_merges_incomplete_and_handwritten_rows_with_provenance(tmp_path, monkeypatch):
+    import pymupdf
+
+    from participant_bench import runner, structure
+    from participant_bench.io import read_json, read_jsonl
+
+    hybrid_cfg = load_config(Path("configs/docling-vlm.yaml"))
+    assert hybrid_cfg.main_comparison is False
+    assert hybrid_cfg.structures["docling"].vlm_assist is True
+
+    folder = tmp_path / "input"
+    folder.mkdir()
+    with pymupdf.open() as source:
+        source.new_page()
+        source.save(folder / "123456.pdf")
+
+    config = Config.model_validate(
+        dict(
+            hybrid_cfg.model_dump(),
+            output_dir=str(tmp_path / "runs"),
+        )
+    )
+    config.pdf.auto_orient = False
+
+    mixed_table = (
+        "<table><tr><th>Organization</th><th>Benutzername</th><th>User ID</th></tr>"
+        "<tr><td>ABC-12</td><td>von der Wiese, Anna Maria</td><td>000007</td></tr>"
+        "<tr><td>XYZ-99</td><td>unreadable combined text</td><td>000008</td></tr></table>"
+    )
+
+    class SimulatedDocling:
+        def extract_page(self, image, page):
+            people, evidence, notes, _ = extract_docling(recognized(mixed_table))
+            return (
+                people,
+                {
+                    "tables": [{"html": mixed_table}],
+                    "markdown": mixed_table,
+                    "plain_text": "observed text",
+                    "native": {},
+                    "row_evidence": evidence,
+                    "review_notes": notes,
+                },
+                "partial",
+                0.02,
+            )
+
+        def resources(self):
+            return {"calls": 1}
+
+        def close(self):
+            pass
+
+    vlm_prompts = []
+
+    class SimulatedVLM:
+        def extract(self, image, ocr_data=None):
+            assert ocr_data and "hints" in ocr_data
+            hints = ocr_data["hints"]
+            vlm_prompts.append(hints)
+            model = object.__new__(LocalModel)
+            model.method = "ocr_vlm"
+            model.spec = config.models["ocr_vlm"]
+            model.calls = 0
+            response_payload = json.dumps(
+                dict(
+                    name_order=dict(order="family_given", evidence="Benutzername"),
+                    identity_headers=["Organization", "Benutzername", "User ID"],
+                    participants=[
+                        dict(
+                            row_ref=None,
+                            first_name="Anna Maria",
+                            last_name="von der Wiese",
+                            identity_cells=["ABC-WRONG", "von der Wiese, Anna Maria", "000007"],
+                            signature_present=True,
+                        ),
+                        dict(
+                            row_ref=None,
+                            first_name="Stefan",
+                            last_name="Berger",
+                            identity_cells=["XYZ-99", "Berger, Stefan", "000008"],
+                            signature_present=True,
+                        ),
+                        dict(
+                            row_ref=None,
+                            first_name="Claudia",
+                            last_name="Keller",
+                            identity_cells=["DEF-01", "Keller, Claudia", "000009"],
+                            signature_present=True,
+                        ),
+                    ],
+                    page_text=None,
+                )
+            )
+            model.generate = lambda text, image=None, **opts: (
+                response_payload,
+                dict(output_budget_reached=False),
+            )
+            return model.extract(image, ocr_data)
+
+        def resources(self):
+            return {"calls": 1, "load_seconds": 0.05, "warmup_seconds": 0.01, "warmup_calls": 1}
+
+        def close(self):
+            pass
+
+    def create_hybrid_model(method_name, *args, **kwargs):
+        if method_name in ("vlm", "ocr_vlm"):
+            return SimulatedVLM()
+        return SimulatedDocling()
+
+    monkeypatch.setattr(runner, "create_model", create_hybrid_model)
+    monkeypatch.setattr(structure, "structure_identity", lambda *args, **kwargs: {"engine": "docling"})
+    monkeypatch.setattr(runner, "model_identity", lambda *args, **kwargs: {"repo": "Qwen/Qwen3-VL-4B-Instruct"})
+    monkeypatch.setattr(runner, "environment", lambda *args: {})
+
+    output, summary = runner.run(config, folder, offline=True)
+    assert len(vlm_prompts) == 1
+    assert vlm_prompts[0]["version"] == "docling-vlm-assist-v1"
+
+    pages = read_jsonl(output / "docling/extractions.jsonl")
+    assert len(pages) == 1
+    people = pages[0]["participants"]
+    assert len(people) == 3
+    # Row 0: high-confidence Docling printed fields (including ABC-12) are preserved over VLM's ABC-WRONG
+    assert people[0]["first_name"]["value"] == "Anna Maria"
+    assert people[0]["last_name"]["value"] == "von der Wiese"
+    assert people[0]["department"]["value"] == "ABC-12"
+    # Row 1: missing name on Docling row 000008 is filled by VLM while keeping Docling ID and department
+    assert people[1]["personnel_number"]["value"] == "000008"
+    assert people[1]["first_name"]["value"] == "Stefan"
+    assert people[1]["last_name"]["value"] == "Berger"
+    assert people[1]["department"]["value"] == "XYZ-99"
+    # Row 2: additional handwritten row 000009 read by VLM is appended
+    assert people[2]["personnel_number"]["value"] == "000009"
+    assert people[2]["first_name"]["value"] == "Claudia"
+    assert people[2]["last_name"]["value"] == "Keller"
+
+    raw = read_json(next((output / "docling").glob("raw-*.json")))
+    assist = raw["docling_vlm_assist"]
+    assert assist["status"] == "completed" and assist["vlm_called"] is True
+    assert assist["added_rows"] == 1
+    evidence = raw["structure"]["row_evidence"]
+    assert evidence[0]["fields"]["department"]["provenance"] == "docling"
+    assert evidence[1]["fields"]["first_name"]["provenance"] == "docling_vlm_assist"
+    assert evidence[1]["fields"]["first_name"]["original_docling_value"] is None
+    assert evidence[1]["fields"]["personnel_number"]["provenance"] == "docling"
+    assert evidence[2]["fields"]["first_name"]["provenance"] == "docling_vlm_assist"
+    assert summary["docling"]["assignment_backend"] == "deterministic_headers_vlm_assist"
+    assert "Qwen/Qwen3-VL-4B-Instruct" in summary["docling"]["models_used"]

@@ -6,13 +6,19 @@ import time
 import unicodedata
 
 from .io import read_json, write_json
-from .name_parts import DEFAULT_ORDER, matching_comma_cells, matching_name_cells, split_combined_name
+from .name_parts import (
+    DEFAULT_ORDER,
+    classify_name_pair,
+    matching_comma_cells,
+    matching_name_cells,
+    split_combined_name,
+)
 from .ocr_evidence import observed_spans
 from .schema import NameOrderDecision, PageResult, Participant
 
 VERSION = "document-name-order-v3-family-first-default"
 REVIEW = "Namensreihenfolge im Dokument nicht eindeutig belegt; Vor-/Nachname manuell prüfen"
-INSTRUCTIONS = """Decide the NAME ORDER ONCE FOR THE DOCUMENT, not separately for each person.
+INSTRUCTIONS = """Report the baseline document/column NAME ORDER in name_order, while assigning each row's first_name and last_name accurately.
 Return name_order with order=given_family, family_given or unknown, basis=document/default/unknown,
 and a brief evidence string. Use basis=document only for visible headings/separators, basis=default
 for the user's surname-first convention without such evidence.
@@ -23,31 +29,36 @@ given_family means the physical name text reads GIVEN NAME then FAMILY NAME; fam
 FAMILY NAME then GIVEN NAME. Use literal headings (Vorname/First Name versus Nachname/Last Name),
 column positions, and combined-name separators such as 'Nachname, Vorname'. A combined Benutzername
 column is a NAME column; it is not a user ID. Read each whole name part, including compound names.
+In real participant lists, column headings may be missing and participants may switch between
+'Vorname Nachname', 'Nachname Vorname' and 'Nachname, Vorname' row-by-row within the same table.
+Therefore, inspect each participant row individually for given name (first_name) versus family name
+(last_name): a comma ('Nachname, Vorname') or clear row-level given-name/surname evidence takes
+priority for that row, while document name_order serves as the tie-breaker for ambiguous rows.
 The input may contain DOCUMENT_NAME_ORDER_CONTEXT from an earlier page of this SAME PDF. Follow
-that document convention on continuation pages; do not reconsider the order from each person's name.
+that document convention on continuation pages as the baseline tie-breaker for ambiguous rows.
 If the current printed headings contradict that context, report your observed order so the application
 can flag the conflict. If no clear headings or separators establish another order, use the user's
-DEFAULT family_given: the FIRST WHOLE NAME GROUP is the surname, the following group contains ALL
-given names, including second and third given names. Label this as a default assumption in evidence.
+DEFAULT family_given in name_order: label this as a default assumption in evidence.
 For 'Surname, Given names', EVERYTHING before the comma is last_name and EVERYTHING after it is
 first_name. Preserve multiword and hyphenated surnames as ONE whole group; never move the second
 surname component into first_name. Separate printed first/last-name columns take precedence over
 the default. Without a separator or layout evidence, a multiword surname versus extra given names
 can be ambiguous: preserve supported complete groups and use null for a split you cannot establish.
-Never use an external participant roster or guess by nationality, common first names or a dictionary.
-Keep original spelling and never invent, complete or replace name parts. Return first_name and
-last_name as usual, and for VLM keep the literal name cells in their physical identity_cells positions.
+Never use an external participant roster. Keep original spelling and never invent, complete or replace
+name parts. Return first_name and last_name as usual, and for VLM keep the literal name cells in their
+physical identity_cells positions.
 """
 
 
 def infer_text_order(model, rows, hint=None):
     """A short decision by the already-loaded text LLM; never image-based recognition."""
-    system = ("Determine physical name-part order from supplied OCR text only. Return ONLY the JSON "
+    system = ("Determine physical baseline name-part order from supplied OCR text only. Return ONLY the JSON "
               "object with order (given_family, family_given or unknown), basis (document/default/unknown) "
               "and evidence (at most 20 words). "
               "Do not return participants, names, cells or copy the source. Prefer headings and separators; "
-              "Without explicit evidence use family_given with basis=default, the user's surname-first default. "
-              "Keep compound surname groups and all given names together. This is one decision for this document.")
+              "when headings are absent and rows are consistent, report the dominant given_family or family_given order; "
+              "without clear evidence use family_given with basis=default, the user's surname-first default. "
+              "Keep compound surname groups and all given names together. This is one baseline decision for this document.")
     text = json.dumps(dict(name_column_hint=hint, examples=[dict(source_row=row["id"], cells=row.get("column_texts", []))
                                                           for row in rows[:4]]), ensure_ascii=False)
     record = dict(text_prompt=text, system_prompt=system, model_call=True)
@@ -201,6 +212,54 @@ class DocumentNameOrders:
             self.sources[document_id] = source
         return selected, document_id in self.conflicts
 
+    def _assignment_tiebreaker(self, response, by_id, bands, fallback_order: str) -> str:
+        counts = {"given_family": 0, "family_given": 0}
+        for person in response.participants:
+            row = by_id.get(person.source_row)
+            first, last = person.first_name[1], person.last_name[1]
+            if not row or not first or not last:
+                continue
+            cells = list(row.get("native_cells") or row["cells"])
+            band = bands.get("first_name")
+            if band and band == bands.get("last_name") and row.get("native_cells"):
+                text = " ".join(c["text"] for c in row["native_cells"] if band[0] <= c["bbox"]["x0"] < band[1])
+                cells.append(dict(text=text))
+            if matching_comma_cells(cells, first, last):
+                counts["family_given"] += 1
+                continue
+            position = cell_positions([cell["text"] for cell in row["cells"]], first, last)
+            if position:
+                left_part, right_part = (first, last) if position[0] < position[1] else (last, first)
+                classified = classify_name_pair(left_part, right_part)
+                if classified is not None:
+                    counts[classified[0]] += 1
+        if counts["given_family"] > counts["family_given"]:
+            return "given_family"
+        if counts["family_given"] > counts["given_family"]:
+            return "family_given"
+        return fallback_order
+
+    def _page_tiebreaker(self, page: PageResult, raw: dict, source_indices: dict, fallback_order: str) -> str:
+        counts = {"given_family": 0, "family_given": 0}
+        for index, person in enumerate(page.participants):
+            source_index = source_indices.get(index, index)
+            cells = observed_name_cells(person, raw, source_index)
+            if matching_comma_cells(cells, person.first_name.value, person.last_name.value):
+                counts["family_given"] += 1
+                continue
+            position = name_positions(person, raw, source_index)
+            if position:
+                first, last = person.first_name.value, person.last_name.value
+                left_part, right_part = (first, last) if position[0] < position[1] else (last, first)
+                classified = classify_name_pair(left_part, right_part)
+                if classified is not None:
+                    counts[classified[0]] += 1
+        if counts["given_family"] > counts["family_given"]:
+            return "given_family"
+        if counts["family_given"] > counts["given_family"]:
+            return "family_given"
+        return fallback_order
+
     def prepare_assignment(self, response, rows, document_id, page_number):
         selected, conflict = self.choose(document_id, page_number, [response.name_order] if response.name_order else [])
         if not selected or conflict:
@@ -209,6 +268,7 @@ class DocumentNameOrders:
 
         bands = header_bands(rows)
         by_id, changes = {row["id"]: row for row in rows}, []
+        tiebreaker_order = self._assignment_tiebreaker(response, by_id, bands, selected.order)
         for index, person in enumerate(response.participants):
             row = by_id.get(person.source_row)
             first, last = person.first_name[1], person.last_name[1]
@@ -233,9 +293,14 @@ class DocumentNameOrders:
                                         action="split_combined_name_before_validation", name_cell_text=cell["text"]))
                 continue
             position = cell_positions([cell["text"] for cell in row["cells"]], first, last)
-            if position and ("given_family" if position[0] < position[1] else "family_given") != selected.order:
-                person.first_name, person.last_name = person.last_name, person.first_name
-                changes.append(dict(source_output_index=index, source_row=person.source_row, action="swap_before_cell_validation"))
+            if position:
+                observed = "given_family" if position[0] < position[1] else "family_given"
+                left_part, right_part = (first, last) if position[0] < position[1] else (last, first)
+                classified = classify_name_pair(left_part, right_part)
+                target_order = classified[0] if classified is not None else tiebreaker_order
+                if observed != target_order:
+                    person.first_name, person.last_name = person.last_name, person.first_name
+                    changes.append(dict(source_output_index=index, source_row=person.source_row, action="swap_before_cell_validation"))
         return changes
 
     def apply(self, page: PageResult, raw: dict, decision: NameOrderDecision | None = None):
@@ -247,6 +312,10 @@ class DocumentNameOrders:
         previous_actions = {row["source_output_index"]: row for row in raw.get("document_name_order", {}).get("actions", [])}
         source_indices = {row["output_index"]: row["source_output_index"]
                           for row in raw.get("person_role_filter", {}).get("output_index_mapping", [])}
+        tiebreaker_order = (
+            self._page_tiebreaker(page, raw, source_indices, selected.order)
+            if selected else self.default_order
+        )
         actions = []
         for index, person in enumerate(page.participants):
             source_index = source_indices.get(index, index)
@@ -290,7 +359,27 @@ class DocumentNameOrders:
                     person.review_notes.remove(REVIEW)
             elif not conflict and selected and position:
                 observed = "given_family" if position[0] < position[1] else "family_given"
-                swap = observed != selected.order
+                first_val, last_val = person.first_name.value, person.last_name.value
+                left_part, right_part = (first_val, last_val) if position[0] < position[1] else (last_val, first_val)
+                classified = classify_name_pair(left_part, right_part)
+                single_row_visual_default = (
+                    len(page.participants) == 1
+                    and page.method_id == "vlm"
+                    and self.sources.get(page.document_id) == "user_default"
+                    and observed == selected.order
+                    and not prevalidation_swap
+                )
+                if classified is not None and not single_row_visual_default:
+                    target_order = classified[0]
+                    assignment_rule = classified[3]
+                else:
+                    target_order = tiebreaker_order if len(page.participants) > 1 else selected.order
+                    assignment_rule = (
+                        "column_majority_tiebreaker"
+                        if len(page.participants) > 1 and target_order != selected.order
+                        else "document_name_order"
+                    )
+                swap = observed != target_order
                 if swap:
                     person.first_name, person.last_name = person.last_name, person.first_name
                     person.review_notes.append("Vor-/Nachnamenfelder nach dokumentweiter Modellentscheidung vertauscht; Originalwerte in Rohantwort")
@@ -302,6 +391,7 @@ class DocumentNameOrders:
                         person.review_notes.append(REVIEW)
                     person.first_name.state = person.last_name.state = "uncertain"
                 actions.append(dict(source_output_index=source_index, action="review" if ambiguous_groups else "swap" if swap else "keep",
+                                    assignment_rule=assignment_rule,
                                     group_split_uncertain=ambiguous_groups,
                                     original_states=states, prevalidation_swap=prevalidation_swap,
                                     prevalidation_split=prevalidation_split,

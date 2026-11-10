@@ -105,7 +105,10 @@ word IDs or arrays as a field. The application verifies every value against that
 name_column_hint, when present, identifies the combined name cell. Split ONLY that cell into the
 observed first and last name parts. Do not include department codes, dates or the rest of a whole row
 in last_name. Keep compound names and original spelling; preserve leading zeroes in personnel_number.
-Use document name_order to assign the two name parts consistently. Do not correct OCR spelling.
+Column headings may be missing and participants may switch between 'Vorname Nachname', 'Nachname Vorname'
+and 'Nachname, Vorname' row-by-row within the same table: evaluate each row individually for given name
+(first_name) versus surname (last_name), and use DOCUMENT_NAME_ORDER_CONTEXT only as a tie-breaker when
+a row is ambiguous. Do not correct OCR spelling.
 Only actual people belong in participants. Titles, addresses, course information, instructions,
 headers and footers are context, not people. Omit them; if returning one, set is_participant=false.
 An unknown/masked/absent user ID stays null. Never put Kurzzeichen/department into personnel_number.
@@ -413,7 +416,7 @@ def check_ocr_evidence(participants, data):
             if (
                 name == "personnel_number"
                 and field.value
-                and not re.search(r"(?<!\S)" + re.escape(field.value.casefold()) + r"(?!\S)", text)
+                and not re.search(r"(?<![^\W_])" + re.escape(field.value.casefold()) + r"(?![^\W_])", text)
             ):
                 raise ValueError("Personnel number is not a complete observed OCR token/sequence")
         if participant.row_ref and participant.row_ref not in [w["text"] for w in data["words"]]:
@@ -778,8 +781,11 @@ class LocalModel:
             try:
                 if self.method == "ocr_llm" and ocr_data.get("text_rows") is not None:
                     raw, metadata = self.generate(text, tile, response_type=OCRRecordResponse,
-                        system_prompt=OCR_RECORD_SYSTEM + (ALL_ROW_INSTRUCTIONS if
-                            ocr_data.get("row_selection_policy") == "all" else ""))
+                        system_prompt=OCR_RECORD_SYSTEM + (ALL_ROW_INSTRUCTIONS if (
+                            ocr_data.get("row_selection_policy") == "all"
+                            or any(r.get("selection_hint", "person_pattern") != "person_pattern"
+                                   for r in ocr_data.get("text_rows", []))
+                        ) else ""))
                 else:
                     raw, metadata = self.generate(text, tile)
                 record.update(raw_response=raw, **metadata)

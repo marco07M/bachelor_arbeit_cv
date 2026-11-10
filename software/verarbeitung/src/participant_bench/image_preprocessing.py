@@ -19,8 +19,16 @@ def grid_masks(image):
 
 
 def remove_grid_lines(image):
-    ink, horizontal, vertical = grid_masks(image)
-    return Image.fromarray(255 - cv2.subtract(ink, cv2.bitwise_or(horizontal, vertical)))
+    gray = np.asarray(image.convert("L"))
+    background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
+    normalized = cv2.divide(gray, np.maximum(background, 1), scale=255)
+    ink = cv2.threshold(normalized, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+    horizontal = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, 40), np.uint8))
+    vertical = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((40, 1), np.uint8))
+    grid = cv2.bitwise_or(horizontal, vertical)
+    cleaned = normalized.copy()
+    cleaned[grid > 0] = 255
+    return Image.fromarray(cleaned)
 
 
 def preprocess(image: Image.Image, spec):

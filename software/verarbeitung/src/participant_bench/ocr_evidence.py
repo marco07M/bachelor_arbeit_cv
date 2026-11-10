@@ -1,12 +1,14 @@
 """Ground partial participant fields in observed OCR words on the same text line."""
 
+import re
+
 from .ocr_layout import line_groups
 from .schema import TEXT_FIELDS, Box, OCRParticipant, Participant, TextField
 
 
 def comparable_text(value: str) -> str:
     # Comparison only: field output always preserves the observed OCR spelling.
-    return " ".join(token.strip('.,;:!?()[]{}\"„“').casefold() for token in value.split()).strip()
+    return " ".join(token.strip('.,;:!?()[]{}\"„“‘’‚‛…|_').casefold() for token in value.split()).strip()
 
 
 def line_key(word: dict) -> tuple | None:
@@ -29,6 +31,11 @@ def observed_spans(words: list[dict], value: str | None) -> list[list[int]]:
             observed = comparable_text(" ".join(words[i]["text"] for i in indices))
             if observed == target:
                 spans.append(indices)
+    if not spans and " " not in target and len(target) >= 2:
+        pattern = re.compile(r"(?<![^\W_])(?<!['/’–-])" + re.escape(target) + r"(?![^\W_])(?!['/’–-])")
+        for index, word in enumerate(words):
+            if pattern.search(word["text"].casefold()):
+                spans.append([index])
     return spans
 
 
@@ -154,7 +161,21 @@ def ground_partial_row(row: OCRParticipant, data: dict) -> tuple[Participant, li
             continue
         evidence.update(span)
         observed_value = " ".join(words[i]["text"] for i in span)
-        uncertain = any(words[i]["ocr_confidence"] is not None and words[i]["ocr_confidence"] < 30 for i in span)
+        subtoken_match = False
+        if len(span) == 1 and comparable_text(observed_value) != comparable_text(value):
+            match = re.search(
+                r"(?<![^\W_])(?<!['/’–-])" + re.escape(comparable_text(value)) + r"(?![^\W_])(?!['/’–-])",
+                observed_value,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                observed_value = match.group(0)
+                subtoken_match = True
+        uncertain = (
+            subtoken_match
+            or bool(re.search(r"\.\.\.|…", observed_value))
+            or any(words[i]["ocr_confidence"] is not None and words[i]["ocr_confidence"] < 30 for i in span)
+        )
         fields[name] = TextField(value=observed_value, state="uncertain" if uncertain else "read", bbox=bounds(words, span))
         if observed_value != value:
             warnings.append({"field": name, "reason": "Originalschreibweise der OCR-Wörter übernommen"})

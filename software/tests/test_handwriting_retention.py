@@ -162,3 +162,149 @@ def test_missing_fields_do_not_relax_invalid_types_or_unknown_source_rows():
         ),
     )
     assert not people and rejected
+
+
+def test_gray_shaded_header_band_survives_grid_line_removal():
+    image = Image.new("RGB", (720, 320), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 60, 680, 96), fill=(169, 169, 169))
+    draw.line((40, 60, 680, 60), fill="black", width=2)
+    draw.line((40, 96, 680, 96), fill="black", width=2)
+    # Short vertical and diagonal letter strokes inside the shaded header band
+    draw.line((120, 68, 120, 88), fill=(25, 25, 25), width=3)
+    draw.line((120, 68, 132, 78), fill=(25, 25, 25), width=3)
+    cleaned = remove_grid_lines(image)
+    mask = binary(cleaned)
+    assert mask[60, 350] == 0 and mask[96, 350] == 0
+    assert mask[78, 120] > 0
+    cleaned.close()
+
+
+def test_mixed_page_and_headerless_continuation_in_ocr_llm_and_docling(monkeypatch):
+    from test_document_columns import table
+    from test_observation_retention import word
+
+    from participant_bench.models import parse_ocr_response
+    from participant_bench.ocr_layout import model_input, with_table_columns
+    from participant_bench.structured_mapping import extract_structured
+
+    monkeypatch.setattr(
+        "participant_bench.column_context.image_boundaries",
+        lambda image: [0.0, 0.25, 0.55, 0.8, 1.0],
+    )
+    p1_words = [
+        word("Benutzer", x=0.05, y=0.10, score=92, line=1),
+        word("Benutzemame", x=0.30, y=0.10, score=88, line=1),
+        word("Kurzzeichen", x=0.60, y=0.10, score=90, line=1),
+        word("Signetur", x=0.84, y=0.10, score=80, line=1),
+        *[
+            w
+            for idx, given in enumerate(("Anna", "Berta", "Clara", "Dora"))
+            for w in (
+                word(f"10000{idx + 1}", x=0.05, y=0.18 + idx * 0.08, score=95, line=idx + 2),
+                word(f"Muster, {given}", x=0.30, y=0.18 + idx * 0.08, score=94, line=idx + 2),
+                word(f"AB-{idx + 1}", x=0.60, y=0.18 + idx * 0.08, score=93, line=idx + 2),
+            )
+        ],
+        # Low-confidence handwritten row below the typed block on page 1
+        word("100009_", x=0.05, y=0.68, score=12, line=6),
+        word("Handschrift, Ben", x=0.30, y=0.68, score=15, line=6),
+        word("HC-9", x=0.60, y=0.68, score=18, line=6),
+    ]
+    p2_words = [
+        word("100010", x=0.05, y=0.18, score=14, line=1),
+        word("Folgeseite, Clara", x=0.30, y=0.18, score=19, line=1),
+        word("FS-1", x=0.60, y=0.18, score=22, line=1),
+    ]
+    with Image.new("RGB", (100, 100), "white") as image:
+        layout1 = with_table_columns(dict(words=p1_words, text="p1"), image, document_id="mix-doc", page_number=1)
+        layout2 = with_table_columns(
+            dict(words=p2_words, text="p2"), image, layout1, document_id="mix-doc", page_number=2
+        )
+    assert "Handschrift, Ben" in model_input(layout1)
+    assert "selection_hint" in model_input(layout1)
+    assert layout2["mapping_provenance"]["status"] == "inherited_from_previous_page"
+    p1_people = parse_ocr_response(
+        json.dumps(
+            dict(
+                participants=[
+                    dict(
+                        source_row="r2",
+                        personnel_number="100001",
+                        first_name="Anna",
+                        last_name="Muster",
+                        department="AB-1",
+                    ),
+                    dict(
+                        source_row="r6",
+                        personnel_number="100009",
+                        first_name="Ben",
+                        last_name="Handschrift",
+                        department="HC-9",
+                    ),
+                ]
+            )
+        ),
+        layout1,
+        [],
+    )
+    p2_people = parse_ocr_response(
+        json.dumps(
+            dict(
+                participants=[
+                    dict(
+                        source_row="r1",
+                        personnel_number="100010",
+                        first_name="Clara",
+                        last_name="Folgeseite",
+                        department="FS-1",
+                    )
+                ]
+            )
+        ),
+        layout2,
+        [],
+    )
+    assert len(p1_people) == 2 and p1_people[0].first_name.state == "read"
+    assert p1_people[1].first_name.state == "uncertain" and p1_people[1].personnel_number.value == "100009"
+    assert len(p2_people) == 1 and p2_people[0].last_name.value == "Folgeseite"
+    assert p2_people[0].last_name.state == "uncertain"
+
+    # Same mixed scenario in Docling (Stage 1 TableFormer + Stage 2 selective geometry fallback)
+    doc_p1 = table(
+        headers=["Benutzer", "Benutzername", "Kurzzeichen", "Signatur"],
+        values=[["100001", "Muster, Anna", "AB-1", ""]],
+        edges=[0.0, 0.25, 0.55, 0.8, 1.0],
+    )
+    doc_p1["ocr_cells"] = [
+        dict(text="100009", bbox=dict(x0=0.05, y0=0.50, x1=0.18, y1=0.54), confidence=0.12, index=10),
+        dict(text="Handschrift, Ben", bbox=dict(x0=0.28, y0=0.50, x1=0.48, y1=0.54), confidence=0.15, index=11),
+        dict(text="HC-9", bbox=dict(x0=0.58, y0=0.50, x1=0.68, y1=0.54), confidence=0.18, index=12),
+    ]
+    d1_people, _, _, doc_ctx = extract_structured(doc_p1, document_id="mix-doc", page_number=1)
+    assert len(d1_people) == 2
+    assert d1_people[0].first_name.value == "Anna" and d1_people[0].first_name.state == "read"
+    assert d1_people[1].first_name.value == "Ben" and d1_people[1].first_name.state == "uncertain"
+    assert d1_people[1].department.value == "HC-9" and d1_people[1].department.state == "uncertain"
+
+    # Continuation page without header where trailing Signatur column is omitted by TableFormer
+    doc_p2 = table(
+        headers=["", "", ""],
+        values=[["100010", "Folgeseite, Clara", ""]],
+        edges=[0.0, 0.25, 0.55, 0.8],
+        header=False,
+    )
+    doc_p2["ocr_cells"] = [
+        # Stage 2a completes missing department on row 0 (y=0.10..0.14)
+        dict(text="FS-1", bbox=dict(x0=0.58, y0=0.105, x1=0.68, y1=0.135), confidence=0.20, index=20),
+        # Stage 2b recovers orphaned handwritten row below the table (y=0.35..0.39)
+        dict(text="100011", bbox=dict(x0=0.05, y0=0.35, x1=0.18, y1=0.39), confidence=0.14, index=21),
+        dict(text="Nachtrag, David", bbox=dict(x0=0.28, y0=0.35, x1=0.48, y1=0.39), confidence=0.16, index=22),
+        dict(text="FS-2", bbox=dict(x0=0.58, y0=0.35, x1=0.68, y1=0.39), confidence=0.19, index=23),
+    ]
+    d2_people, _, _, _ = extract_structured(doc_p2, doc_ctx, document_id="mix-doc", page_number=2)
+    assert len(d2_people) == 2
+    assert d2_people[0].first_name.value == "Clara" and d2_people[0].first_name.state == "read"
+    assert d2_people[0].department.value == "FS-1" and d2_people[0].department.state == "uncertain"
+    assert d2_people[1].first_name.value == "David" and d2_people[1].first_name.state == "uncertain"
+    assert d2_people[1].department.value == "FS-2" and d2_people[1].department.state == "uncertain"

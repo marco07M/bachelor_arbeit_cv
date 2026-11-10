@@ -25,7 +25,8 @@ def configure_ocr_images(model_class, cleaner):
     """Adapt the pinned Docling CLI hook; table/layout rendering stays untouched."""
     from PIL import Image
 
-    original = model_class._run_tesseract
+    original = getattr(model_class, "_participant_original_run_tesseract", model_class._run_tesseract)
+    model_class._participant_original_run_tesseract = original
 
     def run(model, filename, osd):
         with Image.open(filename) as image:
@@ -116,7 +117,8 @@ class DoclingBackend:
         ocr_cells = []
         for page in result.pages:
             for index, cell in enumerate(page.cells):
-                ocr_cells.append(dict(text=cell.text, bbox=cell.rect.to_bounding_box().model_dump(mode="json"),
+                ocr_cells.append(dict(text=cell.text,
+                                      bbox=cell.rect.to_bounding_box().model_dump(mode="json") if cell.rect else None,
                                       confidence=cell.confidence, from_ocr=cell.from_ocr,
                                       native_ref=f"pages/{page.page_no}/cells/{index}"))
         raw_text = "\n".join(cell["text"] for cell in ocr_cells)

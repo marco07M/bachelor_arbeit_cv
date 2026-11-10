@@ -238,6 +238,7 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
             "Modelle (konfiguriert)": " + ".join(str(value) for value in summary[method].get(
                 "models_required", summary[method].get("models_used", [])) if value) or "—",
             "Feld-/Tabellenzuordnung": ("lokales LLM" if has_assignment else
+                                    "deterministisches Spaltenmapping + VLM-Hybridstufe" if summary[method].get("assignment_backend") == "deterministic_headers_vlm_assist" else
                                     "deterministisches Spaltenmapping" if summary[method].get("assignment_backend") == "deterministic_headers" else
                                     "Bild und Paddle-OCR im VLM" if method == "ocr_vlm" else
                                     "PP-StructureV3" if method == "paddle_structure" else
