@@ -25,7 +25,8 @@ ZIP-Pakete enthalten diese Änderung nicht. Der API-Modellname wird über
 Der Helfer setzt die nicht-geheimen Verbindungsdaten aus dem früheren Testskript
 als EU-QA/INT-Vorgaben: API-Basisadresse, WebEAM-Token-URL, `machine2machine`,
 `x-apikey`, Chat-Pfad und das mitgelieferte CA-Bundle. Er fragt nur nach
-Client-ID, Client-Secret, API-Key und VLM-Modellname. Diese Vorgaben müssen zu
+Client-ID, Client-Secret, API-Key und VLM-Modellname. Das Modell kann alternativ
+über `BMW_VLM_MODEL` vorgegeben werden. Diese Vorgaben müssen zu
 deiner Freischaltung passen; ein erfolgreicher echter BMW-Zugang wurde hier
 nicht verifiziert. Die Umstrukturierung behebt kein serverseitiges
 `401 invalid_client`.
@@ -63,7 +64,7 @@ Projektupdates erneut ausgeführt werden. Danach:
 
 1. Die zu verarbeitenden PDFs in `data\pdfs_eingabe` oder einen Unterordner kopieren.
 2. In derselben PowerShell Zugangsdaten laden. Client-ID, Client-Secret und
-   API-Key werden verdeckt abgefragt; der Modellname wird normal abgefragt:
+   API-Key werden verdeckt abgefragt:
 
    ```powershell
    . .\scripts\set-api-environment.ps1
@@ -147,7 +148,7 @@ als PowerShell-Code ausgeführt. `.gitignore` allein ist keine Zugriffssperre.
 | `BMW_AI_CLIENT_ID` | OAuth-Client-ID |
 | `BMW_AI_CLIENT_SECRET` | Zugehöriges Client-Secret, nicht der Gateway-Key |
 | `BMW_AI_API_KEY` | Separater Gateway-Key |
-| `BMW_VLM_MODEL` | Modell mit Bildunterstützung |
+| `BMW_VLM_MODEL` | Modellkennung mit Bildunterstützung; wird bei Bedarf abgefragt |
 | `BMW_AI_BASE_URL`, `BMW_AI_TOKEN_URL` | Automatische EU-QA/INT-Defaults; bei Bedarf in der Sitzung überschreibbar |
 | `BMW_AI_API_KEY_HEADER`, `BMW_AI_SCOPE`, `BMW_AI_CHAT_PATH` | Automatische Defaults: `x-apikey`, `machine2machine`, `chat/completions` |
 | `BMW_AI_CA_BUNDLE` | Standardmäßig das mitgelieferte PEM; ein extern aktualisierter Pfad kann überschreiben |

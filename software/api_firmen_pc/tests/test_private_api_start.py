@@ -59,6 +59,7 @@ def test_external_env_is_literal_process_only_and_not_printed(tmp_path):
     external.write_text(
         f"# synthetic only\nBMW_AI_API_KEY='{FAKE_KEY}'\nBMW_AI_CLIENT_ID=fake-client\n"
         "BMW_AI_CLIENT_SECRET=\"$(throw 'not executable')`n$HOME\"\n"
+        "BMW_VLM_MODEL=synthetic-vision-model\n"
         "BMW_CA_BUNDLE=C:\\synthetic\\company-ca.pem\n",
         encoding="utf-8",
     )
@@ -69,6 +70,7 @@ def test_external_env_is_literal_process_only_and_not_printed(tmp_path):
 . {ps_literal(SCRIPTS / "set-api-environment.ps1")} -EnvFile {ps_literal(external)} -NoPrompt
 if ($env:BMW_AI_API_KEY -cne {ps_literal(FAKE_KEY)}) {{ throw 'Synthetic key mismatch' }}
 if ($env:BMW_AI_CLIENT_SECRET -cne {ps_literal(expected_literal)}) {{ throw 'Value was interpreted' }}
+if ($env:BMW_VLM_MODEL -cne 'synthetic-vision-model') {{ throw 'VLM model was not imported' }}
 if ($env:BMW_AI_CA_BUNDLE -cne 'C:\\synthetic\\company-ca.pem') {{ throw 'Remote CA alias was not imported' }}
 & {ps_literal(sys.executable)} -c "import os; assert os.environ['BMW_AI_API_KEY'] == '{FAKE_KEY}'"
 if ($LASTEXITCODE -ne 0) {{ throw 'Application did not inherit synthetic key' }}
@@ -81,14 +83,13 @@ Write-Output 'Synthetic process inheritance OK'
     assert expected_literal not in result.stdout + result.stderr
 
 
-def test_defaults_match_test_script_and_only_model_and_credentials_need_input(tmp_path):
+def test_defaults_match_test_script_and_no_prompt_skips_model_input(tmp_path):
     result = run_shell(
         tmp_path,
         f"""
 $env:BMW_AI_API_KEY = 'synthetic-api-key'
 $env:BMW_AI_CLIENT_ID = 'synthetic-client-id'
 $env:BMW_AI_CLIENT_SECRET = 'synthetic-client-secret'
-$env:BMW_VLM_MODEL = 'synthetic-vision-model'
 . {ps_literal(SCRIPTS / "set-api-environment.ps1")} -NoPrompt
 if ($env:BMW_AI_BASE_URL -cne 'https://api.int.gcp.cloud.bmw/llmapi/v1') {{ throw 'API base URL default mismatch' }}
 if ($env:BMW_AI_TOKEN_URL -cne 'https://emea.int.alpha.sso.bmwgroup.com/auth/oauth2/realms/root/realms/alpha/access_token') {{ throw 'Token URL default mismatch' }}
@@ -97,11 +98,12 @@ if ($env:BMW_AI_SCOPE -cne 'machine2machine') {{ throw 'OAuth scope default mism
 if ($env:BMW_AI_CHAT_PATH -cne 'chat/completions') {{ throw 'Chat path default mismatch' }}
 if (-not (Test-Path -LiteralPath $env:BMW_AI_CA_BUNDLE -PathType Leaf)) {{ throw 'Bundled CA certificate was not selected' }}
 if ($env:BMW_LLM_MODEL) {{ throw 'The unused text model should not be requested' }}
-Write-Output 'Defaults and required inputs OK'
+if ($env:BMW_VLM_MODEL) {{ throw 'The fixed VLM model should not be requested' }}
+Write-Output 'Defaults and no-prompt behavior OK'
 """,
     )
     assert result.returncode == 0, result.stderr
-    assert "Defaults and required inputs OK" in result.stdout
+    assert "Defaults and no-prompt behavior OK" in result.stdout
     assert "synthetic-" not in result.stdout + result.stderr
 
 

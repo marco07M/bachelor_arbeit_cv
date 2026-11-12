@@ -41,6 +41,8 @@ def test_default_config_uses_main_sequence_without_ocr():
     assert local_config.signature.backend == "local_vlm"
     assert config.models["vlm"].max_pixels == local_config.models["vlm"].max_pixels
     assert config.models["vlm"].max_new_tokens == local_config.models["vlm"].max_new_tokens
+    api_options = connection_config(config.models["vlm"])
+    assert api_options.model_env == "BMW_VLM_MODEL"
     for model in config.models.values():
         options = connection_config(model)
         assert options.auth == "oauth2" and options.token_auth_method == "basic"
