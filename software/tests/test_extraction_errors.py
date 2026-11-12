@@ -83,12 +83,12 @@ def test_filters_apply_combined_method_page_field_category_and_search(tmp_path):
         pytest.skip("Node is unavailable for the static filter interaction check")
     program = """
 const assert=require('node:assert/strict');
-const ids=['method','page','field','category','certainty','result','search','visible-count'];
+const ids=['method','document','page','field','category','certainty','stage','result','search','visible-count'];
 const controls=Object.fromEntries(ids.map(id=>[id,{value:'',addEventListener(_,fn){this.apply=fn;}}]));
 const cards=[
- {dataset:{method:'ocr_llm',page:'d:1',field:'user_id',category:'unknown',certainty:'unknown',result:'missing'},textContent:'value one'},
- {dataset:{method:'paddle_llm',page:'d:2',field:'short_code',category:'validation',certainty:'proven',result:'missing'},textContent:'value two'},
- {dataset:{method:'paddle_llm',page:'unknown',field:'short_code',category:'unknown',certainty:'unknown',result:'missing'},textContent:'no page'}];
+ {dataset:{method:'ocr_llm',document:'d',page:'d:1',field:'user_id',category:'unknown',certainty:'unknown',stage:'unknown',result:'missing'},textContent:'value one'},
+ {dataset:{method:'paddle_llm',document:'d',page:'d:2',field:'short_code',category:'validation',certainty:'proven',stage:'validation',result:'missing'},textContent:'value two'},
+ {dataset:{method:'paddle_llm',document:'other',page:'unknown',field:'short_code',category:'unknown',certainty:'unknown',stage:'unknown',result:'missing'},textContent:'no page'}];
 const sections=[{dataset:{method:'paddle_llm',page:'d:2'}},{dataset:{method:'ocr_llm',page:'d:1'}}];
 global.document={getElementById:id=>controls[id],querySelectorAll:selector=>selector==='article.field-case'?cards:sections};
 """ + SCRIPT + """
@@ -101,6 +101,9 @@ controls.field.value='short_code';controls.category.value='validation';controls.
 controls.search.value='TWO';controls.search.apply();assert.equal(visible(),1);
 controls.category.value='unknown';controls.category.apply();assert.equal(visible(),0);
 for(const id of ids)controls[id].value='';controls.search.apply();assert.equal(visible(),3);
+controls.document.value='d';controls.document.apply();assert.equal(visible(),2);
+controls.stage.value='validation';controls.stage.apply();assert.equal(visible(),1);
+controls.stage.value='unknown';controls.stage.apply();assert.equal(visible(),1);
 """
     script = tmp_path / "filter-check.cjs"
     script.write_text(program, encoding="utf-8")
@@ -144,6 +147,9 @@ def test_error_report_keeps_scores_frozen_links_crops_and_marks_unknown_pages(tm
         assert f'id="{control}"' in html
     assert 'href="extraction_errors.html"' in (output / "report.html").read_text(encoding="utf-8")
     assert "raw cell" in html
+    assert "Original-PDF → Ausrichtung" in html and "Feldkette: OCR" in html
+    assert read_json(output / "error_analysis/page_pipeline.json")
+    assert read_json(output / "error_analysis/fields.json")["fields"][0]["analysis"]["pipeline_trace"]
 
 
 def test_report_rejects_changed_predictions(tmp_path):

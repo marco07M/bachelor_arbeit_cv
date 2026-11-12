@@ -3,22 +3,13 @@
 import re
 import unicodedata
 
+from .extraction_prompts import ROLE_RULES, ROLE_VERSION
 from .ocr_layout import line_groups
 from .schema import PageResult, Participant
 
-VERSION = "participant-roles-v1"
-UNCONFIRMED_ROLE = "Kursleiterrolle ohne eindeutigen eigenen Rollenbeleg; Person zur Prüfung erhalten"
-INSTRUCTIONS = """Only attendees belong in the final participant data. Distinguish them from course staff.
-For each extracted person report person_role and role_evidence. Explicit labels such as Kursleiter,
-Kursleitung, Schulungsleiter, Seminarleiter, Trainer, Dozent, Referent, instructor or lecturer mean
-person_role="instructor"; copy only that person's literal printed role label into role_evidence.
-The application excludes these labelled instructors from participant export and evaluation.
-A trainer name/signature in a page header or footer is course metadata, not an attendee row.
-Never invent a person from a role label alone. Never classify a person as an instructor based on
-their surname, organization, signature, first/last row position, or a role label elsewhere on the page.
-For an unlabelled person row use person_role="participant" and role_evidence=null. If role assignment
-is ambiguous use "unknown", keep the person and leave role_evidence=null. Preserve all other fields.
-"""
+VERSION = ROLE_VERSION
+UNCONFIRMED_ROLE = "Kursleiterrolle ohne eindeutigen eigenen Rollenbeleg; Person zur Pr?fung erhalten"
+INSTRUCTIONS = ROLE_RULES + "\n"
 LABEL = re.compile(r"(?<!\w)(?:kursleiter(?:in)?|kursleitung|schulungsleiter(?:in)?|schulungsleitung|"
                    r"seminarleiter(?:in)?|seminarleitung|trainer(?:in)?|dozent(?:in)?|referent(?:in)?|"
                    r"instructor|lecturer|facilitator|course\s+leader)(?!\w)", re.IGNORECASE)

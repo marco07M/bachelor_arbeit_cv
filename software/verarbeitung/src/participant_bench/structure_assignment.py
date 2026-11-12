@@ -11,7 +11,21 @@ from statistics import median
 from .schema import TEXT_FIELDS, Box, TextField
 from .unlimited_assignment import header_fields, source_rows
 
-VERSION = "structure-spatial-assignment-v9-observed-header-cells"
+VERSION = "structure-spatial-assignment-v10-multiline-column-context"
+
+
+def heading_rows(rows):
+    """Spatial header blocks need no guessed logical grid indices."""
+    selected, last = [], {}
+    for index, row in enumerate(rows):
+        found = {field for cell in row.get("native_cells", row["cells"])
+                 if cell.get("kind") == "native" for field in cell.get("header_fields", [])}
+        table, number = row.get("table_index", 0), row.get("row_index", index)
+        if (len(found & set(TEXT_FIELDS)) >= 2
+                or found and last.get(table) == number-1):
+            selected.append(row)
+            last[table] = number
+    return selected
 
 
 def document_bands(recognized, rows, bands, previous, *, document_id, page_number):
@@ -30,11 +44,18 @@ def document_bands(recognized, rows, bands, previous, *, document_id, page_numbe
         profile = geometry(width, grid)
     starts = sorted({band[0] for band in bands.values()})
     mapping = {field: {starts.index(band[0])} for field, band in bands.items()}
+    header_rows = heading_rows(rows)
     headings = {field: [dict(text=cell["text"], bbox=cell["bbox"])
-                for row in rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
+                for row in header_rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
                 for field in bands}
+    if profile:
+        # Rank among recognized labels is not a physical column number: a row
+        # number, blank column or signature column may precede a target field.
+        mapping = {field: {i for i, (left, right) in enumerate(zip(profile["edges"], profile["edges"][1:]))
+                           for cell in labels if left <= (cell["bbox"]["x0"]+cell["bbox"]["x1"])/2 < right}
+                   for field, labels in headings.items()}
     for field in ("signature", "date"):
-        found = [cell for row in rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
+        found = [cell for row in header_rows for cell in row.get("native_cells", []) if field in cell.get("header_fields", [])]
         if found:
             headings[field] = [dict(text=cell["text"], bbox=cell["bbox"]) for cell in found]
             if profile:
@@ -61,11 +82,8 @@ def observed_cell_bands(rows, profile):
     if not profile or profile.get("basis") != "measured_grid_lines":
         return {}
     edges, columns = profile["edges"], {}
-    for row in rows:
+    for row in heading_rows(rows):
         cells = row.get("native_cells", [])
-        found = {f for cell in cells for f in cell.get("header_fields", [])}
-        if not (found & {"first_name", "last_name"} and len(found & set(TEXT_FIELDS)) >= 2):
-            continue
         for cell in cells:
             box = cell.get("bbox")
             if not box:
@@ -343,14 +361,11 @@ def union(boxes):
 
 
 def header_bands(rows):
-    """Only a row with multiple recognizable headings establishes column roles."""
+    """Recognize a heading block, including its adjacent continuation lines."""
     anchors = {}
-    for row in rows:
+    for row in heading_rows(rows):
         cells = [(cell, set(cell.get("header_fields", []))) for cell in row.get("native_cells", row["cells"])
                  if cell.get("kind") == "native"]
-        found = set().union(*(fields for _, fields in cells)) if cells else set()
-        if not (found & {"first_name", "last_name"} and len(found & set(TEXT_FIELDS)) >= 2):
-            continue
         for cell, fields in cells:
             for field in fields:
                 anchors.setdefault(field, []).append(cell["bbox"]["x0"])
@@ -367,14 +382,12 @@ def header_bands(rows):
 def ambiguous_header_fields(rows):
     """Distinct columns with the same role are not resolved by an LLM guess."""
     ambiguous = set()
-    for row in rows:
+    anchors = {}
+    for row in heading_rows(rows):
         cells = [(c, set(c.get("header_fields", []))) for c in row.get("native_cells", [])]
-        found = set().union(*(fields for _, fields in cells)) if cells else set()
-        if not (found & {"first_name", "last_name"} and len(found & set(TEXT_FIELDS)) >= 2):
-            continue
         for field in TEXT_FIELDS:
-            anchors = [cell["bbox"]["x0"] for cell, fields in cells if field in fields]
-            if len(anchors)>1 and max(anchors)-min(anchors)>.02:
+            anchors.setdefault(field, []).extend(cell["bbox"]["x0"] for cell, fields in cells if field in fields)
+            if anchors[field] and max(anchors[field])-min(anchors[field])>.02:
                 ambiguous.add(field)
     return sorted(ambiguous)
 

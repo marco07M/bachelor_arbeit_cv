@@ -18,6 +18,12 @@ Einstieg unabhängig von API-Paketen, Konfigurationen und Zugangsdaten.
 Die Dokumentnummer im Dateinamen ist unabhängig von den Personalnummern,
 die anschließend aus den Teilnehmerlisten extrahiert werden.
 
+Die finale literaturbasierte Promptfamilie liegt in
+`src/participant_bench/extraction_prompts.py`; `models.py` und
+`unlimited_assignment.py` binden ihre bestehenden Eingabe-/Antwortverträge daran.
+[Regelbegründung, Archiv und Funktionsnachweis](../docs/prompt-design.md)
+dokumentieren die einmalige Überarbeitung ohne Promptoptimierungsstudie.
+
 PDFs bzw. Seiten vorher manuell auswählen. Die Verarbeitung prüft nicht mehr,
 ob eine Seite eine Anwesenheitsliste enthält: Alle eingegebenen Seiten werden
 an die Teilnehmerextraktion übergeben. Rendering und optionale Ausrichtung

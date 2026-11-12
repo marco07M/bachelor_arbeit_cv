@@ -33,6 +33,9 @@ def main(argv=None):
         description="Teilnehmerlisten auslesen: lokale Modelle und lokale OCR"
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    from .selection import add_parser as add_selection_parser
+
+    add_selection_parser(commands)
     for name in ("doctor", "download-models", "prepare", "run"):
         sub = commands.add_parser(name)
         sub.add_argument("--config", type=Path, default=Path("configs/local.yaml"))
@@ -127,7 +130,11 @@ def main(argv=None):
     text_eval.add_argument("--method", default="unlimited_ocr")
     args = parser.parse_args(argv)
     try:
-        if args.command == "diagnose-structures":
+        if args.command == "selection":
+            from .selection import execute
+
+            print(execute(args).resolve())
+        elif args.command == "diagnose-structures":
             from .structure_diagnostics import diagnose_run
 
             if args.max_pages is not None and args.max_pages < 1:

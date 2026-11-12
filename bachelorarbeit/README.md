@@ -1,7 +1,22 @@
 # Schriftliche Bachelorarbeit
 
 Die Arbeit wurde aus `Downloads/studienarbeiten/studienarbeiten/thesis` übernommen.
-Alle `.tex`- und `.bib`-Dateien sowie das THD-Logo bleiben inhaltlich unverändert.
+Die ursprüngliche Übernahme ließ `.tex`- und `.bib`-Dateien sowie das THD-Logo
+inhaltlich unverändert. Seit 10.11.2026 beschreibt `chapters/03_methodik.tex`
+die implementierte zweistufige Verfahrensauswahl und den tatsächlich noch
+vorläufigen empirischen Stand. Ergänzt sind Feldnenner, Matching-Sensitivität,
+Cluster-Bootstrap, manuelle Schriftgruppen, Hybridbeiträge und Effizienzgrenzen;
+die Gegenprobe auf einer Entwicklungsliste bleibt von der geplanten Finalstudie
+getrennt. Geprüfte Primärbelege dazu stehen in
+`verified_sources.bib`; `references.bib` bleibt das Zotero-Exportziel.
+Seit 11.11.2026 dokumentiert Abschnitt 3.6 zusätzlich die einmalige literaturbasierte
+Promptgestaltung mit Regelstruktur, Schema-/Laufnachweis und begrenzter technischer
+Validierung; es wurde keine Promptoptimierungsstudie durchgeführt.
+Abschnitt 3.7 definiert außerdem die ergänzten vollständigen/partiellen
+Teilnehmerquotienten, das strikte Referenz-Identitätskriterium, Feldabdeckung,
+Fehleranteile und den Umgang mit Seitenzeiten, Aufrufzählern und Kostenszenarien.
+Die Dashboarddarstellung und ihre Referenz-/Stichprobengrenzen sind dokumentiert;
+zwei weitere geprüfte methodische Quellen ergänzen die Literaturdatei.
 Die ursprüngliche Dokumentation liegt in `VORLAGE_README.md`, die ursprünglichen
 Dateien im Downloadordner bleiben erhalten. Angepasst wurden die Build-Infrastruktur
 und die Dokumentation für die neue Repositorystruktur.
@@ -79,8 +94,10 @@ Für Zotero den Exportpfad auf **`bachelorarbeit/references.bib`** ändern;
 siehe [Zotero-Anleitung](ZOTERO.md). Die BibTeX-Dateien bleiben versionierbar,
 sodass LaTeX ohne laufendes Zotero kompiliert werden kann.
 
-Das Dokument enthält noch sichtbare TODOs und den bisherigen Schwerpunkt
-handschriftlicher Listen. Beides wurde bei der technischen Einrichtung bewusst
-nicht redaktionell geändert. Ein erfolgreicher Build bedeutet keine inhaltliche
+Das Dokument enthält noch sichtbare TODOs und außerhalb der aktualisierten
+Datengrundlage/Verfahrensauswahl den bisherigen Handschrift-Schwerpunkt.
+Die übergeordnete Forschungsfrage wurde nicht verändert. Der aktuelle Code- und
+Auswahlstand steht unter [Verfahrensauswahl](../software/docs/method-selection.md).
+Ein erfolgreicher Build bedeutet keine inhaltliche
 oder formale Abnahme der Arbeit. Der konkrete technische Buildstand steht in
 [BUILDSTATUS.md](BUILDSTATUS.md).

@@ -7,6 +7,12 @@ ein kompatibler Verweis auf das neue Hauptprofil.
 
 ## Verfahren
 
+Für eine begründete Reduktion auf höchstens drei Hauptarchitekturen gibt es das
+[zweistufige Auswahlprotokoll](method-selection.md) und die CLI
+`participant-bench selection`. Es verwendet die bestehende Extraktion und
+Feldbewertung. Das Sechsverfahren-Hauptprofil bleibt bis zu einer belastbaren
+Auswahl unverändert; die [aktuelle Empfehlung](method-selection-status.md) ist vorläufig.
+
 | Verfahren | Erkennung / Eingabe | Strukturierte Zuordnung |
 | --- | --- | --- |
 | ocr_raw | Tesseract, deu+eng, CPU | Keine: Rohtext, Wörter, Positionen, Engine-Konfidenzen |
@@ -92,6 +98,12 @@ und konfiguriertes Deskew werden gemeinsam ausgeführt. Originale bleiben
 unverändert. Tesseracts eigene Linienentfernung betrifft nur dessen OCR-Bild.
 VLM und Strukturmodelle erhalten das gemeinsame Bild; Docling kann vorhandenen
 PDF-Text nativ nutzen.
+
+Seit 11.11.2026 ergänzt ein abgesicherter Vierlagen-OCR-Vergleich unsichere
+OSD-Entscheidungen in der gemeinsamen Vorbereitung. Alle Verfahren erhalten das
+ausgerichtete Bild; die Diagnosewörter werden nicht als VLM-Feldinput übernommen.
+CPU-Zusatzzeit, Scores und tatsächlicher Winkel werden getrennt protokolliert.
+[Automatische Ausrichtung und geprüfte Grenzen](automatic-orientation.md).
 
 ## Kontrollierter Hybridversuch
 

@@ -1,5 +1,12 @@
 # Extraktionsqualität und Fehleranalyse, 06.11.2026
 
+Aktueller systematischer Auftrag vom 11.11.2026 mit kontrolliertem Gegencheck:
+[Eingabebudget, verbleibende Fehler und gemessene Vor-/Nachteile](systematic-error-analysis-20261111.md).
+
+Neuere Ursachenprüfung vom 11.11.2026 auf zehn PDFs und zwanzig Seiten:
+[Feldverluste, Ausrichtung und gezielte Korrekturen](field-loss-20261111.md).
+Der folgende Abschnitt bleibt der historische Nachweis vom 06.11.
+
 Ausgangspunkt ist der lokale Vergleich
 `testframework/ergebnisse/20261106T081128Z-0011a735/`, Quelllauf
 `runs/20261106T080030Z-f1e4fa77/`. Die zwei Seitenbilder, OCR-Ausgaben,

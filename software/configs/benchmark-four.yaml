@@ -1,0 +1,9 @@
+# Vorläufiges Laufprofil mit klassischer Tesseract-/Regelbaseline statt Docling.
+# ocr_rules ist im alten Sechsverfahren-Protokoll gesperrt, daher separates Profil.
+extends: benchmark.yaml
+main_comparison: false
+methods:
+- ocr_rules
+- paddle_llm
+- vlm
+- ocr_vlm

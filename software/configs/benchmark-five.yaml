@@ -1,0 +1,8 @@
+# Nutzerentscheidung: Tesseract+LLM zusätzlich zum Viererprofil mit Regelbaseline.
+extends: benchmark-four.yaml
+methods:
+- ocr_rules
+- ocr_llm
+- paddle_llm
+- vlm
+- ocr_vlm

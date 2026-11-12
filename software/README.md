@@ -15,6 +15,8 @@ werden; vorhandene ältere Qwen3-4B-Gewichte ersetzen sie nicht.
 | Aufgabe | Start | Eingabe |
 | --- | --- | --- |
 | Modelle ausführen und mit Excel/CSV vergleichen | [`start_testframework.cmd`](start_testframework.cmd) | PDFs in `testframework/eingabe_pdfs/`, Referenz in `testframework/referenz/` |
+| Aktuelle Nutzerwahl: Regeln, Tesseract+LLM, Paddle+LLM, VLM und OCR+VLM | [`start_testframework_5.cmd`](start_testframework_5.cmd) | Dieselben PDF-/Referenzordner; Profil `configs/benchmark-five.yaml`, ohne Docling |
+| Tesseract+Regeln, Paddle+LLM, VLM und OCR+VLM ausführen | [`start_testframework_4.cmd`](start_testframework_4.cmd) | Dieselben PDF-/Referenzordner; vorläufiges Profil `configs/benchmark-four.yaml` |
 | Alle lokalen Modelle ohne Referenzvergleich ausführen | [`start_alle_lokalen_modelle.cmd`](start_alle_lokalen_modelle.cmd) | PDFs in `data/cv-test-20261020-093337/` |
 | Über die Firmen-API ausführen und vergleichen | [`api_firmen_pc/start_api_testframework.cmd`](api_firmen_pc/start_api_testframework.cmd) | Eigene Eingaben unter `api_firmen_pc/testframework/` |
 
@@ -57,6 +59,13 @@ Für den Firmen-PC gilt die [separate Installation](api_firmen_pc/README.md).
 
 ## Anleitungen
 
+- [Wissenschaftliche Verfahrensauswahl: Evidenzmatrix, Stichprobe und Pilotvergleich](docs/method-selection.md)
+- [Aktuelle systematische Fehleranalyse mit kontrolliertem Vorher-/Nachher-Vergleich](docs/systematic-error-analysis-20261111.md)
+- [Tatsächlicher Auswahlstand und vorläufige Empfehlung](docs/method-selection-status.md)
+- [HTML-Dashboard: Teilnehmer-/Feldqualität, Fehler, Effizienz, Bootstrap und gespeicherte Gegenvergleiche](docs/scientific-evaluation.md)
+- [Fehlende Personalnummern/Organisation: Ursachenprüfung, Ausrichtung und Korrekturmanifest](docs/field-loss-20261111.md)
+- [Automatische Seitenausrichtung: OSD, OCR-Vierlagenvergleich und Funktionsnachweis](docs/automatic-orientation.md)
+- [Literaturbasierte Promptgestaltung, Regeln, Versionierung und Validierungsgrenzen](docs/prompt-design.md)
 - [PDFs und Referenz vorbereiten, Vergleich verstehen](testframework/README.md)
 - [Lokale Modelle und ihr Ablauf](docs/local-methods.md)
 - [Docling/Paddle: Fehleranalyse und gemessener Vorher-/Nachher-Vergleich](docs/structure-optimization.md)

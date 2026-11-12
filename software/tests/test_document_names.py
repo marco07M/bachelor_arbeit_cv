@@ -25,7 +25,8 @@ from participant_bench.vlm_cells import parse_visual_response
 
 
 def visual(first="Weber", last="Anna", cell="Weber, Anna", order="family_given", number=1, document="doc"):
-    payload = dict(name_order=dict(order=order, evidence="Gedruckte Reihenfolge Nachname, Vorname"),
+    payload = dict(name_order=dict(order=order, basis="document" if order != "unknown" else "unknown",
+                                  evidence="Gedruckte Reihenfolge Nachname, Vorname"),
                    identity_headers=["Benutzername", "Benutzer", "Kurzzeichen"], page_text=None,
                    participants=[dict(row_ref=str(number), first_name=first, last_name=last,
                                       identity_cells=[cell, "", "MUC"])])

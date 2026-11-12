@@ -1,6 +1,114 @@
 # Spaltenüberschriften auf Fortsetzungsseiten
 
-Stand: 03.11.2026. Zusatzauftrag zur dokumentbezogenen Seitenlogik.
+Stand: 11.11.2026. Der aktuelle Ergänzungsstand steht unmittelbar unten;
+die anschließende Untersuchung vom 03.11. bleibt als historischer Nachweis erhalten.
+
+## Aktueller Ergänzungsstand vom 11.11.2026
+
+Die vorhandene zentrale Prüfung `column_context.resolve` bleibt maßgeblich.
+Dokumentkontext **v2** enthält ausschließlich gesicherte Überschriftenbezeichnungen
+beziehungsweise kanonische Feldrollen, Spaltenindizes, PDF-/Quellseitenkennung und
+normalisierte Geometrie. Teilnehmerwerte werden weder kopiert noch zur Entscheidung
+verwendet. Die PDF-Seiten werden in aufsteigender Reihenfolge verarbeitet;
+maßgeblich bleibt die letzte zuverlässig erkannte Überschrift derselben PDF,
+auch über mehrere kompatible Folgeseiten hinweg.
+
+### Nachgewiesene Lücken und gezielte Korrekturen
+
+1. **Ungeprüfte alte Intervalle:** Ein älterer nativer OCR-Fallback konnte
+   `inherited_column_intervals` trotz abgewiesener Geometrieprüfung verwenden.
+   Drei Regressionen reproduzierten dies mit fehlender Zellgeometrie, abweichender
+   Spaltenzahl und vollständig fehlender Tabellenstruktur. Bei Ablehnung werden
+   jetzt keine verwendbaren Intervalle weitergegeben; der nachgelagerte Fallback
+   akzeptiert ausschließlich nachweislich zugeordnete aktuelle/kompatible Tabellen.
+   Auch ohne erkannte Tabelle bleibt die Ablehnung im Analyseprotokoll sichtbar.
+2. **Mehrzeilige Überschriften:** Tesseract konnte die zweite Überschriftenzeile
+   mit Personalnummer/Abteilung verlieren, wenn nur die erste Zeile Namen enthielt.
+   Zusammenhängende Überschriftenblöcke werden jetzt gesammelt. Paddle verwendet
+   denselben Block für seine Feldbänder, Mehrdeutigkeitsprüfung und beobachteten
+   Einzelzellen. Die räumliche Zuordnung nutzt tatsächliche gemessene Spalten;
+   eine führende Nummern-/Leerspalte verschiebt die Feldindizes nicht mehr.
+3. **Vorrang aktueller Überschriften:** Auch eindeutige neue ID-/Organisations-
+   überschriften ohne lesbare Namensüberschriften sperren die frühere Gesamt-
+   zuordnung. Aktuell eindeutig belegte Teilfelder können gelesen werden, doch
+   ein unvollständiger/mehrdeutiger neuer Block begründet keinen neuen
+   Fortsetzungskontext. Native explizite `column_header`-Belege werden berücksichtigt.
+4. **Getrennte VLM-Namensspalten:** Die Anwendung verwendete bisher deren Rollen
+   im Kontext, übernahm die Namen aber weiter aus den semantischen Modellfeldern.
+   Sind Vor- und Nachname eindeutig getrennten Spalten zugeordnet und die Anzahl
+   der aktuellen Zellen korrekt, haben nun die jeweiligen aktuellen Zellen
+   Vorrang. Dies gilt auch für geerbte Rollen. Leere/unleserliche aktuelle Zellen
+   bleiben leer/unbekannt. Kombinierte Namensspalten und ihre vorhandenen
+   Namensaufteilungsregeln bleiben erhalten; aus `Name` allein wird keine neue
+   Trennung konstruiert. Benutzer/Benutzername/Kurzzeichen bleiben unterschieden.
+   Die nachgelagerte dokumentweite Namensprüfung respektiert diese belegten
+   getrennten Spalten ebenfalls: Eine globale Standardreihenfolge darf sie
+   weder umordnen noch allein wegen fehlender neuer Namensreihenfolge unsicher
+   markieren. Der Vorrang ist für alle vier aktiven Kontextpfade getestet.
+5. **Angehängte Daten in Überschriftenzellen:** Ein zusätzlicher Regressionstest
+   belegte, dass eine verrauschte alte Überschriftenzelle samt angehängtem Text
+   noch als `previous_headers` an das Textmodell gelangen konnte. Der Kontext
+   enthält jetzt nur erlaubte Überschriftenbezeichnungen/Feldrollen und
+   Positionsattribute. Vollständige Zellen, Rohtext, Teilnehmerwerte und andere
+   Zellattribute werden nicht mitgeführt. Die Originalbelege der aktuellen Seite
+   bleiben unverändert gespeichert und können weiterhin geprüft werden.
+
+### Gültigkeitsprüfung und Grenzen
+
+Die bestehende Grenze **0,035 der Seitenbreite** bleibt unverändert. Spaltenzahl,
+X-Grenzen und Geometrieart müssen vergleichbar sein. Der vorhandene Sonderfall
+eines übereinstimmend gemessenen Präfixes bleibt zulässig, wenn sämtliche
+zugeordneten Textspalten erhalten sind und nur hintere unbenötigte Spalten fehlen.
+Fehlende oder widersprüchliche Geometrie, eine andere PDF, falsche Seitenfolge
+und alte Kontextversionen begründen keine Übernahme. Zwei- und dreispaltige
+gemessene Raster sind ebenfalls nutzbar, etwa mit einer kombinierten Namensspalte.
+Eine unbekannte Zelle wird niemals aus vorherigen Personen ergänzt.
+
+Die Änderungen betreffen die vorhandenen Kontextpfade von Tesseract+LLM,
+Paddle+LLM, direktem VLM, OCR+VLM und dem weiterhin verfügbaren Docling-Mapping.
+Die separate Regelbaseline verwendet weiterhin ihre vorhandene Vorlagenlogik;
+hier wird kein neuer dokumentübergreifender oder lernender Baseline-Mechanismus
+eingeführt. Eine geometrisch identische, inhaltlich vertauschte Tabelle ohne
+irgendeinen neuen Überschriftenbeleg bleibt grundsätzlich nicht sicher erkennbar.
+Die Prüfgrenzen sind technische Schutzregeln und keine kalibrierten Wahrscheinlichkeiten.
+
+### Analysebericht und begrenzter Nachweis
+
+Hauptbericht und `document_column_mappings.csv` enthalten jetzt auch die gespeicherten
+VLM-/Hybridentscheidungen. Pro Seite werden **Feld → Spaltenindex**, ursprüngliche
+Überschriftenbelege, Quellseite, Entscheidung und Begründung ausgegeben. Der
+Geometrievergleich enthält Quell-/Zielgeometrie, größte gemessene Kantenabweichung
+und erlaubte Grenze. Der HTML-Fehlerbericht zeigt dieselben Entscheidungen in
+einer eigenen Tabelle; `error_analysis/page_pipeline.json` enthält die vollständige
+Seitenkette. Spaltenindizes beginnen bei 0, Positionen sind normalisiert.
+Fehlende historische Attribute bleiben unbekannt und werden nicht rückwirkend
+aus Teilnehmerwerten rekonstruiert.
+
+30 neue Regressionen in `tests/test_column_continuation_audit.py` verwenden die
+vorhandenen synthetischen Tabellen-/OCR-/Modellantwort-Fixtures, darunter den
+tatsächlich aufgebauten LLM-Input und beide HTML-Berichte. Ein separater
+Dreiseiten-Replay unter `data/column-context-20261111/synthetic-report/` weist
+zwei strukturgebundene Übernahmen mit ausschließlich aktuellen Zellwerten nach.
+Dies ist ein Funktionsnachweis, keine reale OCR- oder Modellqualitätsmessung.
+
+Die Gesamtsuite bestand mit **850 lokalen Tests (98,07 s)** und **48 API-Tests
+(9,77 s)**. Die abschließende Erweiterung der lesenden Feldanalyse um die
+gespeicherten Namensspalten wurde zusätzlich mit **99 gezielten Tests (3,56 s)**
+geprüft. Ruff und reguläres `git diff --check` ohne Befund.
+
+Der bestehende reale Vergleich wurde ohne neue Extraktion in einen neuen Ordner
+gerendert: `testframework/ergebnisse/column-context-20261111/extraction_errors.html`.
+Seine Bewertungsdateien sind bytegleich mit den bisherigen Dateien. 1.762 geschützte
+historische Dateien blieben unverändert. Die dort dargestellten sechs früher
+gespeicherten Übernahmen sind historische Entscheidungen, keine sechs neuen
+Erkennungsnachweise der Reparatur. 908 lokale Dateilinks in den beiden geprüften
+Berichten zeigen auf vorhandene Dateien. Aggregierte Prüfung:
+`data/column-context-20261111/validation.json`. Ein neuer vollständiger Modelllauf
+ist für Aussagen über die reale Feldqualität erforderlich. Keine neuen Modelle,
+Promptvorlagen, Abhängigkeiten oder automatische Referenzkorrekturen; dynamische
+Kontextinputs wurden gezielt angepasst und in den Tests geprüft.
+
+## Historische Untersuchung vom 03.11.2026
 
 ## 1. Bisheriger Stand und Ursache
 
@@ -52,7 +160,7 @@ durch mehrere Threads wird nicht eingeführt oder als unterstützt behauptet.
 - Beim nachträglichen Paddle-Abgleich werden Rasterlinien aus den gespeicherten
   Seitenbildern ermittelt. Es findet dafür keine weitere OCR statt.
 
-Aktive Softwareversionen: Dokumentkontext v1, natives Mapping v6, räumliches
+Damals geprüfte Softwareversionen: Dokumentkontext v1, natives Mapping v6, räumliches
 Mapping v8, Zuweisungsprompt v19/v20, Hauptprompt v23. Die bestehenden Hauptprofile
 nutzen diese Erweiterung ohne neue Modelle oder geänderte OCR-Standardeinstellungen.
 

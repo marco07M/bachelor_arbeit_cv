@@ -67,10 +67,11 @@ installieren. `bachelorarbeit/thesis.tex` öffnen und **Build LaTeX project** w�
 Die Workspace-Konfiguration verwendet denselben Build wie das PowerShell-Skript.
 Unter **Terminal → Run Task** stehen zusätzlich Build und LaTeX-Diagnose bereit.
 
-Die aus dem Downloadordner übernommenen LaTeX-/BibTeX-Quellen bleiben inhaltlich
-unverändert. Im Entwurf steht noch der frühere Handschrift-Schwerpunkt; die
-Abstimmung mit dem aktuellen Schwerpunkt maschinenschriftlicher Listen ist ein
-separater inhaltlicher Arbeitsschritt. Persönliche Angaben stehen in
+Die Methodik beschreibt inzwischen die implementierte
+[Verfahrensauswahl](software/docs/method-selection.md) für überwiegend
+maschinenschriftliche und gemischte Listen. Andere Entwurfsteile und die
+übergeordnete Forschungsfrage enthalten noch den früheren Handschrift-Schwerpunkt;
+ihre Abstimmung bleibt ein separater inhaltlicher Arbeitsschritt. Persönliche Angaben stehen in
 `bachelorarbeit/config/metadata.tex`, Literatur in den beiden `.bib`-Dateien.
 
 Toolchains, Python-Umgebungen, Modelldateien, vertrauliche Daten, Ergebnisse und

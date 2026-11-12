@@ -19,16 +19,11 @@ from .document_names import DocumentNameOrders
 from .evaluation import evaluate_groups
 from .io import digest, file_hash, read_json, read_jsonl, write_csv, write_json, write_jsonl
 from .models import (
-    METHOD_INSTRUCTIONS,
-    OCR_RECORD_SYSTEM,
-    OCR_SYSTEM,
     PROMPT_VERSION,
-    SYSTEM,
-    VLM_SYSTEM,
     LocalModel,
     Unavailable,
     create_model,
-    generation_schema,
+    extraction_prompt_snapshot,
     model_identity,
     require_offline,
     validate_model_environment,
@@ -42,15 +37,9 @@ from .report import cost_scenario, report
 from .rules import attach_signatures, extract_rules
 from .schema import (
     GroundTruthPage,
-    ModelResponse,
-    OCRPageResponse,
-    OCRRecordResponse,
-    OCRTextPageResponse,
     PageResult,
     SignatureLocations,
     SignatureResponse,
-    VisualCellPageResponse,
-    VisualPageResponse,
 )
 from .signatures import LOCATION_SYSTEM, SIGNATURE_PROMPT_VERSION, SIGNATURE_SYSTEM, inspect_signatures
 
@@ -274,39 +263,14 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         if page["status"] == "ready":
             page["image"] = str((manifest_path.parent / page["image"]).resolve())
     write_json(output / "manifest.json", manifest_snapshot)
-    write_json(
-        output / "prompts.json",
-        {
-            "version": PROMPT_VERSION,
-            "system": SYSTEM,
-            "ocr_system": OCR_SYSTEM,
-            "ocr_record_system": OCR_RECORD_SYSTEM,
-            "vlm_system": VLM_SYSTEM,
-            "method_instructions": METHOD_INSTRUCTIONS,
-            "response_schema": ModelResponse.model_json_schema(),
-            "ocr_response_schema": generation_schema(OCRRecordResponse),
-            "ocr_page_response_schema": generation_schema(OCRTextPageResponse),
-            "ocr_legacy_response_schema": OCRPageResponse.model_json_schema(),
-            "vlm_response_schema": generation_schema(VisualCellPageResponse),
-            "vlm_legacy_response_schema": VisualPageResponse.model_json_schema(),
-            "signature_prompt_version": SIGNATURE_PROMPT_VERSION,
-            "signature_system": SIGNATURE_SYSTEM,
-            "signature_location_system": LOCATION_SYSTEM,
-            "signature_location_response_schema": SignatureLocations.model_json_schema(),
-            "signature_response_schema": SignatureResponse.model_json_schema(),
-        },
-    )
-    if assignment_methods:
-        from .unlimited_assignment import PROMPT_VERSION as assignment_version
-        from .unlimited_assignment import RECORD_SYSTEM, AssignmentResponse
-        from .unlimited_assignment import SYSTEM as assignment_system
-
-        prompts = read_json(output / "prompts.json")
-        prompts.update(assignment_prompt_version=assignment_version, assignment_system=assignment_system,
-                       assignment_schema=generation_schema(AssignmentResponse),
-                       assignment_record_system=RECORD_SYSTEM,
-                       assignment_record_schema=generation_schema(OCRRecordResponse))
-        write_json(output / "prompts.json", prompts)
+    prompts = extraction_prompt_snapshot()
+    prompts.update(signature_prompt_version=SIGNATURE_PROMPT_VERSION, signature_system=SIGNATURE_SYSTEM,
+                   signature_location_system=LOCATION_SYSTEM,
+                   signature_location_response_schema=SignatureLocations.model_json_schema(),
+                   signature_response_schema=SignatureResponse.model_json_schema())
+    prompts["component_sha256"].update({key:digest(value) for key,value in prompts.items()
+                                       if key.startswith("signature_")})
+    write_json(output / "prompts.json", prompts)
     page_dir = output / "pages"
     page_dir.mkdir(exist_ok=True)
     # Apply only explicit manual correction to the already metadata/OSD-oriented image.
@@ -519,6 +483,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                         raw["ocr_layout_analysis"].update({key: analysis_data[key] for key in
                                             ("selection_diagnostics", "unassigned_word_ids", "all_text_rows", "row_selection_policy")})
                                         text_layouts[page["document_id"]] = raw["ocr_layout_analysis"]
+                                    if method in VISION_METHODS:
+                                        model.document_page_context = dict(document_id=page["document_id"],
+                                                                           page_number=page["page_number"])
                                     participants, responses, status, elapsed = model.extract(
                                         image, analysis_data
                                     )

@@ -301,7 +301,8 @@ def _apply_stage2_geometry_fallback(
     aliases=ORGANIZATION_ALIASES,
     trace=None,
 ):
-    if not intervals:
+    if not intervals or (trace and trace.get("status") not in (
+            "detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page")):
         return 0
     observations = _normalized_ocr_observations(recognized, size)
     if not observations:
@@ -579,8 +580,9 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
         trace = {}
         header_bottom = 0.0
         current_header_rows = [r["row_index"] for r in rows if (lambda found:
-            bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2)(
-                set().union(*(field_roles(c["text"], aliases) for c in r["cells"])))]
+            len(found & set(TEXT_FIELDS)) >= 2)(
+                set().union(*(field_roles(c["text"], aliases) for c in r["cells"])))
+            or any(c.get("column_header") and field_roles(c["text"], aliases) for c in r["cells"])]
         last_header = -2
         for row in rows:
             decision = dict(source_row=row["id"], table_index=table_index, row_index=row["row_index"],
@@ -591,7 +593,8 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                 continue  # Current headings take precedence over an older layout, including metadata above them.
             classified = [(cell, field_roles(cell["text"], aliases)) for cell in row["cells"]]
             found = set().union(*(roles for _, roles in classified)) if classified else set()
-            header = (bool(found & {"first_name", "last_name"}) and len(found & set(TEXT_FIELDS)) >= 2
+            header = (len(found & set(TEXT_FIELDS)) >= 2
+                      or any(cell.get("column_header") and roles for cell, roles in classified)
                       or bool(found) and last_header == row["row_index"]-1)
             if header:
                 decision.update(status="context", reason="printed_headings")
@@ -759,12 +762,12 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             **trace,
             fallback_participants=fallback_count,
             text_cells=sum(bool(c["text"]) for row in rows for c in row["cells"]),
-            columns={key: sorted(cols) for key, cols in mapping.items()}, headings=headings,
+            columns={key: sorted(cols) for key, cols in mapping.items()},
             organization_mapping="unique" if len(mapping.get("department", [])) == 1 else "ambiguous_or_missing"))
         if not mapping and not fallback_count:
             notes.append(f"column_mapping_failed: table {table_index} has no identifiable printed column headings")
     if not recognized.get("tables") and context and document_id is not None and isinstance(page_number, int):
-        _, _, trace = resolve(
+        _, context, trace = resolve(
             {},
             {},
             None,
@@ -774,38 +777,10 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             has_header=False,
             column_count=0,
         )
-        intervals = trace.get("inherited_column_intervals") or {}
-        if intervals:
-            fallback_count = _apply_stage2_geometry_fallback(
-                recognized,
-                size,
-                intervals,
-                people,
-                proofs,
-                row_decisions,
-                notes,
-                table_index=0,
-                header_bottom=0.0,
-                aliases=aliases,
-                trace=trace,
-            )
-            if fallback_count:
-                diagnostics.append(
-                    dict(
-                        table_index=0,
-                        grid_source="ocr_geometry_fallback",
-                        rows=0,
-                        width=0,
-                        **trace,
-                        fallback_participants=fallback_count,
-                        text_cells=0,
-                        columns={},
-                        headings=context.get("headings", {}),
-                        organization_mapping="unique"
-                        if "department" in intervals
-                        else "ambiguous_or_missing",
-                    )
-                )
+        # No measured table means no inherited interval may drive field values.
+        # Keep the rejection visible even when no participant could be assigned.
+        diagnostics.append(dict(table_index=None, grid_source="unavailable", rows=0, width=0,
+            **trace, fallback_participants=0, text_cells=0, columns={}, organization_mapping="ambiguous_or_missing"))
     recognized["mapping_diagnostics"] = diagnostics
     recognized["row_decisions"] = row_decisions
     for proof in proofs:

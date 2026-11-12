@@ -10,7 +10,40 @@ separaten [API-Einstieg](../api_firmen_pc/testframework/README.md) samt
 `start_api_testframework.cmd`, eigenen Eingabeordnern und identischer Bewertung.
 Dieser lokale Einstieg bleibt ausschließlich offline.
 
+Für die wissenschaftliche Kandidatenauswahl ergänzt `participant-bench selection`
+das bestehende Framework um eine Evidenzmatrix, einen eingefrorenen gruppierten
+Stichprobenplan und einen Pilotvergleich. Originale Namensrollen auf festen
+Referenzpaaren, neue Zuordnung ohne Swap und referenzgestützte Swap-Metriken werden
+getrennt ausgewiesen. Finale Testdaten sind im Auswahlpfad gesperrt.
+Anleitung: [Verfahrensauswahl](../docs/method-selection.md). Das vorhandene
+Hauptprofil und historische Ergebnisse bleiben erhalten.
+
+Neue Vergleiche zeigen im selben Hauptbericht sechs Analysebereiche mit sortierbarer
+Vergleichstabelle, striktem Teilnehmer-Recall, vollständigen beziehungsweise partiellen
+Referenzen, Feldheatmap, filterbaren Fehlerursachen, Dokumenttypen, Effizienz/Kosten
+und Cluster-Bootstrap. Die vorhandenen Matching- und Einzelfallansichten bleiben
+verlinkt; `standard_report.html` erhält die bisherige Standarddarstellung.
+Ohne geprüfte Metadaten bleiben
+Merkmale unbekannt und Unsicherheitsintervalle offen. Bestehende Berichte lassen sich
+mit `metadata-template` und `analyze` ohne neue Inferenz in einen neuen Ergebnisordner
+auswerten: [Anleitung und methodische Grenzen](../docs/scientific-evaluation.md).
+
+Die einmalig literaturbasiert überarbeiteten Extraktionsprompts werden zentral
+in `participant_bench/extraction_prompts.py` zusammengesetzt. Fachliche
+Eingabe-/Schemapfade bleiben erhalten; VLM und OCR-VLM teilen denselben
+Systemprompt. Vorlagen, tatsächliche Textnachrichten und Hashes werden pro Lauf
+gesichert. Alte Läufe bleiben historische Ergebnisse ihrer alten Prompts.
+[Promptgestaltung und Validierung](../docs/prompt-design.md) dokumentiert die
+begründete feste Promptfamilie; es handelt sich um keine Promptoptimierungsstudie.
+
 ## Schnellstart
+
+Folgetabellen ohne wiederholte Überschriften können ihre Feldspalten aus derselben
+PDF übernehmen, wenn die gemessene Spaltengeometrie weiterhin passt. Aktuelle
+eindeutige Überschriften haben Vorrang; Teilnehmerwerte werden nie seitenübergreifend
+kopiert. Haupt-/Fehlerbericht dokumentieren Feldspalten, Quellseite und
+Kompatibilitätsprüfung, auch für VLM/Hybrid.
+[Verhalten, unterstützte Pfade und Grenzen](../docs/document-columns.md).
 
 1. PDFs nach `eingabe_pdfs/` kopieren. Unterordner sind erlaubt.
 2. Genau eine `.xlsx` oder `.csv` nach `referenz/` legen. Der Dateiname ist frei wählbar.
@@ -61,6 +94,23 @@ Vor dem Modelllauf nur Ordner, Spalten und gemeinsame Schulungs-IDs prüfen:
 ```
 
 Das startet keine Modelle. Die Eingabeordner und Ergebnisse sind von Git ausgeschlossen.
+
+Die automatische Ausrichtung nutzt bei unsicherem OSD jetzt einen abgesicherten
+OCR-Vergleich aller vier Drehlagen. Das ist beim normalen Start bereits aktiv;
+auf den vorhandenen zwanzig Entwicklungsseiten wurden alle zwölf seitlichen
+Seiten richtig gedreht. [Ablauf, Nachweise und Grenzen](../docs/automatic-orientation.md).
+Unentscheidbare Seiten bleiben prüfpflichtig; ein Winkel von 0° allein bestätigt
+keine richtige Ausrichtung. Optional lässt sich weiterhin ein bereits manuell
+geprüftes Manifest übergeben:
+
+```powershell
+.\start_testframework_5.cmd --manifest data/DEINE_PRUEFUNG/curated-manifest.json
+```
+
+Dabei bleiben Eingabe-/Bildhash- und Konfigurationsprüfungen aktiv; der Befehl
+startet anschließend einen neuen Modelllauf. Die aktuelle
+[Ursachenprüfung auf zehn PDFs](../docs/field-loss-20261111.md) dokumentiert ein
+konkret geprüftes Manifest und die erweiterten Feld-/Seitenketten im Fehlerbericht.
 
 ## Referenzspalten
 

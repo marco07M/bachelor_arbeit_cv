@@ -37,7 +37,7 @@ def preflight(config, base, input_override=None, reference_override=None):
 
 
 def run_benchmark(config, base: Path, *, input_override=None, reference_override=None, methods=None, resume=None,
-                  allow_api=False):
+                  allow_api=False, manifest_path=None):
     folder, reference, frozen, overview = preflight(config, base, input_override, reference_override)
     extraction = load_extraction_config(resolve(base, config.extraction_config))
     if methods:
@@ -53,6 +53,9 @@ def run_benchmark(config, base: Path, *, input_override=None, reference_override
     print(f"Testframework: {overview['input_pdfs']} PDFs, {overview['courses_compared']} Schulungen im Referenzabgleich", flush=True)
     print("Modelle verarbeiten PDFs/Seiten nacheinander. Referenzwerte werden nicht an die Extraktion übergeben.", flush=True)
     # Only model configuration and PDF directory enter the existing inference runner.
-    source, _ = extract(extraction, folder, resume=resume, offline=not allow_api)
+    options = dict(resume=resume, offline=not allow_api)
+    if manifest_path is not None:
+        options["manifest_path"] = manifest_path.resolve()
+    source, _ = extract(extraction, folder, **options)
     print("Extraktion abgeschlossen; Schulungen gruppieren und Teilnehmer global zuordnen ...", flush=True)
     return evaluate_run(source, reference, config, output_root, methods, frozen_reference=frozen)

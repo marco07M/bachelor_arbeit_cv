@@ -13,11 +13,11 @@ from PIL import Image
 from .column_context import VERSION as COLUMN_CONTEXT_VERSION
 from .column_context import image_boundaries
 from .io import file_hash, read_json, read_jsonl, write_json, write_jsonl
-from .models import create_model, generation_schema
+from .models import create_model
 from .progress import Progress
 from .report import report
 from .schema import PageResult
-from .unlimited_assignment import PROMPT_VERSION, SYSTEM, AssignmentResponse, assign_pages
+from .unlimited_assignment import PROMPT_VERSION, assign_pages
 
 
 def reassign_run(source: Path, config, output: Path | None = None, *, methods=None):
@@ -70,8 +70,9 @@ def reassign_run(source: Path, config, output: Path | None = None, *, methods=No
         geometry_seconds[method] = time.perf_counter() - geometry_started
     write_json(output / "manifest.json", manifest)
     (output / "config.yaml").write_text(yaml.safe_dump(config.model_dump(), allow_unicode=True), encoding="utf-8")
-    write_json(output / "prompts.json", dict(assignment_prompt_version=PROMPT_VERSION,
-               assignment_system=SYSTEM, assignment_schema=generation_schema(AssignmentResponse)))
+    from .models import extraction_prompt_snapshot
+
+    write_json(output / "prompts.json", extraction_prompt_snapshot())
     kind = "unlimited_assignment_only" if methods == ["unlimited_ocr"] else "structure_assignment_only"
     provenance = dict(kind=kind, methods=methods, source_run=str(source.resolve()),
                       column_context_version=COLUMN_CONTEXT_VERSION,

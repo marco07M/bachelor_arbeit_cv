@@ -92,7 +92,9 @@ def layout(image, data, config):
     rows = []
     boundaries = [v for v in hlines if v > top and v <= bottom]
     if len(boundaries) >= 2:
-        rows = list(zip(boundaries[:-1], boundaries[1:]))
+        # top can fall just below the first separator (e.g. header glyphs touch
+        # that line). Keep the first body band; an empty partial band adds nobody.
+        rows = list(zip([top, *boundaries[:-1]], boundaries, strict=True))
     else:
         body_words = sorted(
             (w for w in words if top < w["bbox"]["y0"] < bottom), key=lambda w: w["bbox"]["y0"]

@@ -165,9 +165,29 @@ class OCR:
         start = time.perf_counter()
         try:
             result = pytesseract.image_to_osd(
-                image, output_type=pytesseract.Output.DICT, timeout=self.config.ocr.timeout_seconds
+                image, output_type=pytesseract.Output.DICT, timeout=min(15, self.config.ocr.timeout_seconds)
             )
             confidence = float(result["orientation_conf"])
             return int(result["rotate"]), confidence, None, time.perf_counter() - start
         except (pytesseract.TesseractError, RuntimeError) as exc:
             return 0, 0.0, str(exc), time.perf_counter() - start
+
+    def orientation_evidence(self, image):
+        """Four bounded, text-only diagnostics. No field values are returned or cached."""
+        from .orientation import MAX_SIDE, text_evidence
+
+        started = time.perf_counter()
+        candidates = []
+        with image.convert("RGB") as probe:
+            probe.thumbnail((MAX_SIDE, MAX_SIDE))
+            for angle in (0, 90, 180, 270):
+                with probe.rotate(-angle, expand=True) as rotated:
+                    try:
+                        data = pytesseract.image_to_data(rotated, lang=self.config.ocr.languages,
+                            config="--psm 11", output_type=pytesseract.Output.DICT,
+                            timeout=min(15, self.config.ocr.timeout_seconds))
+                        candidates.append(dict(clockwise=angle, **text_evidence(data)))
+                    except (pytesseract.TesseractError, RuntimeError, ValueError) as error:
+                        candidates.append(dict(clockwise=angle, score=0., words=0, letters=0,
+                                               error=type(error).__name__))
+        return candidates, time.perf_counter()-started

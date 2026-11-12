@@ -102,12 +102,20 @@ def map_documents(manifest, known):
 
 
 def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, methods=None, *, output=None,
-                 frozen_reference=None):
+                 frozen_reference=None, document_ids=None, scientific_options=None):
     started = time.perf_counter()
     source, reference_file = source.resolve(), reference_file.resolve()
     manifest_path, summary_path = source / "manifest.json", source / "summary.json"
     manifest_hash, summary_hash = file_hash(manifest_path), file_hash(summary_path)
     manifest, summary = read_json(manifest_path), read_json(summary_path)
+    if document_ids is not None:
+        document_ids = set(document_ids)
+        available = {p["sha256"] for p in manifest["inputs"] if p["kind"] == "pdf"}
+        if not document_ids or not document_ids <= available:
+            raise ValueError("Auswahl enthält keine oder unbekannte Dokumente")
+        manifest = dict(manifest,
+                        inputs=[p for p in manifest["inputs"] if p["kind"] == "pdf" and p["sha256"] in document_ids],
+                        pages=[p for p in manifest["pages"] if p["document_id"] in document_ids])
     documents_in_order = document_order(manifest)
     selected = methods or list(summary)
     allowed = set(ALL_METHODS)
@@ -155,6 +163,8 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
         predicted, seen, failed_pages, excluded_instructors = defaultdict(list), set(), 0, 0
         pages = []
         for item in read_jsonl(extraction) if extraction.is_file() else []:
+            if document_ids is not None and item.get("document_id") not in document_ids:
+                continue
             try:
                 pages.append(PageResult.model_validate(item))
             except ValidationError:
@@ -286,6 +296,9 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     write_csv(output / "unassessed_pages.csv", unassessed, fields=["method", "document_id", "page_number", "reason", "participants"])
     write_json(output / "identity.json", dict(version=VERSION, source_run=str(source), reference_file=str(reference_file),
                reference_sha256=reference_hash, reference_sheet=data.sheet, reference_columns=columns,
+               reference_snapshot_sha256=file_hash(output / "reference_snapshot.json"),
+               comparison_config_sha256=file_hash(output / "config.json"),
+               source_config_sha256=file_hash(source / "config.yaml") if (source / "config.yaml").is_file() else None,
                source_reference_changed=scope["reference_changed_after_snapshot"],
                manifest_sha256=manifest_hash, summary_sha256=summary_hash,
                extraction_sha256=extraction_hashes,
@@ -332,4 +345,8 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     from .detail_report import render_details
 
     render_details(output)
+    if scientific_options is not False:
+        from .scientific import analyze
+
+        analyze(output, **(scientific_options or {}))
     return output, metrics

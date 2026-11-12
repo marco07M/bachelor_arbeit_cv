@@ -12,6 +12,7 @@ HEADERS = {
         "benutzer",
         "benutzerid",
         "userid",
+        "user",
         "personalnummer",
         "personalnr",
         "personnelnumber",

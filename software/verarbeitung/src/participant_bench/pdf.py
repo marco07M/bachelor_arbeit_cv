@@ -7,6 +7,8 @@ import pymupdf
 from PIL import Image, ImageOps
 
 from .io import digest, file_hash, read_json, write_json
+from .orientation import VERSION as ORIENTATION_VERSION
+from .orientation import detect as detect_orientation
 from .progress import Progress
 
 
@@ -110,11 +112,19 @@ def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | N
                         orientation_notes, orientation_s = [], 0.0
                         if config.pdf.auto_orient and ocr:
                             with progress.activity(f"Ausrichtung prüfen: {label}"):
-                                rotation, confidence, error, orientation_s = ocr.orientation(image)
+                                decision = detect_orientation(image, ocr, config.pdf.osd_min_confidence)
+                            rotation = decision["clockwise"]
+                            confidence, error, orientation_s = decision["osd_confidence"], decision["osd_error"], decision["seconds"]
                             record["orientation_confidence"] = confidence
-                            if confidence >= config.pdf.osd_min_confidence:
+                            record["orientation_proposed_clockwise"] = decision["osd_rotation_clockwise"]
+                            record["orientation_min_confidence"] = config.pdf.osd_min_confidence
+                            record["orientation_status"] = decision["status"]
+                            record["orientation_method"] = decision["method"]
+                            record["orientation_evidence"] = decision
+                            if decision["accepted"]:
                                 image = image.rotate(-rotation, expand=True)
                                 record["additional_rotation_clockwise"] = rotation
+                                progress.log(f"Ausrichtung: {label}; {rotation}° im Uhrzeigersinn, {decision['method']}")
                             else:
                                 orientation_notes.append(
                                     "Orientation uncertain; visually review 0/90/180/270"
@@ -122,7 +132,10 @@ def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | N
                             if error:
                                 record["orientation_error"] = error
                         elif config.pdf.auto_orient:
+                            record["orientation_status"] = "osd_unavailable"
                             orientation_notes.append("OSD unavailable; orientation needs review")
+                        else:
+                            record["orientation_status"] = "disabled"
                         image_path = images / f"{page_id}.png"
                         image.save(image_path)
                         image_hash = file_hash(image_path)
@@ -163,6 +176,7 @@ def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | N
             )
     manifest = {
         "version": 2,
+        "orientation_implementation": ORIENTATION_VERSION,
         "automatic_page_selection": False,
         "input_root": str(folder.resolve()),
         "inputs": inputs,
@@ -212,6 +226,10 @@ def validate_manifest(path: Path, folder: Path, config, progress: Progress | Non
                 raise ValueError(f"Rendered image changed: {page['page_id']}")
     if any(len(group) > 1 for group in splits.values()):
         raise ValueError("Manifest document/dependency group crosses development/test boundary")
+    if (config.pdf.auto_orient and not manifest.get("curated")
+            and manifest.get("orientation_implementation") != ORIENTATION_VERSION):
+        raise ValueError("Automatische Ausrichtungsprüfung geändert; Seitenmanifest mit prepare neu erzeugen. "
+                         "Ein ausdrücklich manuell geprüftes curated-Manifest bleibt verwendbar.")
     return manifest
 
 

@@ -195,7 +195,9 @@ class VisualCellParticipant(PersonRole):
 class VisualCellPageResponse(StrictModel):
     name_order: NameOrderDecision | None = None
     identity_headers: list[str | None] = Field(description=(
-        "ALL literal printed table headings in physical left-to-right order, including row number, "
+        "Literal printed headings of the PARTICIPANT-ROW TABLE ONLY, once per physical column, "
+        "in left-to-right order. Exclude course metadata tables, titles, instructions and footers. "
+        "Never use participant values as headings; headerless columns use null. Include row number, "
         "names, user ID, department, date and signature columns if present. Include empty columns. "
         "A page may have no user-ID column at all; never add a missing column or invent a heading. "
         "Use null for an unreadable heading; never infer column roles from the cell values."

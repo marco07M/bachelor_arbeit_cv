@@ -201,7 +201,7 @@ def test_short_name_order_step_uses_only_the_same_text_model():
             assert image is None and options["response_type"] is NameOrderDecision
             assert options["max_new_tokens"] == 192
             assert "von der Wiese" in text and "Benutzer" in text
-            return '{"order":"family_given","evidence":"Name, Vorname"}', dict(output_budget_reached=False)
+            return '{"order":"family_given","basis":"document","evidence":"Name, Vorname"}', dict(output_budget_reached=False)
 
     model = TextModel()
     decision, record = infer_text_order(model, text_source()["text_rows"], 0)
@@ -220,7 +220,7 @@ def test_text_record_generation_separates_order_and_person_fields():
         assert image is None
         inputs.append(options["response_type"])
         if options["response_type"] is NameOrderDecision:
-            answer = dict(order="family_given", evidence="Name, Vorname")
+            answer = dict(order="family_given", basis="document", evidence="Name, Vorname")
         else:
             assert options["response_type"] is OCRRecordResponse
             answer = dict(participants=[row()])

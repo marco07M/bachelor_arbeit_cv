@@ -91,12 +91,14 @@ def with_table_columns(data, image, previous=None, *, document_id=None, page_num
     for row in source_rows:
         classified = [(c, field_roles(c["text"])) for c in row["cells"]]
         found = set().union(*(roles for _, roles in classified)) if classified else set()
-        if boundaries and found & {"first_name", "last_name"} and len(found) >= 2:
+        if boundaries and (len(found & set(TEXT_FIELDS)) >= 2
+                           or found and last_header_index >= 0 and last_header_index == row["row_index"]-1):
             header_rows.append(row["id"])
             if first_header_index is None:
                 first_header_index = row["row_index"]
+            if last_header_index != row["row_index"]-1:
+                mapping, headings = {}, {}
             last_header_index = row["row_index"]
-            mapping, headings = {}, {}
             for cell, roles in classified:
                 for field in roles:
                     mapping.setdefault(field, set()).add(cell["column_start"])

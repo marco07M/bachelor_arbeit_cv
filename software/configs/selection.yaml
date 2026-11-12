@@ -1,0 +1,148 @@
+# Selection protocol only; benchmark.yaml remains unchanged. Reviewed 2026-11-10.
+# Scores describe explicitly defined evidence, never guessed recognition quality.
+version: 1
+seed: 42
+target_lists: 40
+minimum_pilot_lists: 30
+minimum_pilot_groups: 5
+split_ratios: [0.2, 0.6, 0.2]  # development / exploratory pilot / untouched final test
+required_strata: [printed, mixed]
+gates: [local_only, fixed_versions, structured_output, fits_16g, permitted_use]
+criteria:
+  target_fit:
+    weight: 0.25
+    definition: Eignung für den realen maschinenschriftlichen und gemischten Bestand
+    rubric: '0–1 nur nach unabhängig belegter Eignungsprüfung; ohne passende Referenzen null.'
+  layout_robustness:
+    weight: 0.15
+    definition: Tabellen, mehrere Zeilen, wechselnde Layouts und kopflose Folgeseiten
+    rubric: '0–1 nur nach dokumentiertem Prüfprotokoll über die vorgesehenen Strata; Herstellerwerbung genügt nicht.'
+  field_interface:
+    weight: 0.15
+    definition: Vorhandene gemeinsame Schnittstelle für alle vier Textfelder
+    rubric: '1 = im Code und Schema vorhanden; 0 = fehlt. Keine Aussage über Feldrichtigkeit.'
+  replayability:
+    weight: 0.10
+    definition: Versionierte Modelle, Pakete, Prompts und gespeicherte Rohdaten
+    rubric: '1 = im bestehenden Projekt implementiert; 0 = fehlt. Keine Garantie bitgleicher GPU-Ausgaben.'
+  runtime:
+    weight: 0.15
+    definition: Vergleichbare Laufzeit einschließlich Pipelineaufwand
+    rubric: '0–1 nur mit vorab begründeten Grenzwerten und kontrollierten Messungen; sonst null.'
+  resources:
+    weight: 0.10
+    definition: Inferenz-, Speicher-, Energie- und Kostenaufwand
+    rubric: '0–1 nur mit vergleichbarer Messbasis und offengelegter Transformation; sonst null.'
+  implementation_effort:
+    weight: 0.05
+    definition: Einrichtung, Integration und Pflegeaufwand
+    rubric: '0–1 nur nach protokolliertem Zeitaufwand und vorab definierter Skala; sonst null.'
+  incremental_information:
+    weight: 0.05
+    definition: Wissenschaftlicher Zusatznutzen gegenüber den anderen Kandidaten
+    rubric: '0–1 nach begründeter, dokumentierter Prüfung; Architekturrollen werden zusätzlich zwingend erhalten.'
+candidates:
+  ocr_llm: &text_candidate
+    method: ocr_llm
+    role: ocr_llm
+    profile: benchmark.yaml
+    description: Tesseract deu+eng auf CPU; Qwen3-4B-Instruct-2507 ordnet belegte OCR-Zeilen zu.
+    sources:
+    - https://github.com/tesseract-ocr/tesseract
+    - https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/tree/cdbee75f17c01a7cc42f958dc650907174af0554
+    - ../docs/local-methods.md
+    gates: &gates
+      local_only:
+        passed: true
+        reason: Offline-Pfad und getrennte API-Registrierung im Code und Isolationstests.
+        sources: [../verarbeitung/src/participant_bench/models.py, ../tests/test_local_isolation.py]
+      fixed_versions:
+        passed: true
+        reason: Revisionen, uv.lock, Prompt- und Eingabeidentität werden gespeichert.
+        sources: [benchmark.yaml, ../uv.lock, ../verarbeitung/src/participant_bench/runner.py]
+      structured_output:
+        passed: true
+        reason: Vier Textfelder im gemeinsamen Participant-Schema und Extraktionspfad vorhanden.
+        sources: [../verarbeitung/src/participant_bench/schema.py, ../docs/local-methods.md]
+      fits_16g:
+        passed: null
+        reason: Lokale Läufe existieren; kontrollierte Speicherprüfung über die repräsentative Pilotstichprobe offen.
+        sources: [../docs/gpu-inference.md]
+      permitted_use:
+        passed: null
+        reason: Komponentenlizenzen dokumentiert; Prüfung der konkreten Nutzungsbedingungen und Datenfreigabe offen. PyMuPDF ist mitzuberücksichtigen.
+        sources:
+        - https://github.com/pymupdf/PyMuPDF/blob/main/COPYING
+        - ../docs/method-selection.md
+    ratings: &ratings
+      target_fit: {value: null, reason: Unabhängige repräsentative Pilotdaten fehlen.}
+      layout_robustness: {value: null, reason: Vorhandene Entwicklungsbeispiele sind keine unabhängige Eignungsstudie.}
+      field_interface:
+        value: 1
+        reason: Alle vier Zielfelder sind implementiert; Qualität wird damit nicht vorweggenommen.
+        sources: [../verarbeitung/src/participant_bench/schema.py, ../docs/local-methods.md]
+      replayability:
+        value: 1
+        reason: Festgeschriebene Identitäten und Rohartefakte sind implementiert und getestet.
+        sources: [benchmark.yaml, ../verarbeitung/src/participant_bench/runner.py, ../tests/test_pdf_and_run.py]
+      runtime: {value: null, reason: Kontrollierte Warm-/Kaltcachemessung auf der Pilotstichprobe offen.}
+      resources: {value: null, reason: Keine gemeinsame vollständige Messbasis für Energie und Kosten vorhanden.}
+      implementation_effort: {value: null, reason: Kein belastbares Aufwandsprotokoll vorhanden.}
+      incremental_information: {value: null, reason: Architekturbeitrag qualitativ dokumentiert; keine empirisch begründete Punktzahl.}
+  paddle_llm:
+    <<: *text_candidate
+    method: paddle_llm
+    description: PP-StructureV3 mit Latin-PP-OCRv5; dasselbe Qwen3-4B-Instruct-2507 zur Zuordnung. OCR- und Layout-Engine unterscheiden sich von ocr_llm.
+    sources:
+    - https://www.paddleocr.ai/main/en/version3.x/algorithm/PP-StructureV3/PP-StructureV3.html
+    - https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/tree/cdbee75f17c01a7cc42f958dc650907174af0554
+    - ../paddle_structure_runtime/pyproject.toml
+  docling:
+    <<: *text_candidate
+    method: docling
+    role: structure
+    description: Docling, native PDF-Verarbeitung bzw. Tesseract und TableFormer ACCURATE; deterministische Zuordnung mit Geometrie- und Namensheuristiken, ohne generatives Modell.
+    sources:
+    - https://arxiv.org/abs/2408.09869v5
+    - https://github.com/docling-project/docling
+    - ../docling_runtime/pyproject.toml
+    - ../verarbeitung/src/participant_bench/structured_mapping.py
+  vlm:
+    <<: *text_candidate
+    method: vlm
+    role: vision
+    description: Direkte Seitenbildextraktion mit Qwen3-VL-4B-Instruct, BF16; keine Paddle-Hinweise.
+    sources:
+    - https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct/tree/ebb281ec70b05090aa6165b016eac8ec08e71b17
+    - benchmark.yaml
+  ocr_vlm:
+    <<: *text_candidate
+    method: ocr_vlm
+    role: hybrid
+    description: Dasselbe Qwen3-VL-4B-Instruct und Seitenbild wie vlm, zusätzlich Paddle-Belege; gezielte OCR-Hinweis-Ablation.
+    sources: [../docs/local-methods.md, ../verarbeitung/src/participant_bench/hybrid.py, ../tests/test_unified_pipelines.py]
+  docling_vlm:
+    <<: *text_candidate
+    method: docling
+    role: hybrid
+    profile: docling-vlm.yaml
+    description: Bestehender selektiver Docling-VLM-Assist. Ändert Aufrufauswahl und Merge-Regeln; keine reine OCR-Hinweis-Ablation. Hinweise enthalten Spaltenrollen und verankerte Zeilen, keine vollständige Zellgeometrie.
+    sources: [docling-vlm.yaml, ../verarbeitung/src/participant_bench/hybrid.py]
+  ocr_raw:
+    <<: *text_candidate
+    method: ocr_raw
+    role: diagnostic
+    description: Diagnostische Tesseract-Rohtextbaseline; ausschließlich mit unabhängigen Seitentranskripten nach CER/WER bewertbar.
+    sources: [https://github.com/tesseract-ocr/tesseract, ../docs/local-methods.md]
+    gates:
+      <<: *gates
+      structured_output:
+        passed: false
+        reason: Absichtlich keine Teilnehmerextraktion; nicht im Feldranking.
+        sources: [../verarbeitung/src/participant_bench/runner.py]
+    ratings:
+      <<: *ratings
+      field_interface:
+        value: 0
+        reason: Absichtlich keine vier strukturierten Teilnehmerfelder.
+        sources: [../verarbeitung/src/participant_bench/runner.py]

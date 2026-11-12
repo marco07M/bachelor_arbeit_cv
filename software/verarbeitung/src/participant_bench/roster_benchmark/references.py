@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 
 from ..excel_columns import resolve_columns
 from ..excel_reference import ReferencePerson, cell_text
+from ..io import file_hash, read_json
 from .config import ReferenceConfig
 
 
@@ -20,6 +21,32 @@ class ReferenceData:
     duplicate_rows: list[dict]
     user_id_column_present: bool
     columns: dict[str, str] = dataclass_field(default_factory=dict)
+
+
+def saved_reference(report: Path, source_run=None):
+    """Verify and reopen an existing comparison's frozen source/reference, never the current Excel file."""
+    from .config import BenchmarkConfig
+
+    identity = read_json(report / "identity.json")
+    source = Path(source_run or identity["source_run"]).resolve()
+    for name, expected in (("manifest.json", identity["manifest_sha256"]),
+                           ("summary.json", identity["summary_sha256"])):
+        if file_hash(source / name) != expected:
+            raise ValueError("Quelllauf stimmt nicht mehr mit gespeichertem Vergleich überein")
+    for method, expected in identity["extraction_sha256"].items():
+        if expected and file_hash(source / method / "extractions.jsonl") != expected:
+            raise ValueError("Historische Extraktionen wurden verändert")
+    for path,key in ((report/"config.json","comparison_config_sha256"),(source/"config.yaml","source_config_sha256")):
+        if identity.get(key) and file_hash(path) != identity[key]:
+            raise ValueError("Eingefrorene Konfiguration wurde verändert")
+    snapshot_path = report / "reference_snapshot.json"
+    if identity.get("reference_snapshot_sha256") and file_hash(snapshot_path) != identity["reference_snapshot_sha256"]:
+        raise ValueError("Eingefrorener Referenzsnapshot wurde verändert")
+    snapshot = read_json(snapshot_path)
+    data = ReferenceData([ReferencePerson(**p) for p in snapshot["people"]], identity.get("reference_sheet"),
+                         snapshot.get("duplicate_rows", []), "user_id" in snapshot.get("columns", {}), snapshot.get("columns", {}))
+    return (source, data, identity["reference_sha256"], Path(identity["reference_file"]),
+            BenchmarkConfig.model_validate(read_json(report / "config.json")))
 
 
 def column_indices(headers, config):

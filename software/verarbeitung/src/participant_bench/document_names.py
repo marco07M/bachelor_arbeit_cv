@@ -5,6 +5,7 @@ import re
 import time
 import unicodedata
 
+from .extraction_prompts import NAME_ORDER_SYSTEM, NAME_RULES, NAME_VERSION
 from .io import read_json, write_json
 from .name_parts import (
     DEFAULT_ORDER,
@@ -16,63 +17,44 @@ from .name_parts import (
 from .ocr_evidence import observed_spans
 from .schema import NameOrderDecision, PageResult, Participant
 
-VERSION = "document-name-order-v3-family-first-default"
-REVIEW = "Namensreihenfolge im Dokument nicht eindeutig belegt; Vor-/Nachname manuell prüfen"
-INSTRUCTIONS = """Report the baseline document/column NAME ORDER in name_order, while assigning each row's first_name and last_name accurately.
-Return name_order with order=given_family, family_given or unknown, basis=document/default/unknown,
-and a brief evidence string. Use basis=document only for visible headings/separators, basis=default
-for the user's surname-first convention without such evidence.
-Evidence must be at most 30 words. Quote only relevant headings, never repeat source text or people's names.
-The top-level JSON MUST start with the required name_order object, before participants. Example
-shape only: {"name_order":{"order":"family_given","evidence":"Nachname, Vorname"},"participants":[...]}
-given_family means the physical name text reads GIVEN NAME then FAMILY NAME; family_given means
-FAMILY NAME then GIVEN NAME. Use literal headings (Vorname/First Name versus Nachname/Last Name),
-column positions, and combined-name separators such as 'Nachname, Vorname'. A combined Benutzername
-column is a NAME column; it is not a user ID. Read each whole name part, including compound names.
-In real participant lists, column headings may be missing and participants may switch between
-'Vorname Nachname', 'Nachname Vorname' and 'Nachname, Vorname' row-by-row within the same table.
-Therefore, inspect each participant row individually for given name (first_name) versus family name
-(last_name): a comma ('Nachname, Vorname') or clear row-level given-name/surname evidence takes
-priority for that row, while document name_order serves as the tie-breaker for ambiguous rows.
-The input may contain DOCUMENT_NAME_ORDER_CONTEXT from an earlier page of this SAME PDF. Follow
-that document convention on continuation pages as the baseline tie-breaker for ambiguous rows.
-If the current printed headings contradict that context, report your observed order so the application
-can flag the conflict. If no clear headings or separators establish another order, use the user's
-DEFAULT family_given in name_order: label this as a default assumption in evidence.
-For 'Surname, Given names', EVERYTHING before the comma is last_name and EVERYTHING after it is
-first_name. Preserve multiword and hyphenated surnames as ONE whole group; never move the second
-surname component into first_name. Separate printed first/last-name columns take precedence over
-the default. Without a separator or layout evidence, a multiword surname versus extra given names
-can be ambiguous: preserve supported complete groups and use null for a split you cannot establish.
-Never use an external participant roster. Keep original spelling and never invent, complete or replace
-name parts. Return first_name and last_name as usual, and for VLM keep the literal name cells in their
-physical identity_cells positions.
-"""
+VERSION = NAME_VERSION
+REVIEW = "Namensreihenfolge im Dokument nicht eindeutig belegt; Vor-/Nachname manuell pr?fen"
+INSTRUCTIONS = NAME_RULES + "\n"
+
+
+def current_name_order(value):
+    """A new answer may not silently promote an omitted basis to document evidence.
+
+    The historical NameOrderDecision parser remains backwards compatible.
+    Missing basis weakens only the order decision; supported participant fields survive.
+    """
+    if isinstance(value, dict) and value.get("basis") in ("document", "default", "unknown"):
+        return NameOrderDecision.model_validate(value)
+    return NameOrderDecision(order="unknown", basis="unknown",
+                             evidence="Neue Modellantwort ohne explizite Entscheidungsbasis; manuell prüfen")
+
 
 
 def infer_text_order(model, rows, hint=None):
     """A short decision by the already-loaded text LLM; never image-based recognition."""
-    system = ("Determine physical baseline name-part order from supplied OCR text only. Return ONLY the JSON "
-              "object with order (given_family, family_given or unknown), basis (document/default/unknown) "
-              "and evidence (at most 20 words). "
-              "Do not return participants, names, cells or copy the source. Prefer headings and separators; "
-              "when headings are absent and rows are consistent, report the dominant given_family or family_given order; "
-              "without clear evidence use family_given with basis=default, the user's surname-first default. "
-              "Keep compound surname groups and all given names together. This is one baseline decision for this document.")
+    from .models import prompt_metadata
+
+    system = NAME_ORDER_SYSTEM
     text = json.dumps(dict(name_column_hint=hint, examples=[dict(source_row=row["id"], cells=row.get("column_texts", []))
                                                           for row in rows[:4]]), ensure_ascii=False)
-    record = dict(text_prompt=text, system_prompt=system, model_call=True)
+    record = dict(**prompt_metadata("ocr_llm", text, NameOrderDecision, system),
+                  system_instructions=system, prompt_version=VERSION, model_call=True)
     model.calls += 1
     try:
         answer, metadata = model.generate(text, max_new_tokens=192, response_type=NameOrderDecision, system_prompt=system)
         record.update(raw_response=answer, metadata=metadata)
         if metadata.get("output_budget_reached"):
             raise ValueError("Name-order decision reached output budget")
-        decision = NameOrderDecision.model_validate_json(answer)
+        decision = current_name_order(json.loads(answer))
         record["parse_status"] = "valid"
     except Exception as exc:
         record.update(parse_status="invalid", error_type=type(exc).__name__)
-        decision = NameOrderDecision(order="unknown", evidence="Textuelle Namensreihenfolge nicht eindeutig; manuell prüfen")
+        decision = NameOrderDecision(order="unknown", basis="unknown", evidence="Textuelle Namensreihenfolge nicht eindeutig; manuell prüfen")
     return decision, record
 
 
@@ -163,6 +145,30 @@ def observed_name_cells(person, raw, source_index):
     for row in raw.get("ocr", {}).get("text_rows", []):
         cells.extend(row.get("cells", []))
     return cells
+
+
+def verified_separate_name_columns(raw, output_index):
+    """A recorded physical mapping outranks the document's fallback name order."""
+    valid = {"detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page"}
+
+    def separate(mapping):
+        first, last = mapping.get("first_name", []), mapping.get("last_name", [])
+        return len(first) == len(last) == 1 and first[0] != last[0]
+
+    traces = [raw.get("ocr_layout_analysis", {}).get("mapping_provenance", {}),
+              raw.get("assignment", {}).get("document_column_mapping", {})]
+    traces.extend(p.get("mapping_provenance", {}) for p in raw.get("structure", {}).get("row_evidence", [])
+                  if p.get("output_index") == output_index)
+    if any(t.get("status") in valid and separate(t.get("column_mapping", {})) for t in traces):
+        return True
+    offset = 0
+    for response in raw.get("responses", []):
+        audit = response.get("identity_column_assignment", {})
+        count = audit.get("participant_rows", 0)
+        if offset <= output_index < offset + count:
+            return output_index-offset in audit.get("name_mapping_applied_rows", [])
+        offset += count
+    return False
 
 
 class DocumentNameOrders:
@@ -332,6 +338,12 @@ class DocumentNameOrders:
             if previous.get("action") == "review":
                 for field, state in states.items():
                     getattr(person, field).state = state
+            if verified_separate_name_columns(raw, source_index):
+                actions.append(dict(source_output_index=source_index, action="keep", original_states=states,
+                                    assignment_rule="verified_separate_name_columns"))
+                if REVIEW in person.review_notes:
+                    person.review_notes.remove(REVIEW)
+                continue
             position = name_positions(person, raw, source_index)
             cells = observed_name_cells(person, raw, source_index)
             comma_cells = matching_comma_cells(cells, person.first_name.value, person.last_name.value)

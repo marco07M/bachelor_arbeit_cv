@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+from .column_context import mapping_diagnostics, mapping_reason
 from .evaluation import DEFINITIONS
 from .excel_columns import field_labels, write_participants_xlsx
 from .io import digest, read_json, read_jsonl, write_csv, write_json, write_jsonl
@@ -67,15 +68,12 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
             raw = read_json(raw_path) if raw_path.is_file() else {}
             if "ocr" in raw or "structure" in raw:
                 observation_views.append(observation_export(output, method, page, raw))
-            traces = raw.get("structure", {}).get("mapping_diagnostics", [])
-            single_trace = (raw.get("assignment", {}).get("document_column_mapping") or
-                            raw.get("ocr_layout_analysis", {}).get("mapping_provenance"))
-            if single_trace:
-                traces = [single_trace]
-            for trace in traces:
+            for trace in mapping_diagnostics(raw):
                 column_mappings.append(dict(method=method, document_id=page.document_id, page_number=page.page_number,
                     table=trace.get("table_index"), source_page=trace.get("source_page"), status=trace.get("status", "not_recorded"),
-                    reason=trace.get("reason"), geometry=trace.get("geometry")))
+                    reason=trace.get("reason"), explanation=mapping_reason(trace),
+                    column_mapping=trace.get("column_mapping", trace.get("columns")),
+                    headings=trace.get("headings"), geometry=trace.get("geometry"), geometry_check=trace.get("geometry_check")))
             has_assignment = has_assignment or "assignment" in raw
             responses = raw.get("responses", [])
             truncated = any(response.get("output_budget_reached") for response in responses)
@@ -264,7 +262,8 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     write_csv(output / "pages.csv", [{k: v for k, v in row.items() if k != "page_text"} for row in text_records])
     write_csv(output / "extractions.csv", rows)
     write_csv(output / "document_column_mappings.csv", column_mappings,
-              fields=["method", "document_id", "page_number", "table", "source_page", "status", "reason", "geometry"])
+              fields=["method", "document_id", "page_number", "table", "source_page", "status", "reason", "explanation",
+                      "column_mapping", "headings", "geometry", "geometry_check"])
     write_csv(output / "document_name_orders.csv", name_orders, fields=["method", "source_file", "document_id",
         "page_number", "origin_page", "name_order", "evidence", "decision_source", "split_rows", "swapped_rows", "review_rows", "conflict"])
     write_csv(output / "excluded_instructors.csv", excluded_instructors, fields=[
@@ -333,6 +332,8 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
             "Seite": p["page_number"],
             "Bildvorbereitung": p["status"],
             "Zusätzliche Drehung": f"{p.get('additional_rotation_clockwise', 0)}°",
+            "Ausrichtungsmethode": p.get("orientation_method", "historisch nicht protokolliert"),
+            "Ausrichtungsstatus": p.get("orientation_status", "historisch nicht protokolliert"),
             "Ausrichtung prüfen": p["review_required"] if p["status"] == "ready" else "Bildfehler",
             **({"Manuell ausgewählt": p["include"]} if manifest.get("curated") else {}),
         }
@@ -434,8 +435,14 @@ Dies ist kein zusätzlicher positiver Detailbefund; die Werte werden getrennt an
 <h2>Seitenübergreifende Spaltenzuordnung</h2>
 <p>Geerbte Überschriften beschreiben ausschließlich die Struktur derselben PDF.
 Werte stammen weiterhin aus der aktuellen Seite. Geometrische Kompatibilität ist keine OCR-Konfidenz.</p>
+<p>Spaltenindizes beginnen bei 0; X-Grenzen sind Anteile der Seitenbreite. Die Tabelle nennt
+die übernommenen Feldspalten, ihre Überschriftenquelle und den gemessenen Geometrievergleich.
+Aktuelle eindeutige Überschriften haben Vorrang. Fehlende historische Angaben bleiben unbekannt.</p>
 <p><a href="document_column_mappings.csv">Herkunft und Kompatibilitätsprüfung als CSV</a>.</p>
-{table(column_mappings)}
+{table(column_mappings, {'method': 'Verfahren', 'document_id': 'PDF-ID', 'page_number': 'Seite',
+    'source_page': 'Überschriften von Seite', 'status': 'Entscheidung', 'explanation': 'Begründung',
+    'column_mapping': 'Feld → Spaltenindex', 'headings': 'Überschriftenbelege',
+    'geometry': 'Aktuelle Geometrie', 'geometry_check': 'Vergleich mit Quellseite'})}
 <h2>OCR-Beobachtungen und nicht zugeordnete Texte</h2>
 <p>Alle nichtleeren gespeicherten Engine-Beobachtungen bleiben unabhängig vom Score erhalten.
 Unzugeordnete Beobachtungen zählen nicht als Teilnehmerfelder. Historische Docling-Daten

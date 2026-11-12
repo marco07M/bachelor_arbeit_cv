@@ -9,7 +9,8 @@ from .unlimited_assignment import header_fields
 FIELDS = ("personnel_number", "department")
 
 
-def parse_visual_response(raw: str):
+def parse_visual_response(raw: str, *, document_context=None, document_id=None,
+                          page_number=None, column_geometry=None):
     payload = json.loads(raw)
     if not isinstance(payload, dict) or "identity_headers" not in payload:
         response = VisualPageResponse.model_validate_json(raw)
@@ -28,7 +29,30 @@ def parse_visual_response(raw: str):
     response = VisualCellPageResponse.model_validate_json(raw)
     # Match only generic printed headings. No ID or department format is used to assign a value.
     roles = [header_fields(title) if title is not None else set() for title in response.identity_headers]
+    from .column_context import resolve
+
+    current = {field: {i for i, found in enumerate(roles) if field in found}
+               for field in ("first_name", "last_name", *FIELDS)}
+    current = {field: cols for field, cols in current.items() if cols}
+    # A full physical grid is required for continuation. Never trust the number
+    # or apparent format of returned values as geometry, nor treat fake headings
+    # copied from participants as a headerless page.
+    profile = column_geometry
+    if profile and profile["width"] != len(response.identity_headers):
+        profile = None
+    headings = {field: [dict(text=response.identity_headers[i], column=i) for i in sorted(cols)]
+                for field, cols in current.items()}
+    mapping, snapshot, trace = resolve(current, headings, profile,
+        document_context, document_id=document_id, page_number=page_number,
+        has_header=any(title is not None and title.strip() for title in response.identity_headers),
+        column_count=len(response.identity_headers))
+    if trace["status"] == "inherited_from_previous_page":
+        roles = [{field for field, cols in mapping.items() if i in cols}
+                 for i in range(len(response.identity_headers))]
     columns = {field: [index for index, found in enumerate(roles) if field in found] for field in FIELDS}
+    name_columns = {field: [i for i, found in enumerate(roles) if found == {field}]
+                    for field in ("first_name", "last_name")}
+    separate_names = all(len(cols) == 1 for cols in name_columns.values())
     participants, warnings = [], []
     for index, row in enumerate(response.participants):
         person = VisualParticipant(row_ref=row.row_ref, first_name=row.first_name, last_name=row.last_name,
@@ -36,6 +60,14 @@ def parse_visual_response(raw: str):
                                    personnel_number=None, department=None,
                                    signature_present=row.signature_present).participant()
         aligned = len(row.identity_cells) == len(response.identity_headers)
+        # Separate, explicit or verified inherited name columns outrank semantic
+        # model fields too. Only this row's literal cells may supply these values.
+        for field, choices in name_columns.items():
+            if aligned and separate_names:
+                value = row.identity_cells[choices[0]]
+                value = "" if isinstance(value, str) and not value.strip() else value
+                setattr(person, field, TextField(value=value, state=(
+                    "uncertain" if value is None else "empty" if value == "" else "read")))
         for field in FIELDS:
             choices = columns[field]
             reason = None
@@ -55,5 +87,10 @@ def parse_visual_response(raw: str):
         participants.append(person)
     audit = dict(kind="physical_identity_cells", identity_headers=response.identity_headers,
                  field_columns={field: indices[0] if len(indices) == 1 and roles[indices[0]] == {field} else None
-                                for field, indices in columns.items()})
+                                for field, indices in columns.items()},
+                 name_field_columns={field: cols[0] for field, cols in name_columns.items()} if separate_names else {},
+                 participant_rows=len(response.participants),
+                 name_mapping_applied_rows=[i for i, row in enumerate(response.participants)
+                     if separate_names and len(row.identity_cells) == len(response.identity_headers)],
+                 mapping_provenance=trace, column_context=snapshot)
     return participants, response.page_text, warnings, audit
