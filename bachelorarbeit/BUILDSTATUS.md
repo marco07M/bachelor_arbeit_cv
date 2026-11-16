@@ -3,11 +3,11 @@
 ## Vollständige wissenschaftliche und technische Überarbeitung vom 16.11.2026
 
 - Vollständige Ausarbeitung und Synchronisierung aller Kapitel (`01_einleitung.tex`
-  bis `07_fazit.tex`), des Frontmatters (`kurzfassung.tex`, `abstract.tex`,
-  `abkuerzungsverzeichnis.tex`), des Anhangs (`appendices/anhang.tex`) sowie der
-  Hauptdatei `thesis.tex` und `config/preamble.tex` auf Basis des aktuellen
-  Repository-Stands vom 16.11.2026 mit Fokus auf die fünf Vergleichsverfahren
-  `ocr_rules`, `ocr_llm`, `paddle_llm`, `vlm` und `ocr_vlm`
+  bis `07_fazit.tex`), des Frontmatters (`erklaerung.tex`, `kurzfassung.tex`,
+  `abstract.tex`, `abkuerzungsverzeichnis.tex`), des Anhangs (`appendices/anhang.tex`)
+  sowie der Hauptdatei `thesis.tex` und `config/preamble.tex` auf Basis des
+  aktuellen Repository-Stands vom 16.11.2026 mit Fokus auf die fünf
+  Vergleichsverfahren `ocr_rules`, `ocr_llm`, `paddle_llm`, `vlm` und `ocr_vlm`
   (`configs/benchmark-five.yaml`). Abkürzungen sind auch in Kurzfassung und
   Abstract über das `acronym`-Paket (ohne doppelte Klammern) mit dem
   Abkürzungsverzeichnis verlinkt und werden zu Beginn des Hauptteils
@@ -17,7 +17,7 @@
   numerischen IEEE-Stil `IEEEtran`, 0 BibTeX-Warnungen, 0 Dubletten);
   `references.bib` bleibt als Zotero-Exportziel unverändert.
 - Lokaler LaTeX-/BibTeX-Build über `bachelorarbeit/build.ps1` im Standard-Sandbox-Modus
-  erfolgreich: Exitcode 0, **75 Seiten** (`bachelorarbeit/build/thesis.pdf` sowie
+  erfolgreich: Exitcode 0, **77 Seiten** (`bachelorarbeit/build/thesis.pdf` sowie
   Kopie unter `bachelorarbeit/thesis.pdf`).
 - **0 unaufgelöste Zitate oder Querverweise**, **0 LaTeX-Warnungen** (lediglich
   der bekannte Paket-Hinweis von `epstopdf` zu deaktiviertem Shell-Escape) und

@@ -8,6 +8,103 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
+### Referenzbasierte Teilnehmerbewertung mit Signaturbelegen (16.11., abgeschlossen)
+
+- Auftrag: Referenzpersonen immer bewerten; ungepaarte, wahrscheinlich nicht
+  unterschriebene Zusatzpersonen separat ausschließen; Schreibabweichungen,
+  Signaturunsicherheit und Widersprüche für die manuelle Prüfung erhalten.
+- Implementiert: vorhandenes Matching bleibt unverändert. Erst danach greift
+  `matching.exclude_probably_unsigned_extras`. Gemeinsame Interpretation
+  gespeicherter Signaturzustände, Zellboxen und Detailprüfungen in `signatures.py`;
+  `page_predictions` verwendet diese in Standardvergleich, wissenschaftlichen
+  Varianten und Auswahlvergleich. Keine zweite Matching-/Metrikimplementierung.
+- Ausschluss nur für ungepaarte Zusatzpersonen mit lokalisiertem negativem
+  Signaturbeleg und ohne ähnliche Referenzanker. Namens-Levenshtein und
+  konservative Kandidatenprüfung verwenden bestehende Funktionen/Schwellen.
+  Doppelte/überlappende Zeilen, geschätzte VLM-Lokalisierung, widersprüchliche
+  Detailbefunde und unbrauchbare Referenzidentitäten verhindern den Ausschluss.
+- Aktiv konfiguriert: Flag in lokalen und API-Standardprofilen true. Fehlender
+  Schlüssel in historischen Snapshots bleibt false. Zusätzliche Signatur-
+  Modellaufrufe weiterhin standardmäßig deaktiviert. Keine neue Inferenz.
+- Zähler: Roh-Ausgabedatensätze bleiben nachweisbar; bewertete Ausgaben,
+  ausgeschlossene Personen und ungepaarte Prüffälle separat. Ausschlüsse liefern
+  R=P=E=0. Alle erwarteten Referenzpersonen/-felder bleiben im Nenner.
+  Vorher-/Nachher-Precision/F1 aus denselben gespeicherten Feldbeiträgen mit
+  vorhandenem `scores`, ohne Neuzuordnung. Schriftartgruppen unverändert GT-only.
+- Bericht: separate Ausschluss- und manuelle Prüflisten in bestehender
+  `extraction_errors.html`, Signaturbefund/Unsicherheit, Matchingkandidaten,
+  Feldprüfhinweise, Filter und vorhandene Seiten-/Crop-Links. G zeigt Ausschlüsse
+  und Signaturangaben. Neue Rohartefakthashes schützen Signaturbelege im Replay.
+- Referenznachweis: neuer Bericht
+  `software/testframework/ergebnisse/signaturbewertung-20261116-v3/report.html`.
+  Alle fünf Verfahren behalten je 46 Referenzpersonen und 184 erwartete Felder;
+  sämtliche bisherige Qualitätswerte unverändert. Keine gespeicherte negative
+  Signaturentscheidung, deshalb 0 Ausschlüsse. Zwei ungepaarte Ausgaben bleiben
+  manuell zu prüfen; weitere Referenzfälle enthalten reguläre Prüfhinweise.
+  752 historische/Quelldateien hashgleich. Private Nachweise ausschließlich in
+  `software/data/signature-evaluation-20261116/`.
+- Getestet: **973 lokale Tests (107,27 s)**, 100 gezielte Tests (7,52 s),
+  **48 API-Tests (10,24 s)** bestanden; 28 neue Signatur-/Referenz-Regressionen.
+  Ruff und Diff-Check bestanden. 21 HTML-Dateien, 3.502 lokale Links sowie
+  Syntax/CSP-Hashes von 18 eingebetteten Skripten geprüft. Gespeicherte Feld-/
+  Teilnehmerzähler und Fünfstatuspartitionen stimmen mit dem Report überein.
+  Erster Gesamtlauf: 968 bestanden, eine veraltete DOM-Testsimulation
+  fehlgeschlagen; korrigiert und um Teilnehmerfilter erweitert.
+- Wissenschaftliche Grenze: keine kalibrierte Signaturwahrscheinlichkeit im
+  vorhandenen Schema, daher keine neue probabilistische Schwelle. Bestehende
+  OpenCV-Leerfeldschwelle an synthetischen Entwicklungsbildern geprüft; reale
+  Ausschlussgüte/Fehlerraten ohne unabhängig manuell annotierte Signaturzellen
+  nicht nachgewiesen. Visuelle Browserabnahme weiterhin offen.
+- Dokumentation: `software/docs/signatur-referenzbewertung.md`, Framework-README,
+  wissenschaftlicher Einstieg und diese Übergabe. Versionen v9/v6/Dashboard v4.
+  Fremde Bachelorarbeitsänderungen und vorgefundene PDF-Löschungen erhalten.
+- Nächster sinnvoller Schritt: unabhängig geprüfte Zeilen-/Signaturannotation
+  auf Entwicklungsdaten; daraus reale Ausschlussfehler bestimmen. Keine
+  Unterschriften oder Teilnehmeridentitäten aus fehlendem OCR-Text ableiten.
+
+### Teilnehmerbezogene Schriftart in Ground Truth (16.11., abgeschlossen)
+
+- Auftrag: optionale GT-Kennzeichnung h/m/g pro Teilnehmer, nicht klassifiziert
+  bei fehlender Angabe, feste Matchingentscheidungen und sechs gruppierte
+  Qualitätsdimensionen im bestehenden HTML-Report.
+- Implementiert: GT-only `GroundTruthParticipant` und gemeinsame Annotation-
+  validierung; Modell-/Extraktionsschemas unverändert. Excel-/CSV-Reader,
+  Snapshot, Referenzexport/-vorlage mit XLSX-Auswahlliste, manuelle CSV-
+  Datensätze, JSONL-Schema/-Vorlage und Seiten-Gruppierung erweitert.
+- Gruppen aus gespeicherten Feld-/Teilnehmerzählervektoren nach vollständigem
+  Matching, keine Identitätseindeutigkeit innerhalb gefilterter Teilmengen.
+  Ungepaarte Ausgaben nur global plus separater Nachweis; P-/FP-/F1-Beiträge
+  verschwinden nicht. Gemischte Zeilen werden nur einmal als g gezählt.
+- Bericht: neuer Bereich H mit Filter, sechs Metriken, Dokumenten im Kursumfang,
+  Teilnehmer-/Feldzahlen und Feldtypen; nicht klassifiziert explizit. G erhält
+  GT-Schriftartfilter. Dokumentzählung behauptet keine Personenlokalisierung.
+- Aktiv: Metrikversion v8, wissenschaftliche Analyse v5, Dashboard v3 mit Bereich
+  H. Automatisch in neuen Vergleichen und Neuanalysen; CLI `reference-template`
+  erstellt eine bearbeitbare Referenzkopie ohne Überschreiben vorhandener Dateien.
+- Referenznachweis: neuer Report
+  `software/testframework/ergebnisse/schriftart-20261116/report.html`, aus
+  geöffnetem Vergleich `20261116T105322Z-37e601f2` ohne Inferenz neu ausgewertet.
+  Bisherige Methoden-/Feld-/Coverage-/Exact-/Teilnehmerwerte unverändert.
+  Alle 46 Referenzpersonen/184 Felder pro Methode bleiben mangels Annotation
+  nicht klassifiziert; keine empirischen h/m/g-Ergebnisse behauptet.
+  749 historische/Quelldateien hashgleich und 3.399 lokale Links geprüft.
+- Getestet: **945 lokale Tests (102,85 s)**, **148 gezielte Tests (20,43 s)**,
+  **48 API-Tests (10,22 s)** bestanden; 23 neue Schriftart-Regressionen.
+  Ruff, Diff-Check, JS-Syntax und CSP-Hashes bestanden. Nullschlüssel bei
+  Aggregation bleiben erhalten; gestreamte XLSX-Dateien mit fehlender leerer
+  letzter Schriftartzelle werden in beiden Readern korrekt angenommen.
+- Dokumentiert: `software/docs/schriftart.md`, wissenschaftlicher Einstieg,
+  Framework-README, GT-Schema/-Vorlage und Übergabe. Private Nachweise unter
+  `software/data/schriftart-20261116/`, dort auch `referenz-schriftart.xlsx`
+  mit 170 GT-Personen und h/m/g-Auswahlliste, ohne erfundene Kennzeichnung.
+- Offen / nächster Schritt: Referenzkopie manuell annotieren und `compare` auf
+  demselben Quelllauf in neuem Ausgabeordner ausführen. `analyze` allein liest
+  geänderte Excel-Zellen nicht nachträglich ein. Visuelle Browserabnahme mangels
+  Anbindung offen; Kursdokumentzahlen sind keine Personenlokalisierung.
+- Vorgefundene fremde Änderungen an Bachelorarbeit und gelöschte PDFs in
+  `software/testframework/tmp_data/` erhalten. Keine realen GT-Werte oder
+  Schriftarten geraten, keine Originalreferenz überschrieben, keine Inferenz.
+
 ### Vollständige wissenschaftliche und technische Überarbeitung der Bachelorarbeit (16.11., abgeschlossen)
 
 - Auftrag: vollständige, konsistente und wissenschaftlich fundierte Überarbeitung
@@ -22,12 +119,16 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
     `Yang2025Qwen3`, `Diaz2019Signature`, `Levenshtein1966Binary`); bestehende
     Einträge (`Kim2022Donut`, `Auer2024DoclingSelection` u. a.) ohne Duplikate
     erhalten; `references.bib` als Zotero-Exportziel unverändert.
-  - `bachelorarbeit/frontmatter/`: `kurzfassung.tex` (Deutsch), `abstract.tex`
-    (Englisch) und `abkuerzungsverzeichnis.tex` (alphabetisch sortiert, alle
-    verwendeten Fachabkürzungen) vollständig ausgearbeitet; Abkürzungen in
-    Kurzfassung und Abstract über `\ac{...}`/`\acs{...}` direkt mit dem
-    Abkürzungsverzeichnis verlinkt und vor Kapitel 1 mittels `\acresetall` in
-    `thesis.tex` zurückgesetzt.
+  - `bachelorarbeit/frontmatter/`: `erklaerung.tex` (Eigenständigkeitserklärung
+    und umfassende Erklärung zum Einsatz von KI-gestützten Werkzeugen für
+    Brainstorming/Konzeption, Coding/Debugging/Testing,
+    Auswertungs-/LaTeX-Aufbereitung und sprachliche Überarbeitung/Übersetzung),
+    `kurzfassung.tex` (Deutsch), `abstract.tex` (Englisch) und
+    `abkuerzungsverzeichnis.tex` (alphabetisch sortiert, alle verwendeten
+    Fachabkürzungen) vollständig ausgearbeitet; Abkürzungen in Kurzfassung und
+    Abstract über `\ac{...}`/`\acs{...}` direkt mit dem Abkürzungsverzeichnis
+    verlinkt und vor Kapitel 1 mittels `\acresetall` in `thesis.tex`
+    zurückgesetzt.
   - `bachelorarbeit/chapters/01_einleitung.tex` & `02_grundlagen.tex`:
     Praxisproblem im internen Schulungswesen der BMW Group (~6.000 historische,
     bereits manuell eingetragene BMW-Teilnehmerlisten-PDFs als Nachweis des
@@ -69,7 +170,7 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
     Trade-offs, Limitationen, Fazit/Ausblick sowie technischer Anhang (`schema.py`,
     Promptstruktur v26, `benchmark.yaml`, CLI-Referenz) ohne Personendaten.
 - Prüfungen: `bachelorarbeit/build.ps1` im Standard-Sandbox-Modus mit Exitcode 0
-  durchgelaufen; **75 Seiten** (`bachelorarbeit/build/thesis.pdf` und
+  durchgelaufen; **77 Seiten** (`bachelorarbeit/build/thesis.pdf` und
   `bachelorarbeit/thesis.pdf`), **35 zitierte Quellen**, **0 BibTeX-Warnungen**,
   **0 unaufgelöste Zitate/Referenzen**, **0 Overfull/Underfull-Boxen**.
   `git diff --check` ohne Befund; `software/` vollständig unverändert; keine
@@ -2883,3 +2984,98 @@ auf die dort datierten Stände.
   und Erhebung der Prozesskostenparameter die beiden markierten `\TODO{...}`-Blöcke
   in `bachelorarbeit/chapters/05_ergebnisse.tex` befüllen und vor Abgabe
   `\showtodosfalse` in `bachelorarbeit/config/metadata.tex` setzen.
+
+
+### 2026-11-16 ? GT-Schriftart pro Teilnehmer und Gruppenbewertung integriert
+
+- Auftrag: h/m/g als optionale Teilnehmerannotation, R?ckw?rtskompatibilit?t,
+  sechs gruppenspezifische Qualit?tsdimensionen und HTML-Filter; keine Ableitung
+  aus Modellausgaben, keine ?nderung von Matching oder Extraktion.
+- GT/Validierung: neue `writing_style.py`, GT-only `GroundTruthParticipant` in
+  `schema.py`, optionale `ReferencePerson.schriftart`; CSV-/XLSX-Reader und
+  Snapshot unterst?tzen fehlende/alte Angaben als None. `excel_columns.py`
+  exportiert Annotation nur im Referenzblatt. `references.export_reference`
+  und CLI `reference-template` erzeugen bearbeitbare neue XLSX-/CSV-Kopien mit
+  unver?nderten Inhaltsfeldern, Statusspalten und h/m/g-Auswahlliste.
+  Manuelle CSV-Datens?tze in `calibration/dataset.py`, JSONL-Schema und Vorlage
+  sowie Metadaten im ?lteren `excel_comparison.py` erg?nzt.
+- Bewertung: `roster_benchmark/metrics.py` speichert bestehende Feld-/Personen-
+  z?hler pro Referenzentscheidung und gruppiert nach vollst?ndigem Matching.
+  Gemeinsame Aggregation/Scorefunktionen; Eindeutigkeit bleibt kursweit.
+  Ungepaarte Zus?tze behalten globale P-/FP-/F1-Strafen und werden separat
+  ausgewiesen. Gruppen-F1 ist ausdr?cklich auf GT-Teilmenge bedingt.
+  `evaluation.py` verwendet f?r manuelle Seitengruppen einmalig feste Paare.
+- Darstellung: `schriftart_report.py`, `scientific.py`, `dashboard_report.py`,
+  `metric_audit_report.py`, `detail_report.py`; Bereich H mit Filter, sechs
+  Metriken, Teilnehmer-/Feld-/Kursdokumentzahlen und Feldtypen, G-Einzelfallfilter.
+  g bleibt disjunkte Teilnehmerkategorie, keine feldgenaue Schriftunterscheidung.
+  Nicht klassifiziert ist sichtbar; ohne Datenbasis Metriken undefiniert.
+- Referenznachweis: `schriftart-20261116/report.html` aus vorhandenem Report
+  `20261116T105322Z-37e601f2`, keine Inferenz. Alle alten globalen Qualit?tswerte
+  identisch; 46 GT-Personen/184 Felder je Methode weiterhin nicht klassifiziert.
+  749 historische/Quelldateien hashgleich, 3.399 Dateilinks und JS/CSP gepr?ft.
+  Private Nachweise und bearbeitbare Kopie mit 170 GT-Personen unter
+  `software/data/schriftart-20261116/`; Originalreferenzen nicht ?berschrieben.
+- Tests: 23 neue F?lle in `test_schriftart.py`, XLSX-Exporttest erweitert.
+  945 lokale Tests (102,85 s), 148 gezielte Tests (20,43 s), 48 API-Tests
+  (10,22 s), Ruff und Diff-Check bestanden. Null-Counter-Schl?ssel erhalten;
+  fehlende optionale XLSX-Endzellen statt Indexfehler als None behandelt.
+- Dokumentation: neue `software/docs/schriftart.md`, wissenschaftlicher
+  Einstieg, Framework-README und ?bergabe. Vorgefundene fremde Bachelorarbeits-
+  ?nderungen und bereits gel?schte PDFs in `software/testframework/tmp_data/`
+  unver?ndert gelassen. Keine Extraktionsschemas/Prompts/Profile ge?ndert.
+- Aktiv/offen: automatisch in neuen Berichten, Versionen v8/v5/Dashboard v3.
+  Manuelle Annotation erforderlich; dann `compare` mit der Referenzkopie und
+  neuem Ausgabeordner. Alte `analyze`-Snapshots erhalten fehlende Labels.
+  Lokale visuelle Browserabnahme mangels Anbindung offen; unabh?ngige
+  Referenzlokalisierung bleibt n?tig. Keine reale h/m/g-Qualit?t behauptet.
+
+### 2026-11-16 – Referenzzuordnung und Signaturbelege in der Teilnehmerbewertung
+
+- Auftrag: Teilnehmer ohne Referenz bei zusätzlich wahrscheinlicher fehlender
+  Unterschrift von Qualitätsbeiträgen ausschließen; Referenzpersonen immer
+  bewerten; ähnliche Schreibweisen, widersprüchliche und unsichere Fälle sichtbar
+  manuell prüfen. Vorhandene Feldzustände und Exact-Match-Regeln erhalten.
+- Geänderte Berechnung/Belegintegration:
+  `software/verarbeitung/src/participant_bench/signatures.py` sowie
+  `roster_benchmark/{config,matching,metrics,evaluation,scientific,references}.py`
+  und `participant_bench/selection.py`. Gemeinsame gespeicherte Zeilenbelege,
+  nachgelagerte Ausschlussentscheidung, Namens-/ID-Schutz, separate Roh-/Bewertungs-
+  und Ausschlusszähler; kein Signaturfilter vor der Referenzzuordnung. Auch
+  vertauschte Namensrollen schützen im strengen Modus nur vor Ausschluss, ohne
+  Punkte oder neue Paarungen zu erzeugen. Fehlende Referenzpersonen bleiben FN.
+- Geänderte Darstellung:
+  `roster_benchmark/{field_assessment,error_report,metric_audit,metric_audit_report,
+  detail_report,dashboard_report}.py`. Ausschlussstatus, Signaturunsicherheit,
+  Matchingkandidaten und Feldprüfhinweise, filterbare Ausschluss-/manuelle Listen,
+  Seiten-/Crop-Links und Exact-F1-Beiträge vor/nach Ausschluss. Ausgeschlossene
+  Feldfälle bleiben als nicht bewertbar mit Nullbeiträgen nachvollziehbar.
+- Konfiguration/Dokumentation: lokale und API-`testframework/config.yaml`
+  aktivieren `matching.exclude_probably_unsigned_extras`. Fehlender Schlüssel
+  in historischen Snapshots bleibt false. Neue
+  `software/docs/signatur-referenzbewertung.md`, Framework-README,
+  `software/docs/scientific-evaluation.md` und Übergabe aktualisiert.
+- Tests: neue `software/tests/test_signature_evaluation.py` mit 28 Regressionen,
+  `software/tests/test_extraction_errors.py` um neue DOM-Selektoren und
+  Teilnehmerfilter erweitert. **973 lokale Tests in 107,27 s**, **48 API-Tests
+  in 10,24 s**, 100 gezielte Tests in 7,52 s erfolgreich. Ruff und Diff-Check
+  erfolgreich. Synthetische Leerzellen-/Strichbilder prüfen vorhandene OpenCV-
+  Parameter; geänderte/neue Signaturrohdateien werden im Replay abgewiesen.
+- Referenz-/Reportnachweis: neuer Ausgabeordner
+  `software/testframework/ergebnisse/signaturbewertung-20261116-v3/` aus dem
+  gespeicherten Schriftartvergleich. Alle fünf Verfahren behalten 46 Personen,
+  184 erwartete Felder und alle bisherigen Qualitätswerte. Mangels negativer
+  Signaturbelege 0 automatische Ausschlüsse; 2 ungepaarte Ausgaben bleiben
+  prüfpflichtig. Weitere reguläre Referenzfälle mit Fehlerhinweisen stehen in
+  derselben manuellen Liste. Kein neuer Modellaufruf; 752 historische/Quelldateien
+  hashgleich. 21 HTML-Dateien, 3.502 lokale Links und 18 JS-/CSP-Hashes geprüft.
+  Aggregierte private Nachweise in `software/data/signature-evaluation-20261116/`.
+- Aktiv/nachgewiesen/offen: Versionen v9/v6/Dashboard v4; neue Standardvergleiche
+  aktiv, historische Konfigurationen unverändert. Regelwirkung und Nennererhalt
+  synthetisch nachgewiesen; reale Ausschlussgüte ohne unabhängige Entwicklungs-
+  annotation nicht belegt. Keine kalibrierte Signaturwahrscheinlichkeit vorhanden,
+  daher keine neue probabilistische Schwelle. Visuelle Browserabnahme offen.
+  Nächster Schritt: Signaturzellen und Zeilenzuordnung auf Entwicklungsdaten
+  unabhängig annotieren und Ausschlussfehler prüfen. Fremde Bachelorarbeits-
+  Änderungen und vorgefundene PDF-Löschungen erhalten; keine historischen
+  Ergebnisse oder Ground-Truth-Werte überschrieben.
