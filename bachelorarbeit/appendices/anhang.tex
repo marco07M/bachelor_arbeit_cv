@@ -97,9 +97,9 @@ Tabelle~\ref{tab:anhang-config} dokumentiert die eingefrorenen Parameter des akt
 Alle Werkzeuge des Frameworks werden aus dem Verzeichnis \texttt{software/} im Offline-Modus gestartet:
 \begin{itemize}
   \item \textbf{Umgebungs- und Integritätsprüfung:}
-    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash participant-bench.exe doctor --config configs/benchmark.yaml}}
-  \item \textbf{Regulärer Benchmark- und Testframework-Start (6 bzw.\ 5 Verfahren):}
-    \par{\footnotesize\texttt{.\textbackslash start\_testframework.cmd} \quad bzw.\ \quad \texttt{.\textbackslash start\_testframework\_5.cmd}}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash participant-bench.exe doctor --config configs/benchmark-five.yaml}}
+  \item \textbf{Regulärer Benchmark- und Testframework-Start (5 Verfahren):}
+    \par{\footnotesize\texttt{.\textbackslash start\_testframework\_5.cmd}} \quad (\emph{Vorabprüfung ohne Inferenz:} {\footnotesize\texttt{.\textbackslash start\_testframework\_5.cmd --pruefen}})
   \item \textbf{Wissenschaftliche Neuanalyse gespeicherter Berichte (Dashboard A--G \& Metrikaudit v7):}
     \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash python.exe testframework/main.py analyze --report testframework/ergebnisse/<LAUF> --output testframework/ergebnisse/<NEU>}}
   \item \textbf{Zweistufige Verfahrensauswahl (Inventar, Einfrieren, Pilotvergleich):}
