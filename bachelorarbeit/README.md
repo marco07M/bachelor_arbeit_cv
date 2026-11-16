@@ -1,25 +1,20 @@
 # Schriftliche Bachelorarbeit
 
-Die Arbeit wurde aus `Downloads/studienarbeiten/studienarbeiten/thesis` übernommen.
-Die ursprüngliche Übernahme ließ `.tex`- und `.bib`-Dateien sowie das THD-Logo
-inhaltlich unverändert. Seit 10.11.2026 beschreibt `chapters/03_methodik.tex`
-die implementierte zweistufige Verfahrensauswahl und den tatsächlich noch
-vorläufigen empirischen Stand. Ergänzt sind Feldnenner, Matching-Sensitivität,
-Cluster-Bootstrap, manuelle Schriftgruppen, Hybridbeiträge und Effizienzgrenzen;
-die Gegenprobe auf einer Entwicklungsliste bleibt von der geplanten Finalstudie
-getrennt. Geprüfte Primärbelege dazu stehen in
-`verified_sources.bib`; `references.bib` bleibt das Zotero-Exportziel.
-Seit 11.11.2026 dokumentiert Abschnitt 3.6 zusätzlich die einmalige literaturbasierte
-Promptgestaltung mit Regelstruktur, Schema-/Laufnachweis und begrenzter technischer
-Validierung; es wurde keine Promptoptimierungsstudie durchgeführt.
-Abschnitt 3.7 definiert außerdem die ergänzten vollständigen/partiellen
-Teilnehmerquotienten, das strikte Referenz-Identitätskriterium, Feldabdeckung,
-Fehleranteile und den Umgang mit Seitenzeiten, Aufrufzählern und Kostenszenarien.
-Die Dashboarddarstellung und ihre Referenz-/Stichprobengrenzen sind dokumentiert;
-zwei weitere geprüfte methodische Quellen ergänzen die Literaturdatei.
-Die ursprüngliche Dokumentation liegt in `VORLAGE_README.md`, die ursprünglichen
-Dateien im Downloadordner bleiben erhalten. Angepasst wurden die Build-Infrastruktur
-und die Dokumentation für die neue Repositorystruktur.
+Die Arbeit wurde ursprünglich aus `Downloads/studienarbeiten/studienarbeiten/thesis` übernommen.
+Seit dem **16.11.2026** sind sämtliche Kapitel (`chapters/01_einleitung.tex` bis
+`chapters/07_fazit.tex`), die Kurzfassung (`frontmatter/kurzfassung.tex`), das
+englische Abstract (`frontmatter/abstract.tex`), das Abkürzungsverzeichnis
+(`frontmatter/abkuerzungsverzeichnis.tex`) sowie der Anhang
+(`appendices/anhang.tex`) vollständig auf den aktuellen technischen Stand des
+Evaluationsframeworks in `software/` (einschließlich zweistufiger automatischer
+Seitenorientierung, verlustfreiem OCR-Beobachtungsregister, dokumentweiter
+Spaltenvererbung v3 mit nativer Anker-Absicherung, zeilenindividueller
+Namensaufteilung, verlustfreier Input-Kompaktierung, fünfstufigem Feldstatus,
+bedingter Levenshtein-Ähnlichkeit erkannter Felder v7, kausaler Fehleranalyse
+und Dashboard A–G) synchronisiert. Geprüfte wissenschaftliche Originalquellen im
+IEEE-Zitierstil stehen in `verified_sources.bib` (35 zitierte Einträge);
+`references.bib` bleibt das Zotero-Exportziel.
+Die ursprüngliche Vorlagendokumentation liegt in `VORLAGE_README.md`.
 
 ## PDF erstellen
 
@@ -94,10 +89,10 @@ Für Zotero den Exportpfad auf **`bachelorarbeit/references.bib`** ändern;
 siehe [Zotero-Anleitung](ZOTERO.md). Die BibTeX-Dateien bleiben versionierbar,
 sodass LaTeX ohne laufendes Zotero kompiliert werden kann.
 
-Das Dokument enthält noch sichtbare TODOs und außerhalb der aktualisierten
-Datengrundlage/Verfahrensauswahl den bisherigen Handschrift-Schwerpunkt.
-Die übergeordnete Forschungsfrage wurde nicht verändert. Der aktuelle Code- und
-Auswahlstand steht unter [Verfahrensauswahl](../software/docs/method-selection.md).
+In `chapters/05_ergebnisse.tex` sind ausschließlich real gemessene und durch
+Prüfartefakte belegte Ergebnisse der Entwicklungsläufe dokumentiert; die noch
+ausstehenden konfirmatorischen Pilot-/Testläufe sowie die empirische
+Prozesskostenerhebung sind durch explizite `\TODO{...}`-Platzhalter markiert.
 Ein erfolgreicher Build bedeutet keine inhaltliche
 oder formale Abnahme der Arbeit. Der konkrete technische Buildstand steht in
 [BUILDSTATUS.md](BUILDSTATUS.md).

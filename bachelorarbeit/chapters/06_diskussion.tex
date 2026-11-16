@@ -1,29 +1,57 @@
 % !TeX root = ../thesis.tex
-% Vorläufige Gliederung mit geplanten Inhalten.
 \chapter{Diskussion}
 \label{chap:diskussion}
-\section{Interpretation und Einordnung der Ergebnisse}
-\begin{inhalte}
-  \item Interpretation der Ergebnisse vor dem Hintergrund der Forschungsfrage
-  \item Einordnung in den Stand der Forschung
-\end{inhalte}
-\section{Beantwortung der Forschungsfrage}
-\begin{inhalte}
-  \item Synthese und Beantwortung der Leitfrage: \textit{\researchquestion}
-\end{inhalte}
-\section{Trade-offs zwischen den untersuchten Ansätzen}
-\begin{inhalte}
-  \item Trade-offs zwischen Qualität, Effizienz, Kosten und Implementierungskomplexität
-\end{inhalte}
-\section{Praktische Einordnung im Unternehmenskontext}
-\begin{inhalte}
-  \item Eignung der Ansätze für betriebliche Prozesse
-  \item Technische und organisatorische Anforderungen an den Einsatz
-\end{inhalte}
+
+Dieses Kapitel interpretiert die empirischen und technischen Befunde aus Kapitel~\ref{chap:ergebnisse} im Kontext des theoretischen Forschungsstands (Abschnitt~\ref{sec:diskussion-interpretation}), beantwortet systematisch die Forschungsfragen der Arbeit (Abschnitt~\ref{sec:diskussion-forschungsfragen}), analysiert die beobachteten Zielkonflikte zwischen den Verfahrensklassen (Abschnitt~\ref{sec:diskussion-tradeoffs}), leitet praktische Handlungsempfehlungen für den Unternehmenseinsatz ab (Abschnitt~\ref{sec:diskussion-praxis}) und reflektiert die methodischen und datenseitigen Limitationen der Untersuchung (Abschnitt~\ref{sec:diskussion-limitationen}).
+
+\section{Interpretation und Einordnung der Ergebnisse in den Forschungsstand}
+\label{sec:diskussion-interpretation}
+
+Die Ergebnisse dieser Arbeit bestätigen und differenzieren zentrale Aussagen der aktuellen Literatur zur automatisierten Dokumentenverarbeitung~\cite{Skalicky2022Benchmarks,Fu2025OCRBenchV2,Kim2022Donut}. Zunächst zeigt sich, dass die Extraktion aus realen Unternehmens-Teilnehmerlisten kein isoliertes Texterkennungsproblem ist, sondern durch das Zusammenspiel aus Bildgeometrie, Tabellenstruktur und semantischer Rollenzuordnung bestimmt wird~\cite{OGorman1997DIA,Jaume2019FUNSD}. Während klassische \ac{ocr} (Tesseract~\cite{Smith2007Tesseract}) auf gedruckten Zeilen solide Worttranskriptionen liefert, scheitert eine starre regelbasierte Nachverarbeitung (\texttt{ocr\_rules}, $0/184$ Felder im Dreidokumentlauf), sobald Formulare abweichende Spaltenüberschriften (\emph{Benutzer}, \emph{Kurzzeichen}, \emph{User}) oder kombinierte Namensspalten verwenden.
+
+Im Vergleich der beiden \ac{ocr}-gestützten Sprachmodell-Pipelines (\texttt{ocr\_llm} vs.\ \texttt{paddle\_llm}) bei identischem Sprachmodell (\texttt{Qwen3-4B-Instruct-2507}~\cite{Yang2025Qwen3}) erweist sich die Qualität der vorgeschalteten Erkennungs- und Layoutstufe als ausschlaggebend: \texttt{paddle\_llm} übertrifft \texttt{ocr\_llm} sowohl auf dem gemischten Einzeldokument ($40/72$ vs.\ $29/72$ exakte Felder) als auch im Dreidokumentvergleich ($94/184$ vs.\ $74/184$ exakte Felder; Feldabdeckung $68{,}48\,\%$ vs.\ $49{,}46\,\%$). Dies deckt sich mit den Befunden von van Strien et al.~\cite{vanStrien2020OCRQuality}, wonach nachgelagerte Sprachmodelle starke Auslassungen oder Verzerrungen einer schwachen \ac{ocr}-Stufe nicht aus dem Text allein heilen können -- insbesondere dann nicht, wenn das System zur Vermeidung von Halluzinationen~\cite{Huang2024Hallucination} zu Recht an eine strikte wörtliche Zeilenbelegprüfung gebunden ist.
+
+Gleichzeitig relativieren die Ergebnisse die Annahme einer voraussetzungslosen Überlegenheit rein \ac{ocr}-freier Vision-Language-Modelle~\cite{Kim2022Donut,Wang2024Qwen2VL}. Zwar kann \texttt{Qwen3-VL-4B-Instruct} (\texttt{vlm}) handschriftliche Namen direkt aus dem Seitenbild lesen, die für Tesseract unzugänglich bleiben; auf mehrseitigen Formularen ohne wiederholte Kopfzeile leidet das direkte \ac{vlm} jedoch unter zwei gravierenden Schwächen: Erstens bricht die autoregressive Generierung auf dichten Folgeseiten mehrfach am Ausgabetoken-Limit von $8\,192$~Tokens mit unvollständigem \ac{json} ab (zwei von sechs Seiten im Dreidokumentlauf, vier von $20$~Seiten im Zehndokumentlauf), was den Beobachtungen von Fu et al.~\cite{Fu2025OCRBenchV2} (OCRBench~v2) und Geng et al.~\cite{Geng2023Grammar} entspricht. Zweitens gibt das Modell auf kopflosen Folgeseiten häufig die erste Teilnehmerzeile fälschlich als Tabellenüberschrift (\texttt{identity\_headers}) aus. Erst die hybride Kopplung mit PaddleOCR-Belegen (\texttt{ocr\_vlm}) und die geometrisch-native Ankerprüfung (\texttt{echo\_corroboration}) überwinden diesen Strukturverlust und steigern die exakten Treffer im Dreidokumentlauf von $67$ (\texttt{vlm}) auf $88$ beziehungsweise $96$ (\texttt{ocr\_vlm}).
+
+\section{Beantwortung der Forschungsfragen}
+\label{sec:diskussion-forschungsfragen}
+
+Auf Grundlage der durchgeführten Untersuchungen lassen sich die vier Unterfragen sowie die übergeordnete Forschungsfrage wie folgt beantworten:
+
+\begin{enumerate}
+  \item \textbf{Zu FF1 (Extraktionsqualität und Fehlerursachen):} Unter den untersuchten Verfahren erreichen \texttt{paddle\_llm} ($R_{\mathrm{exact}} = 51{,}09\,\%$, $F_{1,\mathrm{exact}} = 60{,}65\,\%$ im Dreidokumentlauf; $55{,}56\,\%$ auf \texttt{140829.pdf}) und das Hybridverfahren \texttt{ocr\_vlm} ($R_{\mathrm{exact}} = 47{,}83\,\%$ primär, $52{,}17\,\%$ nach abgesicherter Folgeseiten- und Swap-Bewertung; $58{,}33\,\%$ auf \texttt{140829.pdf}) die höchste Extraktionsqualität. Vor- und Nachname sowie Personalnummern werden wesentlich zuverlässiger extrahiert als Organisationskürzel (bei \texttt{paddle\_llm} $31/46$ Vorname, $26/46$ Nachname, $25/46$ \ac{id}, aber nur $12/46$ Organisation exakt). Die kausale Fehleranalyse weist nach, dass scheinbare Feldverluste neben echten Handschrift-Lesefehlern vor allem durch (a) seitlich gedrehte Scans bei unzureichendem Standard-\ac{osd}, (b) fehlende Spaltenüberschriften auf Folgeseiten, (c) Eingabe- und Ausgabetoken-Abbrüche, (d) zeilenweise wechselnde Namensreihenfolgen und (e) in externen Kursreferenzen geführte, auf dem Papierformular jedoch physisch fehlende \ac{id}-/Abteilungsspalten verursacht werden.
+  \item \textbf{Zu FF2 (Laufzeit- und Ressourceneffizienz):} Durch sequenzielle Prozesssteuerung und \ac{bf16}-Präzision mit \texttt{sdpa\_repeated\_kv} lassen sich sämtliche 4B-Sprach- und Bildmodelle stabil innerhalb des \mbox{16-GiB}-\ac{vram}-Budgets ausführen (Spitzenallokation $\le 10\,\text{GiB}$). Während die beiden Text-\ac{llm}-Pipelines \texttt{ocr\_llm} ($\approx 22{,}1\,\mathrm{s}$/Seite) und \texttt{paddle\_llm} ($21{,}1$--$48{,}5\,\mathrm{s}$ pro frischer Seite, $< 0{,}1\,\mathrm{s}$ bei Cache-Treffer, $9{,}05\,\text{GiB}$ \ac{vram}) moderaten Rechenaufwand erfordern, benötigt das Hybridverfahren \texttt{ocr\_vlm} im Median rund $47{,}9\,\mathrm{s}$ pro Seite. Beim direkten \ac{vlm} dominieren einzelne Tokenlimit-Abbrüche ($> 400\,\mathrm{s}$ pro abgebrochener Seite) die Gesamtlaufzeit, während die zusätzlichen PaddleOCR-Belege im Hybridpfad \texttt{ocr\_vlm} auf denselben sechs Seiten solche Endlos-Generierungen verhinderten.
+  \item \textbf{Zu FF3 (Wirtschaftlichkeit und Nachbearbeitungsaufwand):} Da auf realen, gemischten Listen selbst die besten Verfahren derzeit einen strikten Teilnehmer-Recall von knapp $48\,\%$ und eine Feldabdeckung von knapp $69\,\%$ erreichen, ist ein vollautomatischer Dunkelverbuchungsbetrieb ohne menschliche Nachkontrolle fachlich ausgeschlossen. Der wirtschaftliche Mehrwert entsteht im \emph{Human-in-the-Loop}-Betrieb: Die Pipeline richtet gedrehte Seiten automatisch aus, strukturiert bis zu zwei Drittel der Felder vor, hebt unsichere Werte (\texttt{state="uncertain"}) sowie den fünfstufigen Feldstatus im Dashboard hervor und verlinkt jedes Feld direkt mit dem Original-\ac{pdf}-Ausschnitt, wodurch sich die manuelle Erfassungszeit $t_{\text{manuell}}$ auf eine deutlich kürzere Prüf- und Ergänzungszeit $t_{\text{Prüfung}}$ reduziert.
+  \item \textbf{Zu FF4 (Praktische Einsatzfähigkeit und Robustheit):} Der praktische Einsatz erfordert zwingend die im Framework implementierten Schutzschichten: die zweistufige Seitenorientierung (\ac{osd} + Vierlagen-\ac{ocr}), die zerstörungsfreie Hintergrundnormalisierung für graue Tabellenköpfe, die geometrisch geprüfte Spaltenvererbung ($\Delta x_{\max} \le 0{,}035$), die zeilenindividuelle Namensaufteilung und die verlustfreie Input-Kompaktierung. Durch die strikte Offline-Kapselung und das isolierte Transferpaket \texttt{software/api\_firmen\_pc/} sind sowohl der lokale \ac{gpu}-Betrieb als auch die spätere Anbindung an einen unternehmensinternen \ac{api}-Endpunkt datenschutzkonform realisierbar.
+\end{enumerate}
+
+\section{Zielkonflikte (Trade-offs) zwischen den untersuchten Ansätzen}
+\label{sec:diskussion-tradeoffs}
+
+Die experimentellen Ablationen legen vier grundlegende Zielkonflikte offen, die bei der Konfiguration eines produktiven Extraktionssystems abgewogen werden müssen:
+\begin{itemize}
+  \item \textbf{Recall vs.\ Precision bei Handschrift und Zellergänzung:} Sowohl die Beibehaltung unvollständiger Handschriftzeilen (\texttt{preserve\_partial\_fields: true}: exakte Felder $29 \rightarrow 38$, aber falsche Felder $7 \rightarrow 15$) als auch die geometrische Ergänzung fehlender \ac{id}-/Organisationszellen (\texttt{complete\_observed\_cells}: exakte Felder $38 \rightarrow 40$, falsche Felder $15 \rightarrow 20$) und die Input-Kompaktierung ($122 \rightarrow 133$ exakt, $36 \rightarrow 44$ falsch) steigern zwar den Recall und die Feldabdeckung, senken jedoch die exakte Precision, da in schwierig lesbaren Bereichen zusätzliche unvollständig oder fehlerhaft transkribierte \ac{ocr}-Zellen in die Ausgabe gelangen. Die Kennzeichnung dieser Ergänzungen als \texttt{state="uncertain"} löst diesen Zielkonflikt für die menschliche Nachprüfung auf, indem sie dem Prüfpersonal gezielt die unsicheren Kandidaten anzeigt.
+  \item \textbf{Bedingte Zeichenähnlichkeit ($S_{\mathrm{detected}}$) vs.\ Vollständigkeit ($\mathrm{Coverage}$):} Ein konservatives Verfahren wie \texttt{ocr\_llm}, das auf schwierigen Handschriftseiten häufig leere Antworten liefert, erzielt auf den wenigen einfachen Seiten eine sehr hohe bedingte Levenshtein-Ähnlichkeit ($93{,}75\,\%$), lässt aber über die Hälfte aller Referenzfelder unentdeckt. Produktiv ist eine höhere Abdeckung (\texttt{paddle\_llm}: $68{,}48\,\%$) mit ausgewiesenen Prüfhinweisen meist wertvoller als ein selektiv hoher Durchschnitt auf wenigen Feldern.
+  \item \textbf{Belegstrenge Text-\ac{llm}-Pipeline vs.\ visuelle Hybridflexibilität:} \texttt{paddle\_llm} (PaddleOCR + Text-\ac{llm}, unabhängig vom \ac{vlm}) garantiert über die strikte Literal- und Positionsprüfung, dass niemals ein Wert außerhalb der erkannten \ac{ocr}-Zeilen erfunden wird, ist jedoch bei schwer lesbarer Handschrift durch die Zeichenerkennung von \texttt{PP-OCRv5} begrenzt. Umgekehrt kann \texttt{ocr\_vlm} (Kombination aus PaddleOCR und \ac{vlm}) visuelle Strukturen und Handschrift direkt im Bild deuten, erfordert aber harte nachgelagerte Filter (wie die Sperre bei Header-Zell-Längenkonflikten und die native Ankerprüfung \texttt{echo\_corroboration}), um Fehlzuordnungen von Unterschriften in Organisationsspalten zu verhindern.
+\end{itemize}
+
+\section{Praktische Einordnung und Empfehlungen für den Unternehmenskontext}
+\label{sec:diskussion-praxis}
+
+Für die Überführung des Prototyps in den betrieblichen Arbeitsablauf zur Aufarbeitung der rund $6\,000$ historischen Dokumente empfiehlt sich ein gestuftes Vorgehen:
+\begin{enumerate}
+  \item \textbf{Vorab-Sammlung und Ausrichtung:} Zunächst sollten alle Roh-\acp{pdf} über \texttt{vorbereiten.py} nach ihrer sechsstelligen Schulungskennung konsolidiert und über die zweistufige automatische Orientierung (\texttt{pdf.prepare}) ausgerichtet werden. Seiten, bei denen der Vierlagen-\ac{ocr}-Vergleich wegen extrem geringer Textmenge keinen eindeutigen Sieger liefert (\texttt{orientation\_status="review\_required"}), sind vorab in der Kontaktansicht manuell zu sichten.
+  \item \textbf{Wahl der Extraktionsarchitektur:} Steht eine lokale Arbeitsstation mit \mbox{16\,GiB} \ac{vram} zur Verfügung, bildet die Kombination aus \textbf{\texttt{paddle\_llm}} (als schnellere, belegstrenge Text-\ac{llm}-Pipeline) und \textbf{\texttt{ocr\_vlm}} (als Hybrid aus PaddleOCR und \ac{vlm} für Seiten mit hohem Handschriftanteil) die leistungsfähigste Konfiguration unter den fünf untersuchten Verfahren. Soll die Verarbeitung hingegen auf einem regulären Firmen-PC über einen internen \ac{vlm}-Endpunkt (\texttt{software/api\_firmen\_pc/}) erfolgen, muss dort entweder vorab das ausgerichtete Seitenmanifest übergeben oder lokal Tesseract installiert und \texttt{pdf.auto\_orient: true} im \ac{api}-Profil aktiviert werden.
+  \item \textbf{Gestützte Nachbearbeitung im Dashboard:} Für die Sachbearbeitung bieten das Offline-Dashboard (insbesondere der Einzelbewertungs- und Filterbereich~G sowie die Fehleransicht \texttt{extraction\_errors.html}) und der in Eingabereihenfolge sortierte Excel-Export (\texttt{participants.xlsx}) eine unmittelbare Arbeitsgrundlage: Als \texttt{read} und hochkonfident eingestufte Zeilen können schnell abgeglichen werden, während sich die manuelle Korrektur auf die als \texttt{uncertain}, \emph{Abweichend} oder \emph{Zuordnung unklar} markierten Felder konzentriert.
+\end{enumerate}
+
 \section{Limitationen der Untersuchung}
-\begin{inhalte}
-  \item Datengrundlage
-  \item Modellauswahl
-  \item Generalisierbarkeit
-  \item Technische und organisatorische Einschränkungen
-\end{inhalte}
+\label{sec:diskussion-limitationen}
+
+Bei der Interpretation der Arbeit sind vier methodische und empirische Limitationen zu beachten:
+\begin{itemize}
+  \item \textbf{Entwicklungsstatus der bisher ausgewerteten Stichproben:} Die detailliert untersuchten realen Dokumente (ein zweiseitiges Dokument mit $72$~Feldern, drei Dokumente mit $184$~Feldern und zehn Dokumente mit $620$~Feldern) wurden im Zuge der Fehleranalyse und Pipeline-Reparatur mehrfach gesichtet. Sie belegen die technische Wirksamkeit der implementierten Reparaturen, ersetzen jedoch noch keine unabhängige konfirmatorische Evaluation auf unberührten Pilot- und Testgruppen~\cite{Cawley2010SelectionBias}. Aufgrund der geringen Anzahl unabhängiger Gruppen ($G < 10$) in diesen Entwicklungsläufen sind noch keine belastbaren Cluster-Bootstrap-Konfidenzintervalle ausgewiesen~\cite{Field2007Cluster}.
+  \item \textbf{Eigenschaften der externen Kursreferenz:} Da die historischen Excel-Kurslisten weder Seitenkoordinaten noch eine Garantie dafür bieten, dass alle Stammdatenfelder (insbesondere \emph{User~\ac{id}} und \emph{Organization}) auf dem jeweiligen Papierformular tatsächlich als Spalte existierten oder ausgefüllt wurden, unterschätzt der unbereinigte Referenznenner $R$ die tatsächliche visuelle Erkennungsleistung auf Formularen mit reduziertem Spaltensatz. Ebenso ist das Best-Fit-Matching eine referenzgestützte Paarung und keine unabhängige Identitätsverifikation.
+  \item \textbf{Fehlende lokalisierte Handschrift-Transkripte und Signatur-Ground-Truth im Kursvergleich:} Ohne manuell annotierte Wort- und Zellen-Bounding-Boxes lässt sich auf nicht erkannten Regionen nicht für jedes einzelne Feld beweisen, ob die Textdetektion oder die Zeichentranskription scheiterte. Zudem enthalten die Excel-Kurslisten keine Spalte für das Vorhandensein einer Unterschrift, sodass die quantitative Evaluation von \texttt{signature\_present} auf das separate manuelle Seitenreferenz-Protokoll (\texttt{ocr-reference}) angewiesen ist.
+  \item \textbf{Kein kontrollierter Kaltstart-Laufzeitbenchmark:} Da mehrere Entwicklungsläufe bestehende \ac{ocr}- oder Strukturcaches nutzten oder parallel zu Testläufen stattfanden, beschreiben die berichteten Zeiten das reale Laufverhalten des jeweiligen Laufs, stellen jedoch noch keine unter identischen Kaltstartbedingungen wiederholte Latenzmessreihe dar.
+\end{itemize}

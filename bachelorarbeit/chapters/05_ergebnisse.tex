@@ -1,47 +1,214 @@
 % !TeX root = ../thesis.tex
-% Vorläufige Gliederung mit geplanten Inhalten.
 \chapter{Ergebnisse und Analyse}
 \label{chap:ergebnisse}
+
+Dieses Kapitel präsentiert die im Repository reproduzierbar vorliegenden empirischen Ergebnisse der durchgeführten Entwicklungs-, Diagnose- und Ablationsläufe. Gemäß den wissenschaftlichen Grundsätzen dieser Arbeit werden ausschließlich real gemessene und durch Prüfartefakte belegte Zahlen berichtet. Sämtliche bisher ausgewerteten realen Unternehmensdokumente wurden im Rahmen der iterativen Fehleranalyse und Pipeline-Optimierung gesichtet und stellen daher methodisch \textbf{Entwicklungsdaten} (\texttt{phase: development}) dar. Für die noch ausstehenden konfirmatorischen Läufe auf der unabhängigen Pilot- und Teststichprobe sowie die empirische Kostenmessung sind an den entsprechenden Stellen strukturierte Platzhalter mit Verweis auf die ausführbaren Framework-Befehle ausgewiesen.
+
 \section{Ergebnisse der Extraktionsqualität}
-\begin{inhalte}
-  \item Vergleich der untersuchten Ansätze
-  \item Auswertung der zentralen Qualitätsmetriken
-\end{inhalte}
-\section{Analyse der untersuchten Ansätze}
-\begin{inhalte}
-  \item Gegenüberstellung der untersuchten Modellklassen und Verarbeitungspipelines
-  \item Unterschiede zwischen spezialisierten Modellen, Vision-Language-Modellen und hybriden Ansätzen
-\end{inhalte}
-\section{Fehleranalyse}
-\begin{inhalte}
-  \item Typische Fehlerarten
-  \item Unterschiede zwischen Modellklassen
-  \item Einfluss von Handschrift und Dokumentqualität
-\end{inhalte}
-\section{Analyse der Effizienz}
-\begin{inhalte}
-  \item Laufzeit
-  \item Rechenaufwand
-  \item Anzahl beziehungsweise Komplexität der Inferenzschritte
-\end{inhalte}
-\section{Kostenanalyse}
-\begin{inhalte}
-  \item \acs{api}-Kosten
-  \item Lokale Inferenz
-  \item Kosten pro Dokument beziehungsweise Extraktion
-  \item Manueller Aufwand für Vorbereitung, Kontrolle und Korrektur
-  \item Vergleich mit der bisherigen manuellen Erfassung bei gleichem Bearbeitungsstand
-  \item Einmalige Aufwände und bedingte Szenarien getrennt ausweisen
-\end{inhalte}
-\section{Analyse der praktischen Einsatzfähigkeit}
-\begin{inhalte}
-  \item Technische Umsetzbarkeit
-  \item Integrationsaufwand
-  \item Hardware- und Infrastrukturbedarf
-  \item Datenschutz und Informationssicherheit
-  \item Skalierbarkeit und Automatisierbarkeit im Unternehmenskontext
-\end{inhalte}
-\section{Gesamtbewertung der untersuchten Ansätze}
-\begin{inhalte}
-  \item Gegenüberstellung der Ergebnisse zu Qualität, Effizienz, Kosten und praktischer Einsatzfähigkeit
-\end{inhalte}
+\label{sec:ergebnisse-qualitaet}
+
+\subsection{Vergleich der fünf Verfahren auf dem gemischten Entwicklungsdokument (\texorpdfstring{$R = 72$}{R = 72})}
+\label{subsec:ergebnisse-einzeldokument}
+
+Ein detaillierter Vergleich der fünf Verfahren (\texttt{ocr\_rules}, \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm}) liegt zunächst auf dem gemischten zweiseitigen Entwicklungsdokument \texttt{140829.pdf} ($18$~Kursreferenzpersonen, $R = 72$ bewertbare Textfelder; Seite~1: acht maschinenschriftliche und ein handschriftlicher Eintrag mit grau hinterlegter Kopfzeile; Seite~2: neun handschriftliche Einträge ohne eigene Spaltenüberschriften) vor (\texttt{20261110T124858Z-35a9b605}, \texttt{scientific-20261110-v2}, \texttt{dashboard-20261111-v1}). Tabelle~\ref{tab:ergebnisse-140829} fasst die Ergebnisse unter primärer Originalrollenbewertung sowie unter tolerierter Namensrollen-Vertauschung zusammen.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Extraktionsqualität auf dem gemischten Entwicklungsdokument 140829]{Extraktionsqualität der fünf Vergleichsverfahren auf dem zweiseitigen gemischten Entwicklungsdokument \texttt{140829.pdf} ($18$~Referenzpersonen, $R = 72$ Referenzfelder; Berichte \texttt{20261110T124858Z-35a9b605} und \texttt{scientific-20261110-v2}).}
+  \label{tab:ergebnisse-140829}
+  \footnotesize
+  \setlength{\tabcolsep}{4.5pt}
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X r r r r r r@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{$E / R$} & \textbf{$R_{\mathrm{exact}}$} & \textbf{$F_{1,\mathrm{exact}}$} & \textbf{$F_{1,\mathrm{soft}}$ (Orig.)} & \textbf{$F_{1,\mathrm{soft}}$ (Swap)} & \textbf{Pers.} \\
+    \midrule
+    \texttt{ocr\_rules} (Tesseract + Regeln) & $0 / 72$ & $0{,}00\,\%$ & $0{,}00\,\%$ & $0{,}00\,\%$ & $0{,}00\,\%$ & $0 / 18$ \\
+    \texttt{ocr\_llm} (Tesseract + \texttt{Qwen3-4B}) & $29 / 72$ & $40{,}28\,\%$ & $48{,}74\,\%$ & $64{,}87\,\%$ & $65{,}11\,\%$ & $17 / 18$ \\
+    \texttt{vlm} (\texttt{Qwen3-VL-4B}, direkt) & $38 / 72$ & $52{,}78\,\%$ & $56{,}30\,\%$ & $80{,}91\,\%$ & $81{,}95\,\%$ & $18 / 18$ \\
+    \texttt{paddle\_llm} (PP-StructureV3 + \texttt{Qwen3-4B}) & $40 / 72$ & $55{,}56\,\%$ & $60{,}61\,\%$ & $82{,}74\,\%$ & $82{,}74\,\%$ & $18 / 18$ \\
+    \texttt{ocr\_vlm} (PaddleOCR + \texttt{Qwen3-VL-4B}) & $42 / 72$ & $58{,}33\,\%$ & $62{,}22\,\%$ & $84{,}47\,\%$ & $86{,}25\,\%$ & $18 / 18$ \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Auf diesem gemischten Dokument erzielt das Hybridverfahren \texttt{ocr\_vlm} mit $42/72$ exakten Feldern ($58{,}33\,\%$, unter Swap-Toleranz $43/72$) und einem exakten Feld-$F_1$ von $62{,}22\,\%$ das beste Ergebnis, dicht gefolgt von \texttt{paddle\_llm} mit $40/72$ exakten Feldern ($55{,}56\,\%$, $F_{1,\mathrm{exact}} = 60{,}61\,\%$). Das direkte \ac{vlm} erreicht $38/72$ exakte Felder ($52{,}78\,\%$). Der gepaarte Feldübergangsvergleich auf identischen Personenpaaren belegt:
+\begin{itemize}
+  \item \textbf{$\texttt{vlm} \rightarrow \texttt{ocr\_vlm}$ (Zusatznutzen von PaddleOCR für das \ac{vlm}):} Die zusätzlichen PaddleOCR-Hinweise korrigieren neun Referenzfelder und verschlechtern fünf Felder (netto $+4$ exakte Felder von $38$ auf $42$).
+  \item \textbf{$\texttt{ocr\_llm} \rightarrow \texttt{paddle\_llm}$ (Einfluss der \ac{ocr}-Engine bei identischem Text-\ac{llm}):} Bei identischem Sprachmodell (\texttt{Qwen3-4B-Instruct-2507}) korrigiert die strukturierte PaddleOCR-Eingabe gegenüber Tesseract $13$~Felder bei nur zwei Verschlechterungen (netto $+11$ exakte Felder von $29$ auf $40$).
+  \item \textbf{$\texttt{ocr\_rules} \rightarrow \texttt{ocr\_llm}$ (Mehrwert des Text-\ac{llm} gegenüber starren Regeln):} Während die vorlagengebundene Regelbaseline auf dem realen Formular trotz vorhandener \ac{ocr}-Wörter an den kombinierten Namensspalten scheitert ($0/18$ Personen), extrahiert \texttt{ocr\_llm} aus denselben Tesseract-Belegen nach Einführung der ausbalancierten Hintergrundnormalisierung $17/18$ Personen und $29/72$ exakte Felder.
+\end{itemize}
+
+\subsection{Aktueller Dreidokumentvergleich mit automatischer Seitenorientierung (\texorpdfstring{$R = 184$}{R = 184})}
+\label{subsec:ergebnisse-dreidokument}
+
+Nach Implementierung und Verifikation der zweistufigen automatischen Seitenorientierung wurde der reguläre Fünfervergleich (\texttt{configs/benchmark-five.yaml}: \texttt{ocr\_rules}, \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm}) auf drei zweiseitigen Entwicklungs-\acp{pdf} (\texttt{146074}, \texttt{146079}, \texttt{162575}; insgesamt $6$~Seiten, $46$~Kursreferenzpersonen mit jeweils vier lesbaren Pflichtfeldern, $R = 184$ Referenzfelder je Verfahren) vollständig ausgeführt (Lauf \texttt{20261112T075916Z-2ed08591}, Berichte \texttt{20261112T082436Z-ffc71ce9}, \texttt{evaluation-audit-20261116} und \texttt{detected-similarity-20261116}). Beide Seiten von Dokument \texttt{146079} wurden dabei vollautomatisch um $90^\circ$ gedreht, die übrigen vier Seiten korrekt bei $0^\circ$ belassen. Tabelle~\ref{tab:ergebnisse-dreidokument} zeigt die vollständig reconcilierten Qualitäts- und Teilnehmermetriken unter primärer Originalrollenbewertung.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Qualitäts- und Teilnehmermetriken im aktuellen Dreidokumentvergleich]{Qualitäts-, Vollständigkeits- und Teilnehmermetriken im aktuellen Dreidokumentvergleich ($3$~\acp{pdf}, $6$~Seiten, $46$~Referenzpersonen, $R = 184$ Felder; primäre Originalrollenbewertung, Metrikversion~v7).}
+  \label{tab:ergebnisse-dreidokument}
+  \scriptsize
+  \setlength{\tabcolsep}{2.5pt}
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X r r r r r r r r r r r@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{$P$} & \textbf{$E$} & \textbf{$W$} & \textbf{$M$} & \textbf{Ex.} & \textbf{$R_{\mathrm{exact}}$} & \textbf{$F_{1,\mathrm{exact}}$} & \textbf{Cov.} & \textbf{$\Sigma_s / |D|$} & \textbf{$S_{\mathrm{det.}}$} & \textbf{Id./V.} \\
+    \midrule
+    \texttt{ocr\_rules} & $0$ & $0$ & $0$ & $184$ & $0$ & $0{,}00\,\%$ & $0{,}00\,\%$ & $0{,}00\,\%$ & $0{,}0 / 0$ & n.\,def. & $0 / 0$ \\
+    \texttt{ocr\_llm} & $95$ & $74$ & $17$ & $93$ & $4$ & $40{,}22\,\%$ & $53{,}05\,\%$ & $49{,}46\,\%$ & $85{,}3 / 91$ & $93{,}75\,\%$ & $18 / 8$ \\
+    \texttt{paddle\_llm} & $126$ & $94$ & $32$ & $58$ & $0$ & $51{,}09\,\%$ & $60{,}65\,\%$ & $68{,}48\,\%$ & $110{,}6 / 126$ & $87{,}78\,\%$ & $22 / 10$ \\
+    \texttt{vlm} & $96$ & $67$ & $29$ & $88$ & $0$ & $36{,}41\,\%$ & $47{,}86\,\%$ & $52{,}17\,\%$ & $86{,}0 / 96$ & $89{,}61\,\%$ & $12 / 8$ \\
+    \texttt{ocr\_vlm} & $124$ & $88$ & $32$ & $64$ & $4$ & $47{,}83\,\%$ & $57{,}14\,\%$ & $65{,}22\,\%$ & $107{,}0 / 120$ & $89{,}19\,\%$ & $15 / 9$ \\
+    \midrule
+    \multicolumn{12}{@{}l}{\textit{Mit abgesicherter Folgeseitenreparatur (\texttt{headerless-columns-20261112-verified}, inkl.\ Referenz-Swap-Bewertung):}} \\
+    \texttt{paddle\_llm} (Sw.) & $126$ & $96$ & $30$ & $58$ & $0$ & $52{,}17\,\%$ & $61{,}94\,\%$ & $68{,}48\,\%$ & -- & -- & $40$~Z. \\
+    \texttt{ocr\_vlm} (Rep.) & $129$ & $96$ & $29$ & $59$ & $4$ & $52{,}17\,\%$ & $61{,}34\,\%$ & $67{,}93\,\%$ & -- & -- & $47$~Z. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Die Ergebnisse in Tabelle~\ref{tab:ergebnisse-dreidokument} verdeutlichen mehrere zentrale Zusammenhänge:
+\begin{enumerate}
+  \item \textbf{Dominanz der Seitenorientierung:} Auf denselben drei Kursen erzielten die Verfahren im historischen Lauf vor der automatischen Orientierungsreparatur (als beide Seiten von \texttt{146079} noch um $90^\circ$ gedreht waren) lediglich $E = 0$ (\texttt{ocr\_llm}), $E = 0$ (\texttt{paddle\_llm}), $E = 25$ (\texttt{vlm}) und $E = 45$ (\texttt{ocr\_vlm}) exakte Felder. Durch die korrekte automatische Ausrichtung und die aktiven Kontextreparaturen stiegen die exakten Treffer (in der Standard-Swap-Bewertung) auf $74$ (\texttt{ocr\_llm}), $96$ (\texttt{paddle\_llm}), $67$ (\texttt{vlm}) und $92$ beziehungsweise $96$ (\texttt{ocr\_vlm}).
+  \item \textbf{Vergleich der Verfahren:} Unter primärer Originalrollenbewertung erreicht \texttt{paddle\_llm} mit $E = 94/184$ ($R_{\mathrm{exact}} = 51{,}09\,\%$, $F_{1,\mathrm{exact}} = 60{,}65\,\%$, Coverage $68{,}48\,\%$) und $22/46$ streng identitätskorrekten Personen ($R_{\mathrm{participant}} = 47{,}83\,\%$) die höchste Qualität vor \texttt{ocr\_vlm} ($E = 88/184$, $R_{\mathrm{exact}} = 47{,}83\,\%$, Coverage $65{,}22\,\%$) und \texttt{ocr\_llm} ($E = 74/184$, $R_{\mathrm{exact}} = 40{,}22\,\%$). Bezieht man die abgesicherte Folgeseitenreparatur (\texttt{echo\_corroboration}) und die vier Namensrollentausche beim Hybridverfahren ein, ziehen \texttt{paddle\_llm} und \texttt{ocr\_vlm} mit jeweils $96/184$ exakten Feldern ($52{,}17\,\%$) gleich.
+  \item \textbf{Bedingte Levenshtein-Ähnlichkeit ($S_{\mathrm{detected}}$) vs.\ Coverage:} \texttt{ocr\_llm} erreicht auf den $|D| = 91$ von ihm tatsächlich ausgegebenen Referenzpaaren die höchste bedingte Zeichenähnlichkeit von $S_{\mathrm{detected}} = 93{,}75\,\%$, lässt jedoch $M = 93$ Felder leer (Coverage nur $49{,}46\,\%$). \texttt{paddle\_llm} und \texttt{ocr\_vlm} decken mit $|D| = 126$ beziehungsweise $|D| = 120$ deutlich mehr schwierige und handschriftliche Felder ab, auf denen vereinzelte Schreibabweichungen zu $S_{\mathrm{detected}} = 87{,}78\,\%$ beziehungsweise $89{,}19\,\%$ führen. Dies belegt empirisch, warum $S_{\mathrm{detected}}$ immer gemeinsam mit der Feldabdeckung gelesen werden muss.
+  \item \textbf{Feldweise Aufschlüsselung am Beispiel \texttt{paddle\_llm}:} Von den je $46$~Referenzfeldern pro Attribut erkennt \texttt{paddle\_llm} beim \emph{Vornamen} $E=31$ exakt ($W=4, M=11$), beim \emph{Nachnamen} $E=26$ exakt ($W=9, M=11$) und bei der \emph{Personalnummer} $E=25$ exakt ($W=2, M=19$). Am schwierigsten erweist sich das Feld \emph{Organisation/Abteilung} mit $E=12$ exakten, $W=17$ abweichenden und $M=17$ fehlenden Werten: Bei $12$ der $22$ streng identitätskorrekten Personen scheitert die vollständige Vierfeldkorrektheit ($10/46$) ausschließlich an einer abweichenden oder fehlenden Organisationsangabe.
+\end{enumerate}
+
+\section{Systematische Fehleranalyse entlang der Pipeline}
+\label{sec:ergebnisse-fehleranalyse}
+
+\subsection{Fünfstufige Feldstatus-Partitionierung im Dreidokumentlauf}
+\label{subsec:ergebnisse-feldstatus}
+
+Tabelle~\ref{tab:feldstatus-dreidokument} zeigt die im Bericht \texttt{field-states-20261116} nachgewiesene Zerlegung aller Feldfälle in die fünf disjunkten Feldstatus aus Abschnitt~\ref{subsec:feldstatus-teilnehmer}.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Partitionierung der Feldfälle in fünf Feldstatus im Dreidokumentvergleich]{Partitionierung der Feldfälle im Dreidokumentvergleich ($R = 184$ Referenzfelder plus ungepaarte Zusatzfelder; Bericht \texttt{field-states-20261116}).}
+  \label{tab:feldstatus-dreidokument}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}l r r r r r >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{Korr.} & \textbf{Abw.} & \textbf{N.\,erk.} & \textbf{Unklar} & \textbf{N.\,bew.} & \textbf{Kausale Hauptursache der unklaren/fehlenden Fälle} \\
+    \midrule
+    \texttt{ocr\_rules} & $0$ & $0$ & $184$ & $0$ & $0$ & Vorlagen-Headerprüfung sperrt Tabellenbody ($1\,174$ \ac{ocr}-Wörter vorhanden). \\
+    \texttt{ocr\_llm} & $74$ & $17$ & $93$ & $4$ & $0$ & $4$ ungepaarte Zusatzfelder; fehlende Rastergrenze auf einer Folgeseite. \\
+    \texttt{paddle\_llm} & $94$ & $32$ & $58$ & $0$ & $0$ & Inkompatible Spaltenzahl auf Folgeseite \texttt{146074} (S.\,2); Handschriftlesefehler. \\
+    \texttt{vlm} & $67$ & $29$ & $56$ & $32$ & $0$ & $32$ gelesene Modellzellen wegen Header-/Spaltenkonflikt gesperrt; $2$ Seiten am Tokenlimit. \\
+    \texttt{ocr\_vlm} & $88$ & $32$ & $2$ & $66$ & $0$ & $62$ vorhandene Rohzellen durch Datenheader-Echo gesperrt + $4$ ungepaarte Extras. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Besonders aufschlussreich ist der Befund für \texttt{ocr\_vlm}: Während die Metrik $M = 64$ fehlende Referenzfelder ausweist, zeigt die Feldstatus-Analyse, dass lediglich \textbf{$2$ Felder} tatsächlich überhaupt nicht erkannt wurden, während für \textbf{$62$ fehlende Referenzfelder} im Modell-Rohoutput bereits Zellen vorhanden waren (\emph{Zuordnung unklar}), deren automatische Zuordnung jedoch durch fehlerhafte Modell-Überschriften (Teilnehmerdaten im \texttt{identity\_headers}-Array auf kopflosen Folgeseiten) aus Sicherheitsgründen gesperrt wurde. Eine ungeprüfte Freigabe aller wiederzugeordneten Zellen hätte zwar fünf exakte Treffer ergänzt, aber zwölf zusätzliche falsche Werte (darunter Signaturtranskripte in vermeintlichen Organisationszellen) verursacht; erst die in Abschnitt~\ref{subsec:umsetzung-spaltenkontext} beschriebene native Zeilenanker-Prüfung (\texttt{echo\_corroboration}) stellt daraus vier exakte Treffer bei nur einem zusätzlichen Fehler sicher wieder her.
+
+\subsection{Befunde des Zehndokument-Fehleraudits (\texorpdfstring{$R = 620$}{R = 620}) und gezielter Pipeline-Reparaturen}
+\label{subsec:ergebnisse-zehndokument}
+
+Im systematischen Fehleraudit über zehn Entwicklungs-\acp{pdf} mit $20$~Seiten und $155$~Kursreferenzpersonen ($R = 620$ Referenzfelder je Verfahren, Lauf \texttt{20261111T091101Z-59c4b71d}, Bericht \texttt{systematic-audit-20261111}) wurden sechs übergreifende technische Verlustmechanismen quantifiziert und durch gezielte Gegenproben überprüft (Tabelle~\ref{tab:zehndokument-audit}):
+
+\begin{table}[htbp]
+  \centering
+  \caption[Ergebnisse des Zehndokument-Entwicklungslaufs und Input-Kompaktierung]{Ergebnisse des Zehndokument-Entwicklungslaufs ($10$~\acp{pdf}, $20$~Seiten, $R = 620$ Felder, noch auf überwiegend seitlichen Eingangsbildern) und gemessener Effekt der verlustfreien Input-Kompaktierung bei \texttt{paddle\_llm} (\texttt{systematic-audit-20261111}).}
+  \label{tab:zehndokument-audit}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.23\textwidth} r r r r r >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{Exakt} & \textbf{Falsch} & \textbf{Fehlend} & \textbf{Ext.} & \textbf{Zeilen} & \textbf{Nachgewiesene technische Seitenereignisse} \\
+    \midrule
+    \texttt{ocr\_rules} & $0$ & $0$ & $620$ & $0$ & $0$ & $20/20$ Seiten ohne ausreichende Vorlagen-Header \\
+    \texttt{ocr\_llm} & $128$ & $36$ & $456$ & $0$ & $49$ & $14/20$ leere Modellantworten (\texttt{participants=[]}) \\
+    \texttt{paddle\_llm} (vorher) & $122$ & $36$ & $462$ & $0$ & $45$ & $2$ Seiten vor Generierung über $12\,000$-Token-Inputbudget \\
+    \textbf{\texttt{paddle\_llm} (komp.)} & $\mathbf{133}$ & $\mathbf{44}$ & $\mathbf{443}$ & $\mathbf{0}$ & $\mathbf{55}$ & \textbf{$0$ Inputbudget-Abbrüche ($13\,298/12\,575 \rightarrow 11\,170/10\,384$ Tok.)} \\
+    \texttt{vlm} & $135$ & $56$ & $429$ & $0$ & $73$ & $4/20$ Seiten am $8\,192$-Token-Ausgabelimit abgebrochen \\
+    \texttt{ocr\_vlm} & $164$ & $23$ & $433$ & $0$ & $80$ & $5/20$ Seiten am $8\,192$-Token-Ausgabelimit abgebrochen \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{enumerate}
+  \item \textbf{Verifikation der automatischen Seitenorientierung ($20/20$ Seiten):} Im historischen Zehndokumentlauf lagen $12$ der $20$~Seiten seitlich gedreht vor, weil Tesseract-\ac{osd} bei $19$~Seiten unsicher blieb und nur eine einzige sichere Entscheidung traf. Die neue zweistufige Vorbereitung (\texttt{orientation-v1-osd-ocr-comparison}) richtet sämtliche \textbf{$20/20$ Entwicklungsseiten} ohne manuelles Manifest exakt passend zur visuellen Referenzprüfung aus ($12$ gedreht, $8$ beibehalten; $1\times$~\ac{osd}, $19\times$~Vierlagen-\ac{ocr}-Vergleich).
+  \item \textbf{Verlustfreie Input-Kompaktierung (\texttt{compact\_assignment\_rows}):} Zwei dichte Seiten scheiterten bei \texttt{paddle\_llm} vor der Modellgenerierung mit $13\,298$ beziehungsweise $12\,575$ Eingabetokens am Limit von $12\,000$~Tokens. Durch das Weglassen exakt aus den Zellrahmen rekonstruierbarer äußerer Zeilenrahmen sank der Umfang auf $11\,170$ beziehungsweise $10\,384$~Tokens (exakte Rekonstruierbarkeit auf allen $20/20$~Seiten nachgewiesen). Zwei kontrollierte Neuaufrufe von \texttt{Qwen3-4B-Instruct-2507} auf genau diesen beiden Seiten steigerten die exakten Felder von $122$ auf $133$ ($R_{\mathrm{exact}}: 19{,}68\,\% \rightarrow 21{,}45\,\%$, $F_{1,\mathrm{exact}}: 31{,}36\,\% \rightarrow 33{,}38\,\%$) bei einem gleichzeitigen Anstieg falscher Namenslesungen von $36$ auf $44$ (Precision $77{,}22\,\% \rightarrow 75{,}14\,\%$).
+  \item \textbf{Englische Spaltenüberschriften und nicht vorhandene Formularspalten:} Im Formular \texttt{4fb46b5e…} stellte die Parser-Erweiterung um \texttt{User} (\ac{id}) und \texttt{User Name} (kombinierter Name) ohne neue Inferenz $18$~wörtliche Personalnummern wieder her. Umgekehrt wies die visuelle Prüfung von Formular \texttt{904e5b2f…} nach, dass dieses Papierformular nur Spalten für \emph{Name}, \emph{Geburtstag} und \emph{Unterschrift} enthält; die in der externen Kursreferenz hinterlegten \ac{id}- und Organisationswerte sind auf dem Dokument physisch nicht vorhanden.
+  \item \textbf{Wirksamkeit der Literal- und Positionsvalidierung:} Von $29$ im Zehndokumentlauf durch die Evidenzvalidierung abgewiesenen Modellvorschlägen ($7$~\acp{id} und $13$~Organisationen bei \texttt{ocr\_llm}, $9$~\acp{id} bei \texttt{paddle\_llm}) stimmte nach Normalisierung \textbf{kein einziger ($0/29$)} mit der Kursreferenz überein. Ebenso verhinderte die geerbte Spalten-Positionsprüfung auf Seite~2 von \texttt{140829.pdf} netto neun falsche Feldzuordnungen (Precision $66{,}67\,\%$ mit Positionsprüfung vs.\ $57{,}58\,\%$ ohne Positionsprüfung bei identischer Modellantwort).
+\end{enumerate}
+
+\subsection{Ausstehende Gesamtläufe auf Pilot- und Testdaten}
+\label{subsec:platzhalter-qualitaet}
+
+\TODO{Vollständiger Fünfer-/Sechser-Benchmarklauf auf allen 10 automatisch ausgerichteten Entwicklungs-PDFs sowie anschließende Ausführung des eingefrorenen Auswahlpiloten ($30$--$50$ unabhängige Listen, mind.\ $5$ Schulungsgruppen) und des gesperrten Abschlusstests über \texttt{participant-bench selection run/compare} bzw.\ \texttt{start\_testframework.cmd}. Sobald mindestens $G \ge 10$ unabhängige geprüfte Abhängigkeitsgruppen vorliegen, werden hier die gepoolten Punkt- und 95-\%-Cluster-Bootstrap-Intervallschätzer aus \texttt{scientific/intervals.csv} und \texttt{scientific/paired.csv} sowie die unabhängigen Seiten-/Handschrift-CER/WER- und Signatur-Präsenzmetriken aus \texttt{ocr-final} (\texttt{configs/calibration.yaml}) eingetragen.}
+
+\section{Analyse der Laufzeit- und Ressourceneffizienz}
+\label{sec:ergebnisse-effizienz}
+
+Tabelle~\ref{tab:effizienz-messungen} stellt die im Dreidokumentlauf (\texttt{20261112T075916Z-2ed08591}, $6$~Seiten) für die fünf Vergleichsverfahren auf der lokalen Zielhardware (Windows~11, NVIDIA GeForce RTX~4090 Laptop \ac{gpu} mit \mbox{16\,376\,MiB} \ac{vram}, PyTorch~2.8.0+cu126) protokollierten Laufzeit-, Cache- und Speicherwerte gegenüber.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Beobachtete Methodenlaufzeiten, Modellaufrufe und GPU-Speicherallokation]{Beobachtete Methodenlaufzeiten, Seitenmediane, Modellaufrufe und maximale \ac{gpu}-Speicherallokation der fünf Vergleichsverfahren im Dreidokumentlauf ($6$~Seiten).}
+  \label{tab:effizienz-messungen}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}l r r r r r >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{Zeit (6\,S.)} & \textbf{Median/S.} & \textbf{Cache} & \textbf{Aufr.} & \textbf{Peak-\ac{vram}} & \textbf{Beobachtetes Laufzeitverhalten} \\
+    \midrule
+    \texttt{ocr\_rules} & $0{,}59\,\mathrm{s}$ & $0{,}069\,\mathrm{s}$ & $6 / 6$ & $0$ & $0{,}00\,\text{GiB}$ & Reine \ac{cpu}-Regelauswertung auf gecachter Tesseract-\ac{ocr}. \\
+    \texttt{ocr\_llm} & $131{,}68\,\mathrm{s}$ & $22{,}10\,\mathrm{s}$ & $6 / 6$ & $8$ & $\approx 8{,}9\,\text{GiB}$ & $6$~Seitenaufrufe + $2$~Namenshilfsschritte (\texttt{Qwen3-4B}, \ac{bf16}). \\
+    \texttt{paddle\_llm} & $101{,}41\,\mathrm{s}$ & $0{,}104\,\mathrm{s}$ & $6 / 6$ & $2$ & $9{,}05\,\text{GiB}$ & $4$~Seiten aus Zuordnungscache ($0{,}08$--$0{,}10\,\mathrm{s}$), $2$~frische \ac{llm}-Seiten ($48{,}5\,\mathrm{s}$ / $21{,}1\,\mathrm{s}$). \\
+    \texttt{vlm} & $958{,}47\,\mathrm{s}$ & $37{,}60\,\mathrm{s}$ & $0 / 6$ & $6$ & $\le 10{,}0\,\text{GiB}$ & $4$ gültige Seiten; $2$ Fehlerseiten am $8\,192$-Tokenlimit kosten allein $810{,}04\,\mathrm{s}$. \\
+    \texttt{ocr\_vlm} & $289{,}54\,\mathrm{s}$ & $47{,}94\,\mathrm{s}$ & $6 / 6$ & $6$ & $\le 10{,}0\,\text{GiB}$ & Nutzt gecachte PaddleOCR-Belege + $6$ gültige \texttt{Qwen3-VL-4B}-Generierungen. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Die Effizienzanalyse liefert drei wesentliche Erkenntnisse für den praktischen Betrieb:
+\begin{enumerate}
+  \item \textbf{Einhaltung des \mbox{16-GiB}-\ac{vram}-Budgets:} Durch das sequenzielle Laden und Entladen der Worker- und Modellprozesse bleiben sämtliche Verfahren innerhalb des lokalen Grafikspeicherbudgets von \mbox{16\,GiB} (\texttt{ocr\_rules} $0\,\text{GiB}$ auf \ac{cpu}, \texttt{Qwen3-4B-Instruct-2507} ca.\ \mbox{8,92--9,05\,GiB}, \texttt{Qwen3-VL-4B-Instruct} unter \mbox{10\,GiB} Allokation).
+  \item \textbf{Dominanz von Tokenlimit-Abbrüchen bei der Laufzeit:} Während eine reguläre \ac{vlm}-Seite im Median rund $37{,}60\,\mathrm{s}$ (bzw.\ $47{,}94\,\mathrm{s}$ bei \texttt{ocr\_vlm}) benötigt, beanspruchen die zwei am Ausgabelimit von $8\,192$~Tokens gescheiterten Folgeseiten des direkten \ac{vlm} zusammen $810{,}04\,\mathrm{s}$ ($84{,}5\,\%$ der gesamten Methodenlaufzeit von $958{,}47\,\mathrm{s}$). Im Hybridverfahren \texttt{ocr\_vlm} führten die zusätzlichen strukturierten PaddleOCR-Hinweise auf denselben sechs Seiten zu sechs formal gültigen Antworten ohne Tokenlimit-Abbruch ($289{,}54\,\mathrm{s}$ Gesamtzeit).
+  \item \textbf{Einfluss von Caching und gemeinsamer Vorverarbeitung:} Bei \texttt{paddle\_llm} stammten im beobachteten Lauf vier Seiten aus dem validierten Zuordnungscache ($0{,}08$--$0{,}10\,\mathrm{s}$), während die beiden frisch generierten Seiten $48{,}54\,\mathrm{s}$ und $21{,}11\,\mathrm{s}$ benötigten. Das Dashboard weist gecachte Zeiten und voll zugerechnete Pipelinezeiten deshalb strikt getrennt aus. Die gemeinsame zweistufige Seitenorientierung benötigte über alle $20$~Seiten des Zehndokumentbestands auf der \ac{cpu} insgesamt $84{,}64\,\mathrm{s}$ ($\approx 4{,}23\,\mathrm{s}$ pro Seite).
+\end{enumerate}
+
+\section{Wirtschaftlichkeits- und Kostenanalyse}
+\label{sec:ergebnisse-kosten}
+
+Im aktuellen Datenvertrag des Frameworks (\texttt{scientific\_efficiency.py}, \texttt{configs/benchmark.yaml}) ist \texttt{measured\_eur\_per\_1000} bewusst als \texttt{null} ausgewiesen, da bislang keine unabhängigen Echtzeit-Arbeitszeitmessungen der manuellen Sachbearbeitung und keine physischen Stromzählermessungen vorliegen. Das Framework trennt daher strikt zwischen fehlenden empirischen Euromesswerten und der parametrierbaren Szenariorechnung (\texttt{costs.kind: scenario}).
+
+Für eine transparente betriebswirtschaftliche Einordnung lässt sich der Gesamtaufwand $K_{\text{gesamt}}(N)$ für die Verarbeitung von $N$ Dokumenten (mit durchschnittlich $\bar{s}$ Seiten pro \ac{pdf}) gegenüber der rein manuellen Erfassung $K_{\text{manuell}}(N)$ formal als Break-Even-Modell darstellen:
+\begin{align}
+  K_{\text{manuell}}(N) &= N \cdot \bar{s} \cdot \frac{t_{\text{manuell}}}{60} \cdot w_{\text{Personal}}, \label{eq:kosten-manuell} \\
+  K_{\text{auto}}(N) &= C_{\text{einmalig}} + N \cdot \bar{s} \cdot \left( c_{\text{Betrieb}} + e_{\text{Seite}} \cdot p_{\text{Strom}} + \frac{t_{\text{Prüfung}}}{60} \cdot w_{\text{Personal}} \right), \label{eq:kosten-auto}
+\end{align}
+wobei $t_{\text{manuell}}$ die manuelle Erfassungszeit pro Seite (in Minuten), $t_{\text{Prüfung}}$ die verbleibende menschliche Kontroll- und Korrekturzeit pro Seite auf Basis der \ac{html}-/Excel-Prüfansichten, $w_{\text{Personal}}$ den internen Verrechnungssatz (in EUR/h), $c_{\text{Betrieb}}$ bzw.\ $e_{\text{Seite}} \cdot p_{\text{Strom}}$ die lokalen Hardware-/Energiekosten pro Seite und $C_{\text{einmalig}}$ den einmaligen Entwicklungs- und Integrationsaufwand bezeichnen. Eine laufende Kosteneinsparung pro Seite tritt genau dann ein, wenn die Zeitersparnis $\Delta t = t_{\text{manuell}} - t_{\text{Prüfung}} > 0$ die marginalen Rechenkosten übersteigt.
+
+\TODO{Empirische Erhebung oder betriebliche Festlegung der Prozessparameter ($t_{\text{manuell}}$, $t_{\text{Prüfung}}$ je Verfahren, $w_{\text{Personal}}$, $e_{\text{Seite}}$) in \texttt{configs/benchmark.yaml} unter \texttt{costs} eintragen und die resultierende Szenariotabelle aus \texttt{scientific/costs.csv} für $1\,000$~\acp{pdf} sowie den Gesamtbestand von ca.\ $6\,000$~\acp{pdf} hier einfügen.}
+
+\section{Praktische Einsatzfähigkeit und vergleichende Gesamtbewertung}
+\label{sec:ergebnisse-gesamtbewertung}
+
+Tabelle~\ref{tab:gesamtbewertung} führt die empirischen Befunde aus den Qualitäts-, Fehler-, Effizienz- und Architekturuntersuchungen für die fünf Vergleichsverfahren zusammen.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Vergleichende Gesamtbewertung der fünf untersuchten Extraktionsverfahren]{Vergleichende Gesamtbewertung der fünf untersuchten Extraktionsverfahren (\texttt{configs/benchmark-five.yaml}) auf Basis der nachgewiesenen Entwicklungs- und Diagnoseergebnisse.}
+  \label{tab:gesamtbewertung}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.14\textwidth} >{\raggedright\arraybackslash}p{0.15\textwidth} >{\raggedright\arraybackslash}p{0.15\textwidth} >{\raggedright\arraybackslash}p{0.18\textwidth} >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Verfahren} & \textbf{Druckschrift} & \textbf{Handschrift} & \textbf{Effizienz / \ac{vram}} & \textbf{Praktische Eignung und zentrale Grenzen} \\
+    \midrule
+    \texttt{ocr\_rules} & Hoch (nur feste Vorlage) & Ungenügend ($0\,\%$) & Sehr hoch ($0{,}07\,\mathrm{s}$/S., \ac{cpu}) & Scheitert bei wechselnden Spaltennamen und kombinierten Namensspalten; im realen Archiv nicht robust einsetzbar. \\
+    \addlinespace[3pt]
+    \texttt{ocr\_llm} & Gut ($S_{\mathrm{det.}} = 93{,}8\,\%$) & Gering (viele leere Antw.) & Mittel ($\approx 22\,\mathrm{s}$/S., $8{,}9\,\text{GiB}$) & Hohe Präzision auf erkannten Zeilen, aber geringe Abdeckung ($49{,}5\,\%$) durch schwache Tesseract-Handschrift. \\
+    \addlinespace[3pt]
+    \textbf{\texttt{paddle\_llm}} & \textbf{Sehr gut} & \textbf{Mittel--Gut} & \textbf{Gut ($9{,}05\,\text{GiB}$ \ac{vram})} & \textbf{Beste Text-\ac{llm}-Pipeline ($R_{\mathrm{exact}} = 51{,}1\,\%$, Coverage $68{,}5\,\%$); läuft unabhängig vom \ac{vlm} stabil durch Input-Kompaktierung.} \\
+    \addlinespace[3pt]
+    \texttt{vlm} & Gut & Mittel & Gering--Mittel ($\le 10\,\text{GiB}$) & Liest Handschrift direkt im Bild, leidet jedoch unter $8\,192$-Token-Abbrüchen und Header-Konflikten auf Folgeseiten. \\
+    \addlinespace[3pt]
+    \textbf{\texttt{ocr\_vlm}} & \textbf{Sehr gut} & \textbf{Gut} & \textbf{Mittel ($\approx 48\,\mathrm{s}$/S., $\le 10\,\text{GiB}$)} & \textbf{Kombiniert PaddleOCR und \ac{vlm}; höchste Qualität auf gemischten Seiten ($58{,}3\,\%$ auf \texttt{140829}, $52{,}2\,\%$ nach Folgeseitenreparatur).} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

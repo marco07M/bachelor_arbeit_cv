@@ -1,27 +1,160 @@
 % !TeX root = ../thesis.tex
-% Vorläufige Gliederung mit geplanten Inhalten.
 \chapter{Technische Umsetzung des Evaluationsframeworks}
 \label{chap:evaluationsframework}
-\section{Aufbau und Systemarchitektur}
-\begin{inhalte}
-  \item Modularer Aufbau
-  \item Einheitliche Modell- beziehungsweise Pipeline-Schnittstellen
-  \item Reproduzierbare Verarbeitung
-  \item Einlesen der Dokumente und Bildaufbereitung
-  \item Gegebenenfalls Feld- oder Bereichserkennung
-\end{inhalte}
-\section{Implementierung der untersuchten Ansätze}
-\begin{inhalte}
-  \item Integration spezialisierter \acs{ocr}-/\acs{htr}- beziehungsweise Machine-Learning-Ansätze
-  \item Integration von Vision-Language-Modellen: Prompting, Bildverarbeitung, strukturierte Extraktion und Ausgabe im Format \ac{json}
-  \item Kombination mehrerer Modelle beziehungsweise Verarbeitungsschritte
-  \item Beispielsweise \acs{ocr}/\acs{htr} mit anschließender Strukturierung oder Korrektur durch ein \ac{llm}
-  \item Standardisierte Ergebnisstruktur
-\end{inhalte}
-\section{Automatisierte Durchführung und Evaluation}
-\begin{inhalte}
-  \item Automatisierter Ground-Truth-Vergleich
-  \item Speicherung von Modellantworten und Metriken
-  \item Erfassung von Laufzeit und Kosten
-  \item Gegebenenfalls Kennzeichnung unsicherer Extraktionen anhand einfacher Konsistenz- oder Confidence-Verfahren
-\end{inhalte}
+
+Dieses Kapitel dokumentiert die technische Architektur und Implementierung des im Rahmen der Arbeit entwickelten Python-Evaluationsframeworks (\texttt{software/}). Ausgehend vom modularen Systemaufbau und den isolierten Laufzeitumgebungen (Abschnitt~\ref{sec:systemarchitektur}) werden die Vorverarbeitung und automatische Seitenorientierung (Abschnitt~\ref{sec:umsetzung-vorverarbeitung}), das verlustfreie \ac{ocr}-Beobachtungsregister (Abschnitt~\ref{sec:umsetzung-beobachtungen}), der dokumentweite Spaltenkontext sowie die zeilenindividuelle Namensaufteilung (Abschnitt~\ref{sec:umsetzung-spalten-namen}) und die Implementierung der fünf Vergleichsverfahren inklusive Evidenzvalidierung und Input-Kompaktierung (Abschnitt~\ref{sec:umsetzung-verfahren}) beschrieben. Abschließend werden die Module zur Konfidenzkalibrierung und Verfahrensauswahl (Abschnitt~\ref{sec:umsetzung-kalibrierung}), die automatisierte Berichts-, Audit- und Fehleranalyse-Pipeline (Abschnitt~\ref{sec:umsetzung-berichte}) sowie das Datenschutzkonzept und die Isolation des Firmen-\ac{api}-Projekts (Abschnitt~\ref{sec:umsetzung-datenschutz-api}) erläutert.
+
+\section{Aufbau, Systemarchitektur und isolierte Laufzeitumgebungen}
+\label{sec:systemarchitektur}
+
+Das Softwaresystem ist unter \texttt{software/} als reproduzierbares Python-3.12-Projekt mit dem Paketmanager \texttt{uv} umgesetzt und strikt in vier funktionale Teilbereiche gegliedert (Abbildung~\ref{fig:systemarchitektur}):
+
+\begin{figure}[htbp]
+  \centering
+  \footnotesize
+  \setlength{\tabcolsep}{5pt}
+  \renewcommand{\arraystretch}{1.25}
+  \begin{tabular}{@{}c@{}}
+    \fbox{\parbox{0.92\textwidth}{\centering
+      \textbf{1. Dokumentenvorverarbeitung (\texttt{software/vorverarbeitung/vorbereiten.py})}\\[2pt]
+      Rekursives Einsammeln aus \texttt{dateien/} $\rightarrow$ Extraktion 6-stelliger Kurs-\ac{id} $\rightarrow$ \ac{sha256}-Sicherung \& Anmerkungsbereinigung
+    }} \\[6pt]
+    $\Downarrow$ \\[4pt]
+    \fbox{\parbox{0.92\textwidth}{\centering
+      \textbf{2. Gemeinsame Seitenaufbereitung (\texttt{pdf.py}, \texttt{orientation.py}, \texttt{image\_preprocessing.py})}\\[2pt]
+      PyMuPDF-Rendering (220\,\ac{dpi}) $\rightarrow$ Zweistufige Orientierung (\ac{osd} + 4-Lagen-\ac{ocr}) $\rightarrow$ Zerstörungsfreie Hintergrundnormalisierung
+    }} \\[6pt]
+    $\Downarrow$ \\[4pt]
+    \fbox{\parbox{0.92\textwidth}{\centering
+      \textbf{3. Sequenzielle Extraktions-Pipelines (\texttt{runner.py}, Profil \texttt{benchmark-five.yaml}, 16\,GiB \ac{vram})}\\[3pt]
+      \begin{tabular}{@{}p{0.29\textwidth}|p{0.29\textwidth}|p{0.29\textwidth}@{}}
+        \centering\textbf{Klassische \ac{ocr} \& Regeln}\par
+        \texttt{ocr\_rules} (\texttt{rules.py}, ohne \ac{llm})\par
+        \texttt{ocr\_llm} (Tesseract + \texttt{Qwen3-4B}) &
+        \centering\textbf{Struktur-\ac{ocr} + Text-\ac{llm}}\par
+        \texttt{paddle\_llm}\par
+        (\texttt{PP-StructureV3} + \texttt{Qwen3-4B}) &
+        \centering\textbf{Visuelle \& Hybride Pfade}\par
+        \texttt{vlm} (nur Seitenbild)\par
+        \texttt{ocr\_vlm} (PaddleOCR + \texttt{Qwen3-VL-4B})
+      \end{tabular}\\[4pt]
+      \emph{Gemeinsame Schutzmodule:} \texttt{ocr\_observations.py} $\cdot$ \texttt{column\_context.py} (v3) $\cdot$ \texttt{name\_parts.py} $\cdot$ \texttt{ocr\_evidence.py} $\cdot$ \texttt{signatures.py}
+    }} \\[6pt]
+    $\Downarrow$ \\[4pt]
+    \fbox{\parbox{0.92\textwidth}{\centering
+      \textbf{4. Evaluation, Audit \& Fehleranalyse (\texttt{roster\_benchmark/}, \texttt{testframework/})}\\[2pt]
+      Schulungs-Matching (\texttt{matching.py}) $\rightarrow$ Feld-/Personenmetriken v7 (\texttt{metrics.py}, \texttt{field\_assessment.py}) $\rightarrow$ Kausale Fehlerdiagnose (\texttt{error\_report.py}) \& Wissenschaftliches Offline-Dashboard A--G (\texttt{dashboard\_report.py})
+    }}
+  \end{tabular}
+  \caption{Modulare Systemarchitektur des lokalen Evaluationsframeworks (\texttt{software/}) für die fünf Vergleichsverfahren.}
+  \label{fig:systemarchitektur}
+\end{figure}
+
+\begin{enumerate}
+  \item \textbf{Dokumentenvorverarbeitung (\texttt{software/vorverarbeitung/}):} Das eigenständige Skript \texttt{vorbereiten.py} durchsucht den Rohdatenordner (\texttt{dateien/}) ohne Verfolgung symbolischer Links, extrahiert über reguläre Ausdrücke die sechsstellige Schulungskennung hinter der Stammnummer, legt exklusive, per \ac{sha256}-Prüfsumme verifizierte Arbeitskopien unter \texttt{vorverarbeitung/ausgabe/pdfs/} an und entfernt optional digitale \ac{pdf}-Anmerkungen unter Beibehaltung echter Schwärzungen (\texttt{redactions\_preserved}). Dateien ohne gültige Kennung werden verlustfrei nach \texttt{nicht\_erfuellt/} separiert.
+  \item \textbf{Kernpaket (\texttt{software/verarbeitung/src/participant\_bench/}):} Enthält die zentralen Datenverträge (\texttt{schema.py}), den Konfigurations- und Ressourcenlader (\texttt{config.py}, \texttt{doctor.py}), die Bild- und \ac{ocr}-Module, die Modell- und Strukturadapter (\texttt{models.py}, \texttt{structure.py}, \texttt{hybrid.py}), die Nachverarbeitungs- und Validierungslogik sowie das Unterpaket \texttt{roster\_benchmark/} für den Excel-/\ac{csv}-Referenzabgleich.
+  \item \textbf{Isolierte Struktur- und Spezial-Laufzeiten (\texttt{software/*\_runtime/}):} Da komplexe Dokumentanalyse-Frameworks wie PaddleOCR/PaddlePaddle, Docling/TableFormer und Baidu Unlimited-OCR teilweise inkompatible Abhängigkeitsbäume (insbesondere hinsichtlich Tokenizer-, OpenCV- und Transformers-Versionen) aufweisen, ist jede dieser Engines in ein eigenes, durch eine separate \texttt{uv.lock}-Datei eingefrorenes Projekt ausgelagert (\texttt{paddle\_structure\_runtime/}, \texttt{docling\_runtime/}, \texttt{unlimited\_ocr\_runtime/}). Der gemeinsame Worker (\texttt{structure\_runtime/worker.py}) kommuniziert über lokale Standard-Ein-/Ausgabe-Prozesspipes (\ac{json}-Protokoll) mit dem Hauptprozess, während \texttt{offline.py} sämtliche Netzwerkzugriffe und Telemetrie-Aufrufe zur Laufzeit unterbindet.
+  \item \textbf{Speicher- und Aufmerksamkeitsmanagement für \mbox{16\,GiB} \ac{vram}:} Die Hauptumgebung nutzt PyTorch~2.8.0 (\ac{cuda}~12.6) und Transformers~4.57.6. Um auf einer einzelnen Laptop-\ac{gpu} (\mbox{16\,376\,MiB} \ac{vram}) Speicherüberläufe (\ac{oom}) ohne Qualitätsverlust durch Quantisierung zu verhindern, führt \texttt{runner.py} alle Verfahren strikt nacheinander aus: Nach Abschluss der Struktur- oder \ac{ocr}-Erkennung wird der Subprozess vollständig beendet (\texttt{model.close()}) und der \ac{cuda}-Speicher geleert, bevor das Sprachmodell (\texttt{Qwen3-4B-Instruct-2507}, Budget \mbox{9\,GiB}) oder das Vision-Language-Modell (\texttt{Qwen3-VL-4B-Instruct}, Budget \mbox{10\,GiB}) in \ac{bf16} geladen wird. Zudem implementiert \texttt{attention.py} die Option \texttt{sdpa\_repeated\_kv}: Durch explizite Wiederholung der Grouped-Query-Key-/Value-Köpfe vor dem Aufruf von PyTorchs nativer \ac{sdpa} wird unter Windows auch ohne separates FlashAttention-Paket der speichereffiziente \ac{gpu}-Kernel genutzt.
+\end{enumerate}
+
+\section{Bildvorverarbeitung und zweistufige automatische Seitenorientierung}
+\label{sec:umsetzung-vorverarbeitung}
+
+Die Aufbereitung der \ac{pdf}-Seiten erfolgt in \texttt{pdf.py}, \texttt{orientation.py} und \texttt{image\_preprocessing.py} in zwei klar getrennten Stufen:
+
+\subsection{Gemeinsames Rendering und automatische Orientierung}
+\label{subsec:umsetzung-orientierung}
+
+Die Funktion \texttt{pdf.prepare} rendert jede ausgewählte Seite mit PyMuPDF bei \mbox{220\,\ac{dpi}} unter Berücksichtigung eingebetteter \ac{pdf}-Rotationsflags. Ist \texttt{pdf.auto\_orient: true} aktiv (Standard im lokalen Benchmark), bestimmt \texttt{orientation.py} (Implementierungskennung \texttt{orientation-v1-osd-ocr-comparison}) den erforderlichen Korrekturwinkel im Uhrzeigersinn ($\theta \in \{0^\circ, 90^\circ, 180^\circ, 270^\circ\}$):
+\begin{itemize}
+  \item Zuerst wird über Tesseract-\ac{osd} ein Orientierungsvorschlag angefordert. Erreicht dessen Konfidenz mindestens \texttt{osd\_min\_confidence} ($5{,}0$), wird der Winkel direkt übernommen (\texttt{orientation\_method="osd"}).
+  \item Scheitert \ac{osd} oder liegt die Konfidenz unter dem Schwellenwert, erzeugt \texttt{OCR.orientation\_evidence} vier rotierte Diagnoseansichten (begrenzt auf maximal $2\,600$~Pixel längste Seite, Timeout $15\,\mathrm{s}$ je Lage) und führt darauf Tesseract mit \texttt{--psm 11} (\emph{Sparse Text}) aus. Gemäß den in Abschnitt~\ref{sec:methodik-vorverarbeitung} definierten Schutzregeln (mindestens fünf Wörter $\ge 3$ Buchstaben mit $\ge 60\,\%$ Alphabetanteil und Score $\ge 50$, mindestens $25$ Buchstaben, absoluter Vorsprung $\ge 15$ und relativer Faktor $\ge 1{,}5$) wird der Gewinnerwinkel bestimmt (\texttt{orientation\_method="ocr\_comparison"}).
+  \item Nur bei einer eindeutig akzeptierten Entscheidung werden die ungekürzten Originalpixel gedreht; für native Docling-\acp{pdf} werden \ac{pdf}-Metadatenrotation und Zusatzrotation exakt kombiniert. Alle vier Diagnose-Scores, Wortzähler und die benötigte Ausrichtungszeit (\texttt{orientation\_seconds}) werden getrennt im Seitenmanifest gespeichert.
+\end{itemize}
+
+\subsection{Zerstörungsfreie Hintergrundnormalisierung und Linienentfernung}
+\label{subsec:umsetzung-hintergrund}
+
+Für die klassische Tesseract-Erkennung entfernt \texttt{image\_preprocessing.\allowbreak remove\_grid\_lines} störende horizontale und vertikale Tabellenlinien, damit diese nicht die Wortsegmentierung blockieren. Frühere globale Otsu-Binarisierungen führten jedoch dazu, dass grau hinterlegte Tabellenkopfzeilen (auf realen Formularen mit Median-Grauwerten um $169$) zu schwarzen Balken verschmolzen und die gedruckten Spaltenüberschriften ausgelöscht wurden.
+
+Die aktuelle Implementierung führt daher zunächst eine lokale morphologische Hintergrundschätzung mittels \emph{Closing} (\texttt{cv2.morphologyEx} mit einem $25 \times 25$-Rechteckkernel) durch und teilt das Graustufenbild durch diesen geschätzten Hintergrund (\texttt{cv2.divide(..., scale=255)}). Erst auf diesem hintergrundnormalisierten Bild wird die invertierte Otsu-Schwelle berechnet, um echte lange Gitterlinien über gerichtete morphologische Öffnungsfilter ($40 \times 1$ horizontal, $1 \times 40$ vertikal) zu isolieren und gezielt auf dem Graustufenbild zu weißen. Dadurch bleiben sowohl gedruckte Spaltenüberschriften in grauen Kopfzeilen als auch feine handschriftliche Striche erhalten.
+
+\section{Verlustfreier Erhalt von \texorpdfstring{\ac{ocr}}{OCR}-Rohbeobachtungen}
+\label{sec:umsetzung-beobachtungen}
+
+Um bei der Fehlerdiagnose zweifelsfrei zwischen fehlender Texterkennung (\ac{ocr}-Blindheit) und nachgelagerten Zuordnungsverlusten unterscheiden zu können, implementiert \texttt{ocr\_observations.py} ein von der Teilnehmerzulassung entkoppeltes Beobachtungsregister:
+\begin{itemize}
+  \item \textbf{Vollständige Wort- und Zellerfassung:} In \texttt{ocr.py} wird jedes nichtleere Tesseract-Token unabhängig von seinem numerischen Konfidenzscore (auch bei fehlendem oder negativem Score) mit Wort-\ac{id}, Originaltext, Koordinaten und Skalenkennung (\texttt{tesseract\_0\_100}) gespeichert.
+  \item \textbf{Vorgelagerter Docling-Messpunkt:} Da Doclings interne Methode \texttt{post\_process\_cells} bei überlappenden \ac{pdf}-Text- und \ac{ocr}-Boxen Zellen nach Prioritätsregeln zusammenführen oder verdrängen kann, klinkt sich \texttt{configure\_ocr\_capture} in \texttt{docling\_backend.py} unmittelbar \emph{vor} diesem \ac{sdk}-Schritt ein und sichert sämtliche Rohzellen unverändert.
+  \item \textbf{Zweistufiges Zeilen- und Evidenzmodell:} In \texttt{ocr\_layout.py} werden unterhalb erkannter Tabellenköpfe neben regulären Personenmustern (\texttt{select\_person\_rows}) auch niedrigkonfidente oder unregelmäßige handschriftliche Zeilen (\texttt{selection\_hint="unclassified\_observation"}) inklusive ihrer zell- und zeilenweisen \ac{ocr}-Konfidenz an \texttt{ocr\_llm} übergeben, während Vor-Tabellen-Metadaten ausgeschlossen bleiben. Die Funktion \texttt{attach\_record\_observations} verknüpft jedes vom \ac{llm} zugeordnete Feld wieder mit den konkreten Wort-\acp{id} und markiert Belege mit Konfidenz $< 30$ (Tesseract) beziehungsweise $< 0{,}5$ (PaddleOCR/Docling) sowie sichtbare Auslassungspunkte (\texttt{...}/\texttt{…}) konsistent als \texttt{state="uncertain"}, ohne den gelesenen Wert zu löschen.
+\end{itemize}
+
+\section{Dokumentweiter Spaltenkontext und zeilenindividuelle Namensaufteilung}
+\label{sec:umsetzung-spalten-namen}
+
+\subsection{Spaltenvererbung für kopflose Folgeseiten (\texttt{column\_context.py})}
+\label{subsec:umsetzung-spaltenkontext}
+
+Die seitenübergreifende Zuordnung von Tabellenspalten wird zentral über \texttt{column\_context.resolve} (Version~v3, \texttt{document-column-context-v3-visual-text-prefix}) für \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{docling}, \texttt{vlm} und \texttt{ocr\_vlm} verwaltet:
+\begin{enumerate}
+  \item \textbf{Mehrzeilige und fremdsprachige Header-Erkennung:} \texttt{column\_headers.py} fasst mehrzeilige Überschriftenblöcke zusammen und erkennt neben deutschen Bezeichnungen (\emph{Benutzer}, \emph{Benutzername}, \emph{Kurzzeichen}, \emph{Abteilung}) auch englische Formularvarianten (\emph{User} als \texttt{personnel\_number}, \emph{User Name}/\emph{Username} als kombinierte Namensspalte) sowie typische \ac{ocr}-Ligaturfehler (\emph{benutzemame}, \emph{teilnehmemame}, \emph{signetur}).
+  \item \textbf{Physische Geometrie ohne virtuelle Seitenränder:} Während die \ac{ocr}-Linienanalyse standardmäßig die äußeren Seitenränder als Begrenzungen mitführt, liefert \texttt{image\_boundaries(..., include\_page\_edges=False)} für die visuellen Verfahren ausschließlich die tatsächlich gemessenen physischen Tabellenlinien. Dadurch stimmen die gemessenen Spaltenintervalle mit der physischen Zellzählung von \texttt{Qwen3-VL-4B-Instruct} überein.
+  \item \textbf{Präfix-Kompatibilität und Kontext-Injektion:} Liegt auf einer Folgeseite derselben \ac{pdf} kein neuer eindeutiger Headerblock vor und weichen die normalisierten Spaltenkanten der aktuellen Seite (bzw.\ des Präfixes aller Textspalten vor etwaigen Signaturspalten) um maximal $0{,}035$ von der Quellseite ab, wird der gespeicherte Spaltenkontext übernommen. Um Datenleckagen auszuschließen, enthält dieser Kontext ausschließlich kanonische Feldrollen und Spaltenpositionen, niemals Rohtexte alter Überschriftenzellen oder frühere Teilnehmerwerte. Den visuellen Modellen wird dieser geprüfte Zustand bereits \emph{vor} der Generierung als \texttt{DOCUMENT\_COLUMN\_CONTEXT} übergeben.
+  \item \textbf{Native Absicherung bei fehlerhaften Datenheadern (\texttt{echo\_corroboration}):} Gibt ein visuelles Modell auf einer kopflosen Folgeseite vertragswidrig die Daten der ersten Person als \texttt{identity\_headers} aus (exaktes Echo des ersten Teilnehmerdatensatzes), sperrt der Parser zunächst die ungesicherte Übernahme von \ac{id}- und Organisationszellen. Im Hybridverfahren (\texttt{ocr\_vlm}) prüft die Reparaturstufe anschließend über \texttt{complete\_observed\_cells} (\texttt{structure\_assignment.py}), ob für die betreffende Zeile ein eindeutiger aktueller nativer Zeilenanker (vollständiger Name oder \ac{id}) vorliegt und genau eine nichtleere aktuelle PaddleOCR-Zelle vollständig innerhalb des gemessenen physischen Spaltenbandes liegt. Nur unter diesem doppelten Beleg wird der Wert als \texttt{state="uncertain"} übernommen; beim direkten \ac{vlm} ohne eigene \ac{ocr} bleibt die Übernahme bei einem solchen Vertragsbruch bewusst gesperrt.
+\end{enumerate}
+
+\subsection{Zeilenindividuelle Vor- und Nachname-Erkennung (\texttt{name\_parts.py}, \texttt{document\_names.py})}
+\label{subsec:umsetzung-namen}
+
+Da Teilnehmende ihre Namen auf Formularen ohne klare Spaltentrennung häufig in wechselnder Reihenfolge eintragen, implementieren \texttt{name\_parts.py} und \texttt{document\_names.py} eine zweistufige Hierarchie:
+\begin{itemize}
+  \item \textbf{Stufe~1 (Zeilenindividuelle Evidenz):} Jede Zeile wird deterministisch auf ein explizites Komma (\texttt{explicit\_surname\_comma\_given\_name}: alles vor dem Komma inkl.\ mehrteiliger Nachnamen wie \emph{von der Wiese} oder Bindestrichnamen wird \texttt{last\_name}, alles danach \texttt{first\_name}), auf Namenspräfixe (\emph{von}, \emph{van}, \emph{de}, \emph{del}, \emph{da}) sowie über lexikalische und morphologische Indikatoren (\texttt{classify\_name\_pair}: \texttt{lexical\_given\_family} vs.\ \texttt{lexical\_family\_given}) geprüft. Sind Vor- und Nachname bereits durch eindeutig getrennte Spaltenüberschriften belegt, haben diese aktuellen Spaltenzellen strikten Vorrang.
+  \item \textbf{Stufe~2 (Spalten- und Dokument-Tie-Breaker):} Nur wenn eine einzelne Zeile inhärent mehrdeutig bleibt (z.\,B.\ zwei Vornamen wie \enquote{Thomas Martin} ohne Komma und ohne getrennte Spaltenüberschriften), greift \texttt{infer\_column\_tiebreaker} beziehungsweise \texttt{DocumentNameOrders} auf die Mehrheitsorientierung der Spalte oder die dokumentweite Grundreihenfolge zurück. Eine bereits eindeutig klassifizierte Nachbarzeile wird durch diesen Tie-Breaker niemals überschrieben. In \texttt{structured\_mapping.py} ermöglichen \texttt{partial\_identity\_fallback} und \texttt{\_two\_column\_headerless\_fallback} auf diese Weise für Docling auch auf kopflosen Tabellen mit mindestens zwei wiederholten Personenzeilen die Erkennung kombinierter oder zweispaltiger Namen ganz ohne Sprachmodell.
+\end{itemize}
+
+\section{Implementierung der fünf Vergleichsverfahren, Evidenzvalidierung und Input-Kompaktierung}
+\label{sec:umsetzung-verfahren}
+
+Die fünf Vergleichsverfahren (\texttt{ocr\_rules}, \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm}) nutzen gemeinsame Validierungs- und Nachverarbeitungsschichten, unterscheiden sich jedoch in ihren spezifischen Adaptern:
+
+\begin{itemize}
+  \item \textbf{\texttt{ocr\_rules} (\texttt{ocr.py}, \texttt{rules.py}):} Führt Tesseract~5.4 auf dem hintergrundnormalisierten Bild aus, ermittelt über \texttt{rules.find\_headers} und \texttt{rules.layout} die Spalten- und Zeilenbänder ab \texttt{body\_top} (inkl.\ Erhalt des ersten Datenbandes unmittelbar an der ersten Rasterlinie) und ordnet Wörter deterministisch zu, sofern ausreichende bekannte Überschriften erkannt wurden.
+  \item \textbf{\texttt{ocr\_llm} und \texttt{paddle\_llm} (\texttt{models.py}, \texttt{structure\_assignment.py}, \texttt{unlimited\_assignment.py}):} Beide Verfahren arbeiten unabhängig von einem \ac{vlm} und übergeben die aufbereiteten Zeilen und Spaltenhinweise (aus Tesseract bzw.\ aus dem isolierten PP-StructureV3-/PP-OCRv5-Worker) an das reine Text-Sprachmodell \texttt{Qwen3-4B-Instruct-2507}. Da auf dichten Seiten die doppelte Speicherung von äußeren Zeilen-Bounding-Boxes und inneren Zell-Bounding-Boxes im \ac{json}-Prompt in früheren Läufen das Eingabelimit von \mbox{12\,000} Tokens überschritt, entfernt die Funktion \textbf{\texttt{compact\_assignment\_rows}} vor der Tokenisierung alle äußeren Zeilenrahmen, die sich mathematisch exakt als Vereinigung der unveränderten Zellrahmen rekonstruieren lassen. Dadurch sinkt der Tokenverbrauch verlustfrei unter das Budget, während Texte, Zellkoordinaten und Prüfpräzision vollständig erhalten bleiben; sollte dennoch das Limit erreicht werden, wird dies explizit als Fehlerstufe \texttt{input\_budget} vor der Generierung protokolliert. Nach der Generierung prüft \texttt{ground\_response} (\texttt{ocr\_evidence.py}), dass jeder ausgegebene Feldwert wörtlich (abzüglich reiner Tabellenrand-Artefakte wie \texttt{\_} oder \texttt{|}) in der referenzierten aktuellen \texttt{source\_row} und innerhalb des zulässigen physischen Spaltenbandes vorkommt. Fehlt in einer Handschriftzeile ein einzelnes Zielfeld (z.\,B.\ keine Abteilung angegeben), bleibt dieses Feld über \texttt{preserve\_partial\_fields: true} als \texttt{null}/\texttt{uncertain} erhalten, ohne den gesamten Personendatensatz am Schema scheitern zu lassen. Für bereits verankerte Personen ergänzt \texttt{complete\_observed\_cells} im räumlichen Paddle-Pfad fehlende skalare \ac{id}-/Organisationsfelder genau dann als \texttt{uncertain}, wenn eine einzelne aktuelle \ac{ocr}-Zelle vollständig innerhalb der durch Überschrift und Rasterlinien begrenzten Feldspalte liegt.
+  \item \textbf{\texttt{vlm} und \texttt{ocr\_vlm} (\texttt{models.py}, \texttt{vlm\_cells.py}, \texttt{hybrid.py}):} Beide Verfahren nutzen exakt dieselbe Konfiguration aus \texttt{models.vlm} (\texttt{Qwen3-VL-4B-Instruct}). Das Modell gibt zunächst die Tabellenüberschriften (\texttt{identity\_headers}) und pro Person die Zellen (\texttt{identity\_cells}) in physischer Lesereihenfolge von links nach rechts aus. \texttt{parse\_visual\_response} (\texttt{vlm\_cells.py}) prüft die Konsistenz der Spaltenanzahl, wendet die Spalten- und Namenszuordnung an und schließt über \texttt{filter\_page\_people} (\texttt{person\_roles.py}) nur Personen mit eigenem explizitem Trainer-/Kursleiterbeleg in \texttt{excluded\_instructors.csv} aus. Während \texttt{vlm} ausschließlich das Seitenbild verarbeitet, kombiniert das Hybridverfahren \texttt{ocr\_vlm} über \texttt{hybrid.py} die unabhängig vorgeschaltete PaddleOCR-Zellerkennung mit demselben \ac{vlm}, indem es die kompakten \ac{ocr}-Texte, Koordinaten und Engine-Konfidenzen gemeinsam mit dem Originalbild übergibt (wobei gecachte und voll zugerechnete \ac{ocr}-Laufzeiten getrennt ausgewiesen werden).
+  \item \textbf{Unterschriftenprüfung (\texttt{signatures.py}):} Das aktive Backend \texttt{signature.backend: opencv} lokalisiert die Unterschriftszelle einer Zeile und berechnet nach Hintergrundbereinigung den Tintenpixelanteil (\texttt{blank\_ink\_fraction: 0.0005}) sowie die Fläche zusammenhängender Komponenten (\texttt{component\_min\_area: 8}), um sicher leere Felder (\texttt{signature\_present=False}, \texttt{state="empty"}) von beschriebenen Feldern (\texttt{True}, \texttt{state="read"}) und nicht lokalisierbaren Bereichen (\texttt{None}, \texttt{state="uncertain"}) zu trennen.
+\end{itemize}
+
+\section{Konfidenzkalibrierung und wissenschaftliche Verfahrensauswahl}
+\label{sec:umsetzung-kalibrierung}
+
+Das Unterpaket \texttt{participant\_bench/calibration/} stellt die CLI-Befehle \texttt{ocr-reference}, \texttt{ocr-split}, \texttt{ocr-calibrate}, \texttt{ocr-final} und \texttt{ocr-apply} bereit (\texttt{configs/calibration.yaml}). Jede Vorverarbeitungsvariante (z.\,B.\ $200/300/400\,\text{\ac{dpi}}$, \texttt{prefer\_pdf}, \texttt{keep\_grid}, \texttt{otsu}, \texttt{adaptive}, \texttt{deskew}) wird einzeln gegen dieselbe Baseline evaluiert, ohne Varianten ungeprüft aufeinanderzustapeln. Auf der Entwicklungsmenge werden feldweise Sigmoid- oder isotone Kalibratoren (SciPy PAVA) auf dem Minimum der zugehörigen Wortkonfidenzen gefittet, sofern die Mindestfallzahlen (\texttt{min\_samples: 50}, \texttt{min\_class: 5}, \texttt{min\_documents: 3}) erfüllt sind. Der Validierungsteil wird gruppenweise in \texttt{validation\_fit} (Schwellenwertsuche für \texttt{target\_precision: 0.98}) und \texttt{validation\_audit} (unabhängige Kontrolle auf $F_1$-Erhalt sowie Nichtverschlechterung von Brier Score und \ac{ece}) halbiert, bevor die gewählte Konfiguration in \texttt{frozen.json} für den einmaligen Aufruf von \texttt{ocr-final} auf dem gesperrten Testset versiegelt wird.
+
+Analog implementieren \texttt{selection\_config.py}, \texttt{selection\_sample.py}, \texttt{selection.py} und \texttt{selection\_report.py} die CLI \texttt{participant-bench selection \{inventory, freeze, run, compare\}} für das in Abschnitt~\ref{subsec:auswahlprotokoll} beschriebene zweistufige Auswahlprotokoll, einschließlich kryptografischer Planversiegelung und technischer Sperre gegen eine versehentliche Nutzung finaler Testdokumente während der Modellauswahl.
+
+\section{Automatisierte Berichts-, Audit- und Fehleranalyse-Pipeline}
+\label{sec:umsetzung-berichte}
+
+Für die Auswertung erzeugt \texttt{roster\_benchmark/} vollständig lokal bedienbare, durch \ac{csp}-Skripthashes geschützte Offline-\ac{html}-Berichte sowie maschinenlesbare \ac{json}-, \ac{csv}- und \ac{xlsx}-Exporte. Die Reihenfolge aller ausgegebenen Teilnehmerzeilen folgt über \texttt{output\_order.py} strikt der \ac{pdf}-Eingabereihenfolge, der Seitennummer und dem ursprünglichen Modell-Eintragsindex; die Referenz sortiert die Modellausgabe niemals um.
+
+Das zentrale wissenschaftliche Dashboard (\texttt{dashboard\_report.py}, integriert in \texttt{report.html} neben dem weiterhin erzeugten \texttt{standard\_report.html}) gliedert sich in sieben interaktive Bereiche (\textbf{A--G}):
+\begin{itemize}
+  \item \textbf{Bereich~A (Gesamtvergleich):} Sortierbare Haupttabelle unter primärer Originalrollenbewertung (\texttt{original\_roles}) mit exaktem Feld-Recall ($E/R$), exaktem Feld-$F_1$, bedingter mittlerer Levenshtein-Ähnlichkeit erkannter Felder ($S_{\mathrm{detected}} = \Sigma_s / |D|$), Feldabdeckung, Fehl- und Falschraten, vollständigen/partiellen Teilnehmerquotienten, striktem Teilnehmer-Recall sowie aufklappbaren Matching-Sensitivitäten.
+  \item \textbf{Bereich~B (Feldanalyse):} Vierfeld-Heatmap ($E/R$, $M$, $W$) für \emph{Vorname}, \emph{Nachname}, \emph{Personalnummer} und \emph{Organisation} sowie getrennte Ausweisung ungepaarter Zusatzfelder und ausgeschlossener Referenzen.
+  \item \textbf{Bereich~C (Fehleranalyse) \& verlinkte \texttt{extraction\_errors.html}:} Aggregierte Ursachen- und Evidenzverteilung (\texttt{error\_report.py}) mit Filtern nach Verfahren, Dokument, Seite, Feldtyp, Fehlerstufe und fünfstufigem Feldstatus (\texttt{field\_assessment.py}) sowie direkten Links zu lokalen Bildausschnitten (Crops), \ac{ocr}-Rohbeobachtungen und vor-/nachvalidierten Modellantworten.
+  \item \textbf{Bereich~D (Dokumenttypen \& Strata):} Auswertung nach manuellen Schrift- und Qualitätsmerkmalen (\texttt{printed}, \texttt{mixed}, \texttt{handwritten}, \texttt{headerless\_continuation} usw.) aus \texttt{scientific\_metadata.py}.
+  \item \textbf{Bereich~E (Effizienz \& Kosten):} Qualitäts-Laufzeit-Diagramm, deskriptive Paretofront innerhalb desselben Cache-Regimes, Seitenlaufzeit-Mediane und Quartile (\texttt{scientific\_efficiency.py}), getrennte Modelllade-, Warm-up- und gecachte Zeiten sowie konsistente Aufrufzähler (\texttt{model\_calls}) und getrennte Kostenszenarien pro $1\,000$~\acp{pdf}.
+  \item \textbf{Bereich~F (Statistik \& Gegenvergleiche):} Gepaarte Differenzen und 95-\%-Cluster-Bootstrap-Intervalle (\texttt{scientific\_stats.py}) sowie die kontrollierten Pipeline-Übergänge ($\texttt{vlm} \rightarrow \texttt{ocr\_vlm}$, $\texttt{docling} \rightarrow \texttt{docling-vlm}$, $\texttt{ocr\_llm} \rightarrow \texttt{paddle\_llm}$ aus \texttt{hybrid\_evaluation.py}).
+  \item \textbf{Bereich~G (Evaluationsaudit \& Einzelbewertungen):} Das in \texttt{metric\_audit.py} und \texttt{metric\_audit\_report.py} implementierte Prüfmodul stellt sämtliche Einzel-Feld- und Teilnehmerentscheidungen mit Original-GT, extrahiertem Originalwert, fünfstufigem Feldstatus, prozentualer Levenshtein-Ähnlichkeit, $R/P/E/\Sigma_s/|D|$-Beiträgen und Original-\ac{pdf}-Links dar und prüft in \texttt{metric\_audit\_checks.json} automatisiert die exakte mathematische Übereinstimmung (Reconciliation) aller Einzelbeiträge mit den Gesamtaggregaten.
+\end{itemize}
+
+\section{Datenschutzkonzept und architektonische Isolation des Firmen-\texorpdfstring{\ac{api}}{API}-Pakets}
+\label{sec:umsetzung-datenschutz-api}
+
+Um den betrieblichen Datenschutzanforderungen gerecht zu werden, sind im Repository folgende technische Schutzmaßnahmen implementiert und durch automatisierte Isolationstests (\texttt{tests/test\_local\_isolation.py}) abgesichert:
+\begin{enumerate}
+  \item \textbf{Vollständige Offline-Ausführung des lokalen Benchmarks:} Alle lokalen Starter und Runner (\texttt{--offline}) setzen \texttt{local\_files\_only=True} sowie \texttt{trust\_remote\_code=False} und blockieren externe HTTP-Verbindungen. Es wird kein fremder Python-Code aus externen Modell-Repositories ausgeführt; vor dem Modellstart prüft der Lader die \ac{sha256}-Prüfsummen aller Safetensors-Gewichte gegen das lokale Download-Manifest.
+  \item \textbf{Trennung von Code und personenbezogenen Daten:} Sämtliche Originaldokumente (\texttt{dateien/}), vorbereiteten Seitenbilder (\texttt{software/prepared/}), Laufausgaben (\texttt{software/runs/}), privaten Prüfnachweise (\texttt{software/data/}) und Detailberichte (\texttt{software/testframework/ergebnisse/}) sind in \texttt{.gitignore} vom Versionskontrollsystem ausgeschlossen. Versionierte Dokumentationen und Übergabeprotokolle enthalten ausschließlich interne Datei-/Hashkennungen und aggregierte Kennzahlen.
+  \item \textbf{Architektonische Isolation von \texttt{software/api\_firmen\_pc/}:} Für den Betrieb auf einem Unternehmensrechner mit Zugriff auf einen internen \ac{api}-Endpunkt existiert unter \texttt{software/api\_firmen\_pc/} ein vollständig getrenntes \texttt{uv}-Projekt mit eigener virtueller Umgebung, eigener \texttt{uv.lock} und eigenem Starter (\texttt{start\_api\_testframework.cmd}). Es bindet die Auswertungs-, Matching- und Dashboard-Module aus \texttt{participant\_bench} als reine Quelldependenz ohne das lokale Extra \texttt{models} ein. Der Adapter \texttt{participant\_api/benchmark.py} erbt denselben Systemprompt und dasselbe Antwortschema wie das lokale \ac{vlm}, überträgt jedoch niemals lokale Vorhersagen an den Firmenendpunkt und synchronisiert keine Daten automatisch zwischen Rechnern. Da das \ac{api}-Standardprofil (\texttt{configs/vlm-comparison.yaml}) standardmäßig \texttt{pdf.auto\_orient: false} erbt, ist für gedrehte Scans auf dem Firmen-PC entweder eine vorab ausgerichtete Eingabe oder eine lokale Tesseract-Installation mit aktiviertem \texttt{auto\_orient: true} erforderlich. Das erzeugte Transferarchiv (\texttt{firmen-pc-20261112-folgeseiten.zip}) wird automatisiert darauf geprüft, dass es ausschließlich Programmcode und leere Eingabe-READMEs, aber keinerlei echte Dokumente, Referenzen, Zugangsdaten oder Ergebnisse enthält.
+\end{enumerate}
+
+Die technische Korrektheit des Gesamtsystems wird durch eine umfassende automatisierte Testsuite abgesichert, die im aktuellen Projektstand (16.11.2026) \textbf{922 lokale Unit- und Regressionstests} (\texttt{pytest software/tests}) sowie \textbf{48 separate \ac{api}-Tests} (\texttt{api\_firmen\_pc/tests}) und eine fehlerfreie statische Codeanalyse (\texttt{ruff check}) umfasst.

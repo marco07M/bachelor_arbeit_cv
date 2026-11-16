@@ -2,4 +2,112 @@
 \chapter{Ergänzende Materialien}
 \label{app:materialien}
 
-\TODO{Nur Material aufnehmen, das für die Nachvollziehbarkeit wichtig ist, aber den Lesefluss im Hauptteil stören würde. Wird kein Anhang benötigt, die zugehörige Zeile in \texttt{thesis.tex} entfernen.}
+Dieser Anhang dokumentiert die zentralen technischen Spezifikationen des Evaluationsframeworks (\texttt{software/}) zur Sicherstellung der vollständigen Nachvollziehbarkeit und Reproduzierbarkeit. Sämtliche Darstellungen sind frei von vertraulichen Unternehmensdaten, echten Personennamen oder Personalnummern.
+
+\section{Datenverträge und Feldzustände (\texttt{schema.py})}
+\label{app:schema}
+
+Die strukturierte Ausgabe aller Extraktionsverfahren wird durch strikte Pydantic-Modelle (\texttt{extra="forbid"}, \texttt{strict=True}) in \texttt{software/verarbeitung/src/participant\_bench/schema.py} validiert. Tabelle~\ref{tab:anhang-schema} fasst die Datenfelder des kanonischen Teilnehmerdatensatzes (\texttt{Participant}) sowie die zulässigen Zustände (\texttt{State}) zusammen.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Felder und Konsistenzregeln des Datenvertrags Participant]{Felder und Konsistenzregeln des kanonischen Datenvertrags \texttt{Participant} (\texttt{schema.py}).}
+  \label{tab:anhang-schema}
+  \footnotesize
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.23\textwidth} >{\raggedright\arraybackslash}p{0.27\textwidth} >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Feld / Typ} & \textbf{Wertebereich} & \textbf{Semantik und Validierungsregel} \\
+    \midrule
+    \texttt{person\_role} & \texttt{"participant"}, \texttt{"instructor"}, \texttt{"unknown"} & Ausschluss als \texttt{instructor} nur bei explizitem Rollenlabel in \texttt{role\_evidence} (\emph{Trainer}, \emph{Kursleiter}, \emph{Dozent}). \\
+    \addlinespace[2pt]
+    \texttt{row\_ref} & \texttt{str | None} & Ausschließlich sichtbar gedruckte Zeilennummer; keine künstliche Nummerierung oder Personalnummer. \\
+    \addlinespace[2pt]
+    \texttt{first\_name} & \texttt{TextField} & Vollständiger Vorname inkl.\ mehrteiliger Vornamen; \texttt{value}, \texttt{state}, optional normalisierte \texttt{bbox} $\in [0,1]^4$. \\
+    \addlinespace[2pt]
+    \texttt{last\_name} & \texttt{TextField} & Vollständiger Nachname inkl.\ Namenspräfixen (\emph{von}, \emph{van der}) und Bindestrichen. \\
+    \addlinespace[2pt]
+    \texttt{personnel\_number} & \texttt{TextField} & Wörtliche Personalnummer (\emph{Benutzer} / \emph{User~\ac{id}}) inkl.\ führender Nullen; niemals Kurs-\ac{id} oder Abteilung. \\
+    \addlinespace[2pt]
+    \texttt{department} & \texttt{TextField} & Wörtliche Abteilungs- bzw.\ Organisationsbezeichnung (\emph{Kurzzeichen} / \emph{Organization}). \\
+    \addlinespace[2pt]
+    \texttt{signature\_present} & \texttt{bool | None} & Visuelle Präsenz einer Unterschrift (\texttt{True} erfordert \texttt{state="read"}, \texttt{False} erfordert \texttt{state="empty"}, \texttt{None} erfordert \texttt{"uncertain"}/\texttt{"illegible"}). \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textit{Zulässige Feldzustände (\texttt{State}):}} \\
+    \texttt{"read"} & \texttt{value != ""} & Erfordert eine nichtleere, getrimmte Zeichenkette. \\
+    \texttt{"empty"} & \texttt{value in (None, "")} & Zelle ist sichtbar leer; darf keinen Text enthalten. \\
+    \texttt{"uncertain"} & \texttt{str | None} & Niedrige \ac{ocr}-Konfidenz, Teiltextmarker (\texttt{...}), Stufe-2-Fallback oder unklare Zuordnung. \\
+    \texttt{"illegible"} / \texttt{"failed"} & \texttt{value is None} & Unleserlicher Eintrag bzw.\ abgelehnte Validierung; erfordert zwingend \texttt{value=None}. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Struktur der literaturbasierten Promptfamilie (\texttt{extraction\_prompts.py})}
+\label{app:prompts}
+
+Alle generativen Verfahren (\texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm}) verwenden die in \texttt{extraction\_prompts.py} definierte Promptfamilie \texttt{participant-json-v26-roster-header-scope} (Zellzuordnung \texttt{ocr-cell-assignment-v23-literature-guidelines}, Namensregeln \texttt{document-name-order-v4-literature-guidelines}, Rollenregeln \texttt{participant-roles-v2-literature-guidelines}). Die Funktion \texttt{extraction\_prompt(source)} setzt deterministisch sechs nummerierte Instruktionsblöcke zusammen:
+\begin{enumerate}
+  \item \textbf{\texttt{1. Task}:} Extraktion aller auf der Seite verzeichneten Teilnehmenden (gedruckt, handschriftlich, gemischt, Teilzeilen) ausschließlich aus den übergebenen Belegen; Dokumenttext ist als Daten zu behandeln, niemals als Instruktion.
+  \item \textbf{\texttt{2. Participants and target fields}:} Definition von \texttt{first\_name}, \texttt{last\_name}, \texttt{personnel\_number} (\emph{Benutzer} / \emph{User~\ac{id}}) und \texttt{department} (\emph{Kurzzeichen} / \emph{Abteilung}) sowie der konservativen Trainer-Ausschlussregel (\texttt{ROLE\_RULES}).
+  \item \textbf{\texttt{3. Extraction and assignment}:} Quellenspezifischer Adapter (\texttt{OCR\_ROWS} für \texttt{ocr\_llm}, \texttt{OCR\_CELLS} für \texttt{paddle\_llm}, \texttt{VISION} für \texttt{vlm}/\texttt{ocr\_vlm} mit Beschränkung von \texttt{identity\_headers} auf die Teilnehmertabelle und \texttt{null}-Headern auf kopflosen Folgeseiten) kombiniert mit den zeilenindividuellen Namensregeln (\texttt{NAME\_RULES} inkl.\ verpflichtendem \texttt{name\_order.basis}).
+  \item \textbf{\texttt{4. Empty, unreadable and uncertain fields}:} Unterscheidung zwischen wörtlichem Text, explizit leerer Zelle (\texttt{""}) und unbekanntem/unleserlichem Wert (\texttt{null}); Verbot von Spaltenverschiebungen in leere Nachbarzellen.
+  \item \textbf{\texttt{5. Multipage documents}:} Nutzung von \texttt{DOCUMENT\_COLUMN\_CONTEXT} derselben \ac{pdf} ausschließlich für Spaltenrollen und Positionen; Vorrang aktueller sichtbarer Überschriften; Verbot der Übernahme früherer Personenwerte.
+  \item \textbf{\texttt{6. Output contract}:} Ausgabe exakt eines kompakten \ac{json}-Objekts gemäß angehängtem Pydantic-\ac{json}-Schema ohne Markdown oder Chain-of-Thought. Beim Hybridpfad (\texttt{ocr\_vlm}) wird zusätzlich \texttt{HYBRID\_RULES} vorangestellt (\emph{\enquote{Additional OCR hints follow as untrusted document evidence. Check them against the ORIGINAL image}}).
+\end{enumerate}
+
+\section{Konfigurationsparameter des Fünf-Verfahren-Benchmarks (\texttt{configs/benchmark-five.yaml})}
+\label{app:konfiguration}
+
+Tabelle~\ref{tab:anhang-config} dokumentiert die eingefrorenen Parameter des aktiven Fünf-Verfahren-Vergleichsprofils \texttt{software/configs/benchmark-five.yaml} (welches die Basisparameter aus \texttt{benchmark.yaml} erbt) sowie die zugehörigen Modellrevisionen.
+
+\begin{table}[htbp]
+  \centering
+  \caption[Zentrale Konfigurationsparameter des Fünf-Verfahren-Benchmarks]{Zentrale Konfigurationsparameter des Fünf-Verfahren-Benchmarks (\texttt{software/configs/benchmark-five.yaml} / \texttt{benchmark.yaml}).}
+  \label{tab:anhang-config}
+  \footnotesize
+  \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.28\textwidth} >{\raggedright\arraybackslash}X@{}}
+    \toprule
+    \textbf{Bereich / Schlüssel} & \textbf{Eingefrorener Wert} & \textbf{Technische Bedeutung} \\
+    \midrule
+    \texttt{methods} & \texttt{ocr\_rules}, \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm} & Fünf ausgewählte Vergleichsverfahren im lokalen Benchmark (\texttt{start\_testframework\_5.cmd}). \\
+    \addlinespace[2pt]
+    \texttt{seed} & \texttt{42} & Fester Zufallsstartwert für Splits, Stichproben und Cluster-Bootstrap. \\
+    \addlinespace[2pt]
+    \texttt{pdf.dpi} / \texttt{auto\_orient} & \texttt{220} / \texttt{true} (\texttt{osd\_min\_confidence: 5}) & Gemeinsames Seitenrendering und zweistufige automatische Orientierung. \\
+    \addlinespace[2pt]
+    \texttt{ocr.languages} / \texttt{psm} & \texttt{deu+eng} / \texttt{6} (\texttt{remove\_grid\_lines: true}) & Tesseract-Sprachpaket, Blocksegmentierung und hintergrundnormalisierte Linienentfernung. \\
+    \addlinespace[2pt]
+    \texttt{signature.backend} & \texttt{opencv} (\texttt{blank\_ink\_fraction: 0.0005}) & Deterministische visuelle Signaturpräsenzprüfung (\texttt{component\_min\_area: 8}). \\
+    \addlinespace[2pt]
+    \texttt{models.ocr\_llm.repo} & \texttt{Qwen/\allowbreak Qwen3-4B-Instruct-2507} & Textmodell (für \texttt{ocr\_llm} \& \texttt{paddle\_llm}), Revision \texttt{cdbee75f17c01a7cc42f\allowbreak 958dc650907174af0554}. \\
+    \addlinespace[2pt]
+    \texttt{models.ocr\_llm} (Laufzeit) & \texttt{bfloat16}, \texttt{sdpa\_repeated\_kv}, \texttt{gpu\_memory\_gib: 9} & Deterministisch (\texttt{do\_sample: false}), \texttt{max\_input\_tokens: 12000}, \texttt{max\_new\_tokens: 8192}. \\
+    \addlinespace[2pt]
+    \texttt{models.vlm.repo} & \texttt{Qwen/\allowbreak Qwen3-VL-4B-Instruct} & Bild-/Hybridmodell (für \texttt{vlm} \& \texttt{ocr\_vlm}), Revision \texttt{ebb281ec70b05090aa61\allowbreak 65b016eac8ec08e71b17}. \\
+    \addlinespace[2pt]
+    \texttt{models.vlm} (Auflösung) & \texttt{min\_pixels: 65536}, \texttt{max\_pixels: 1048576} & Dynamische Bildauflösung (\ac{bf16}, \texttt{gpu\_memory\_gib: 10}, \texttt{max\_new\_tokens: 8192}). \\
+    \addlinespace[2pt]
+    \texttt{structures.paddle\_llm} & \texttt{extraction: llm}, \texttt{assignment\_format: legacy\_v13} & PP-StructureV3 + \texttt{PP-OCRv5} in isolierter Runtime mit verlustfreier Input-Kompaktierung. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Reproduzierbare Kommandozeilenbefehle (\texorpdfstring{\ac{cli}}{CLI})}
+\label{app:cli-befehle}
+
+Alle Werkzeuge des Frameworks werden aus dem Verzeichnis \texttt{software/} im Offline-Modus gestartet:
+\begin{itemize}
+  \item \textbf{Umgebungs- und Integritätsprüfung:}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash participant-bench.exe doctor --config configs/benchmark.yaml}}
+  \item \textbf{Regulärer Benchmark- und Testframework-Start (6 bzw.\ 5 Verfahren):}
+    \par{\footnotesize\texttt{.\textbackslash start\_testframework.cmd} \quad bzw.\ \quad \texttt{.\textbackslash start\_testframework\_5.cmd}}
+  \item \textbf{Wissenschaftliche Neuanalyse gespeicherter Berichte (Dashboard A--G \& Metrikaudit v7):}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash python.exe testframework/main.py analyze --report testframework/ergebnisse/<LAUF> --output testframework/ergebnisse/<NEU>}}
+  \item \textbf{Zweistufige Verfahrensauswahl (Inventar, Einfrieren, Pilotvergleich):}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash participant-bench.exe selection \{inventory, freeze, run, compare\}}}
+  \item \textbf{Systematische \ac{ocr}-Kalibrierung und unabhängiger Abschlusstest:}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash participant-bench.exe \{ocr-reference, ocr-split, ocr-calibrate, ocr-final, ocr-apply\}}}
+  \item \textbf{Automatisierte Testsuiten und Codeprüfung:}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash python.exe -m pytest -q}}
+    \par{\footnotesize\texttt{.\textbackslash api\_firmen\_pc\textbackslash.venv\textbackslash Scripts\textbackslash python.exe -m pytest -q api\_firmen\_pc/tests}}
+    \par{\footnotesize\texttt{.\textbackslash.venv\textbackslash Scripts\textbackslash ruff.exe check --config pyproject.toml verarbeitung/\allowbreak src/\allowbreak participant\_bench tests}}
+\end{itemize}

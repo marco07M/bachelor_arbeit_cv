@@ -1,15 +1,29 @@
 % !TeX root = ../thesis.tex
-% Vorläufige Gliederung mit geplanten Inhalten.
 \chapter{Fazit und Ausblick}
 \label{chap:fazit}
+
 \section{Zusammenfassung der zentralen Ergebnisse}
-\section{Schlussfolgerungen für den praktischen Einsatz}
-\begin{inhalte}
-  \item Abschließende Beurteilung der Eignung spezialisierter Modelle, Vision-Language-Modelle und hybrider Ansätze
-\end{inhalte}
+\label{sec:fazit-zusammenfassung}
+
+Ziel dieser Bachelorarbeit war es, \ac{ki}-basierte Ansätze zur automatisierten Informationsextraktion aus ausgefüllten betrieblichen Teilnehmerlisten hinsichtlich ihrer Extraktionsqualität, ihrer Laufzeit- und Ressourceneffizienz sowie ihrer praktischen Einsatzfähigkeit systematisch zu untersuchen. Hierzu wurde ein vollständig lokal unter einem Grafikspeicherbudget von \mbox{16\,GiB} \ac{vram} ausführbares, modulares Evaluationsframework in Python~3.12 entwickelt, das fünf ausgewählte Extraktionsverfahren (\texttt{ocr\_rules}, \texttt{ocr\_llm}, \texttt{paddle\_llm}, \texttt{vlm}, \texttt{ocr\_vlm} in \texttt{configs/benchmark-five.yaml}) unter kontrollierten, reproduzierbaren Bedingungen vergleicht.
+
+Die zentralen wissenschaftlichen und technischen Ergebnisse der Arbeit lassen sich in fünf Punkten zusammenfassen:
+\begin{enumerate}
+  \item \textbf{Überlegenheit strukturierter \ac{ocr}+\ac{llm}- und hybrider \ac{ocr}+\ac{vlm}-Pipelines:} Auf den untersuchten realen Entwicklungsstichproben erzielen \texttt{paddle\_llm} (PP-StructureV3/PP-OCRv5 + Text-\ac{llm} \texttt{Qwen3-4B-Instruct-2507}; $51{,}09\,\%$ exakter Feld-Recall, $60{,}65\,\%$ exakter Feld-$F_1$ und $68{,}48\,\%$ Feldabdeckung im Dreidokumentlauf) sowie das hybride Verfahren \texttt{ocr\_vlm} (vorgeschaltete PaddleOCR kombiniert mit \texttt{Qwen3-VL-4B-Instruct}; $58{,}33\,\%$ exakter Feld-Recall auf dem gemischten Dokument \texttt{140829.pdf} und $52{,}17\,\%$ im Dreidokumentlauf nach abgesicherter Folgeseitenreparatur) die höchste Extraktionsgüte. Sie übertreffen sowohl die klassische Tesseract-\ac{llm}-Kombination (\texttt{ocr\_llm}: $40{,}22\,\%$) als auch das rein bildbasierte \ac{vlm} (\texttt{vlm}: $36{,}41\,\%$) und die vorlagengebundene Regelbaseline (\texttt{ocr\_rules}: $0{,}00\,\%$) deutlich.
+  \item \textbf{Entscheidende Rolle vor- und nachgelagerter Pipeline-Mechanismen:} Die kausale Fehleranalyse über bis zu $20$~Seiten ($620$~Referenzfelder) hat gezeigt, dass massive Feldverluste in realen Dokumentarchiven häufig durch strukturelle Brüche entlang der Pipeline entstehen. Durch die Entwicklung (a)~einer zweistufigen automatischen Seitenorientierung (\ac{osd} + Vierlagen-\ac{ocr}-Fallback mit $20/20$ korrekt ausgerichteten Entwicklungsseiten), (b)~einer zerstörungsfreien Hintergrundnormalisierung für grau hinterlegte Kopfzeilen, (c)~eines verlustfreien \ac{ocr}-Beobachtungsregisters, (d)~einer geometrisch geprüften Spaltenvererbung für kopflose Folgeseiten ($\Delta x_{\max} \le 0{,}035$) mit nativer Anker-Absicherung (\texttt{echo\_corroboration}), (e)~einer zeilenindividuellen Vor- und Nachname-Trennung sowie (f)~einer verlustfreien Input-Kompaktierung gegen Tokenbudget-Abbrüche konnten diese strukturellen Fehlerquellen gezielt behoben werden.
+  \item \textbf{Methodische Präzisierung der Evaluationsmetriken:} Durch die Trennung von primärer Originalrollenbewertung (\texttt{original\_roles}) und Namensswap-Sensitivitäten, die Einführung eines strikten Teilnehmer-Recalls, die fünfstufige Feldstatus-Partitionierung (\emph{Korrekt}, \emph{Abweichend}, \emph{Nicht erkannt}, \emph{Zuordnung unklar}, \emph{Nicht bewertbar}) und den Ersatz des mehrdeutigen Soft-$F_1$ durch die bedingte mittlere Levenshtein-Ähnlichkeit erkannter Felder ($S_{\mathrm{detected}} = \Sigma_s / |D|$) neben der Feldabdeckung ermöglicht das Framework eine unverzerrte, bis auf jedes Einzelfeld prüfbare Qualitätsdiagnose.
+  \item \textbf{Ressourceneffizienz unter lokaler Hardwaregrenze:} Mithilfe isolierter \texttt{uv}-Laufzeitumgebungen, sequenzieller Prozessentladung und \ac{bf16}-Inferenz arbeiten sämtliche fünf Verfahren zuverlässig unterhalb von \mbox{16\,GiB} \ac{vram} (Spitzenallokation $\le 10\,\text{GiB}$). Zudem verhindert die Kombination aus PaddleOCR-Hinweisen und \ac{vlm} in \texttt{ocr\_vlm} auf dem Dreidokumentbestand die beim reinen \ac{vlm} beobachteten langwierigen Ausgabetoken-Abbrüche.
+  \item \textbf{Datenschutzkonforme Bereitstellung:} Die strikte Offline-Ausführung des lokalen Frameworks und die Bereitstellung eines quellcodegleichen, datenfreien Transferpakets (\texttt{software/api\_firmen\_pc/}) gewährleisten die Einhaltung betrieblicher Datenschutzvorgaben und wurden durch insgesamt $922$ lokale Tests und $48$ \ac{api}-Tests verifiziert.
+\end{enumerate}
+
 \section{Ausblick}
-\begin{inhalte}
-  \item Mögliche Weiterentwicklung des Forschungsprototyps
-  \item Weitere Modelle und Datensätze
-  \item Mögliche spätere Integration in Unternehmensprozesse
-\end{inhalte}
+\label{sec:fazit-ausblick}
+
+Aufbauend auf dem geschaffenen Evaluationsframework ergeben sich fünf konkrete Ansatzpunkte für weiterführende wissenschaftliche und praktische Arbeiten:
+\begin{itemize}
+  \item \textbf{Durchführung der konfirmatorischen Pilot- und Finalstudie:} Als unmittelbarer nächster Schritt ist auf dem Gesamtbestand von rund $6\,000$ Dokumenten über den implementierten Auswahlworkflow (\texttt{participant-bench selection inventory/freeze/run/compare}) die geschichtete Pilotstichprobe von $30$ bis $50$ unabhängigen Listen sowie anschließend die gesperrte finale Testevaluation auf mindestens zehn unabhängigen Schulungsgruppen auszuführen, um belastbare 95-\%-Cluster-Bootstrap-Konfidenzintervalle zu bestimmen.
+  \item \textbf{Unabhängige Seiten- und Leerzellenannotation:} Um die Diskrepanz zwischen externen Excel-Kurslisten und den tatsächlich auf dem Papierformular sichtbaren Spalten aufzulösen, sollte für die Teststichprobe über \texttt{ocr-reference} eine unabhängige seitenbezogene Referenzannotation (einschließlich expliziter \texttt{empty}-Zellen, \texttt{signature\_present}-Labels und Seitentranskripten für Handschrift-\ac{cer}/\ac{wer}) erstellt und die mehrstufige Konfidenzkalibrierung (\texttt{ocr-calibrate} / \texttt{ocr-final}) abgeschlossen werden.
+  \item \textbf{Formale Grammatikbeschränkung gegen \ac{vlm}-Tokenabbrüche:} Um die im direkten und hybriden \ac{vlm}-Pfad auf dichten Folgeseiten beobachteten Abbrüche am $8\,192$-Token-Ausgabelimit zu verhindern, sollte eine formale Grammatik- oder Zustandsautomaten-Beschränkung während der autoregressiven Dekodierung~\cite{Geng2023Grammar} sowie eine kontrollierte Zeilensegmentierung bei sehr langen Tabellen untersucht werden.
+  \item \textbf{Evaluation weiterer lokaler Modellgenerationen und spezialisierter \ac{htr}-Zeilenmodelle:} Die modulare Worker-Architektur erlaubt es, künftig neuere Erkennungs- und Sprachmodelle (wie \texttt{PP-OCRv6}, \texttt{PaddleOCR-VL-1.6} oder quantisierte \texttt{Qwen3-8B}-Varianten) sowie auf den durch TableFormer lokalisierten Zellausschnitten spezialisierte Handschrift-Transkriptionsmodelle wie feinabgestimmtes \ac{trocr}~\cite{Li2023TrOCR} ohne Änderung der Evaluationslogik zu integrieren.
+  \item \textbf{Produktive Human-in-the-Loop-Integration:} Schließlich kann das erzeugte Audit- und Dashboard-Format (\texttt{report.html}, \texttt{participants.xlsx}) über eine Freigabeschnittstelle direkt mit dem betrieblichen Schulungsmanagement-System gekoppelt werden, sodass vom Prüfpersonal bestätigte oder korrigierte Teilnehmerdatensätze ohne erneute manuelle Eingabe übernommen werden.
+\end{itemize}

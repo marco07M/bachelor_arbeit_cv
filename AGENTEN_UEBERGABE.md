@@ -8,6 +8,73 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
+### Vollständige wissenschaftliche und technische Überarbeitung der Bachelorarbeit (16.11., abgeschlossen)
+
+- Auftrag: vollständige, konsistente und wissenschaftlich fundierte Überarbeitung
+  der LaTeX-Bachelorarbeit unter `bachelorarbeit/` auf Basis des aktuellen
+  Entwicklungsstands in `software/` und geprüfter wissenschaftlicher
+  Originalquellen im IEEE-Stil; keine erfundenen Messwerte, fehlerfreie
+  Kompilierung zu `thesis.pdf`.
+- Implementiert / ausgearbeitet:
+  - `bachelorarbeit/verified_sources.bib`: neun verifizierte Originalarbeiten
+    ergänzt (`Jaume2019FUNSD`, `Smith2007Tesseract`, `Li2022PPOCRv3`,
+    `Nassar2022TableFormer`, `Huang2022LayoutLMv3`, `Wang2024Qwen2VL`,
+    `Yang2025Qwen3`, `Diaz2019Signature`, `Levenshtein1966Binary`); bestehende
+    Einträge (`Kim2022Donut`, `Auer2024DoclingSelection` u. a.) ohne Duplikate
+    erhalten; `references.bib` als Zotero-Exportziel unverändert.
+  - `bachelorarbeit/frontmatter/`: `kurzfassung.tex` (Deutsch), `abstract.tex`
+    (Englisch) und `abkuerzungsverzeichnis.tex` (alphabetisch sortiert, alle
+    verwendeten Fachabkürzungen) vollständig ausgearbeitet; Abkürzungen in
+    Kurzfassung und Abstract über `\ac{...}`/`\acs{...}` direkt mit dem
+    Abkürzungsverzeichnis verlinkt und vor Kapitel 1 mittels `\acresetall` in
+    `thesis.tex` zurückgesetzt.
+  - `bachelorarbeit/chapters/01_einleitung.tex` & `02_grundlagen.tex`:
+    Praxisproblem (~6.000 Unternehmens-PDFs, 5 Zielfelder, Sichtbarkeitsprüfung
+    der Unterschrift ohne biometrische Verifikation, kein Datum, 16-GiB-VRAM-
+    und Datenschutzrahmen), Stand der Technik, Forschungsfragen FF1–FF4 sowie
+    theoretische Grundlagen (DIA/DLA, Hintergrundnormalisierung, OCR/HTR,
+    TableFormer/Docling, LayoutLMv3, Qwen3/Qwen2-VL/Qwen3-VL, Levenshtein,
+    CER/WER, Konfidenzkalibrierung mit Platt/PAVA/ECE/Brier) mit IEEE-Zitaten.
+  - `bachelorarbeit/chapters/03_methodik.tex`: Forschungsdesign, Ground-Truth-
+    Reflexion (manuelle Seitenreferenz vs. externe Excel-/CSV-Kursreferenz),
+    Fokussierung auf die fünf ausgewählten Vergleichsverfahren (`ocr_rules`,
+    `ocr_llm`, `paddle_llm`, `vlm`, `ocr_vlm` in `configs/benchmark-five.yaml`)
+    und Auswahlprotokoll (`selection.yaml`, `calibration.yaml`), Vorverarbeitung,
+    Spaltenvererbung v3, Namensaufteilung, Promptfamilie v26 (Regelmatrix
+    R01–R10), mathematische Metriken v7 (inkl. bedingter mittlerer
+    Levenshtein-Ähnlichkeit $S_{\mathrm{detected}} = \Sigma_s / |D|$,
+    Legacy-Soft-F1, fünfstufigem Feldstatus, striktem Teilnehmer-Recall, fünf
+    Matching-Ansichten, 95-%-Cluster-Bootstrap) und kausale Fehleranalyse-Taxonomie.
+  - `bachelorarbeit/chapters/04_umsetzung.tex`: vollständige Systemarchitektur
+    des Python-3.12-/`uv`-Frameworks (`vorverarbeitung/`, `participant_bench/`,
+    `roster_benchmark/`, isolierte `*_runtime/`-Worker), zweistufige
+    Orientierung (`orientation-v1-osd-ocr-comparison`), zerstörungsfreie
+    Hintergrundnormalisierung (`MORPH_CLOSE` + `cv2.divide`), verlustfreies
+    Beobachtungsregister, Spaltenkontext v3 mit `echo_corroboration`,
+    zeilenindividuelle Namensaufteilung, `compact_assignment_rows`, Dashboard
+    A–G und strikte Isolation von `software/api_firmen_pc/`.
+  - `bachelorarbeit/chapters/05_ergebnisse.tex`: ausschließlich real belegte
+    Entwicklungs- und Diagnoseergebnisse eingebunden (`140829.pdf` mit $R=72$,
+    Dreidokumentvergleich mit $R=184$ inkl. Metrikversion v7 und Feldstatus v6,
+    Zehndokument-Audit mit $R=620$ und Input-Kompaktierung, reale Laufzeit- und
+    VRAM-Messungen); ausstehende Pilot-/Testläufe und empirische Euro-Prozesskosten
+    explizit als `\TODO{...}`-Platzhalter markiert.
+  - `bachelorarbeit/chapters/06_diskussion.tex`, `07_fazit.tex` &
+    `appendices/anhang.tex`: kritische Diskussion, Beantwortung von FF1–FF4,
+    Trade-offs, Limitationen, Fazit/Ausblick sowie technischer Anhang (`schema.py`,
+    Promptstruktur v26, `benchmark.yaml`, CLI-Referenz) ohne Personendaten.
+- Prüfungen: `bachelorarbeit/build.ps1` im Standard-Sandbox-Modus mit Exitcode 0
+  durchgelaufen; **75 Seiten** (`bachelorarbeit/build/thesis.pdf` und
+  `bachelorarbeit/thesis.pdf`), **35 zitierte Quellen**, **0 BibTeX-Warnungen**,
+  **0 unaufgelöste Zitate/Referenzen**, **0 Overfull/Underfull-Boxen**.
+  `git diff --check` ohne Befund; `software/` vollständig unverändert; keine
+  personenbezogenen Daten in `.tex`- oder `.bib`-Dateien.
+- Offen / nächster Schritt: konfirmatorische Pilot- (30–50 Listen) und
+  Finalteststudie ($\ge 10$ unabhängige Gruppen) sowie Prozesskostenerhebung
+  durchführen und die beiden `\TODO{...}`-Platzhalter in `05_ergebnisse.tex`
+  durch die finalen Tabellen ersetzen, anschließend `\showtodosfalse` in
+  `config/metadata.tex` setzen.
+
 ### Bedingte Levenshtein-Ähnlichkeit erkannter Felder (16.11., abgeschlossen)
 
 - Auftrag: Levenshtein-Feld-F1 in der Darstellung durch arithmetisches Mittel
@@ -2760,3 +2827,47 @@ auf die dort datierten Stände.
   offen. N?chster sinnvoller Schritt: neuen Bericht sichten, bedingtes Mittel
   gemeinsam mit Vollst?ndigkeit/Exactwerten/Extras interpretieren und Referenzen
   vor einer unabh?ngigen Studie pr?fen.
+
+
+### 2026-11-16 – Vollständige wissenschaftliche und technische Überarbeitung der Bachelorarbeit
+
+- Auftrag: vollständige Überarbeitung aller Kapitel (`01_einleitung.tex` bis
+  `07_fazit.tex`), Frontmatter, Anhang und Literaturverzeichnis unter
+  `bachelorarbeit/` auf Basis des aktuellen Stands in `software/` und geprüfter
+  IEEE-Originalquellen; keine erfundenen Zahlen; fehlerfreier PDF-Build.
+- Geänderte Dateien: `bachelorarbeit/thesis.tex`,
+  `bachelorarbeit/config/preamble.tex`,
+  `bachelorarbeit/frontmatter/kurzfassung.tex`,
+  `bachelorarbeit/frontmatter/abstract.tex`,
+  `bachelorarbeit/frontmatter/abkuerzungsverzeichnis.tex`,
+  `bachelorarbeit/chapters/01_einleitung.tex`,
+  `bachelorarbeit/chapters/02_grundlagen.tex`,
+  `bachelorarbeit/chapters/03_methodik.tex`,
+  `bachelorarbeit/chapters/04_umsetzung.tex`,
+  `bachelorarbeit/chapters/05_ergebnisse.tex`,
+  `bachelorarbeit/chapters/06_diskussion.tex`,
+  `bachelorarbeit/chapters/07_fazit.tex`,
+  `bachelorarbeit/appendices/anhang.tex`,
+  `bachelorarbeit/verified_sources.bib`,
+  `bachelorarbeit/README.md`, `bachelorarbeit/BUILDSTATUS.md`, `README.md` und
+  `AGENTEN_UEBERGABE.md`.
+- Zweck: durchgängige Synchronisierung der schriftlichen Bachelorarbeit mit dem
+  implementierten und getesteten Stand des Evaluationsframeworks (sechs
+  Hauptverfahren plus `ocr_rules`, `docling-vlm`, `unlimited_ocr`,
+  Kalibrierung und zweistufige Verfahrensauswahl; zweistufige automatische
+  Seitenorientierung; zerstörungsfreie Hintergrundnormalisierung; verlustfreies
+  Beobachtungsregister; Spaltenkontext v3 mit `echo_corroboration`;
+  zeilenindividuelle Namensaufteilung; verlustfreie Input-Kompaktierung;
+  fünfstufiger Feldstatus v6; bedingte Levenshtein-Ähnlichkeit erkannter Felder
+  v7; Dashboard A–G; isoliertes Firmen-API-Projekt).
+- Prüfungen: `powershell -NoProfile -ExecutionPolicy Bypass -File bachelorarbeit/build.ps1`
+  (Exitcode 0, **75 Seiten**, `bachelorarbeit/build/thesis.pdf` und
+  `bachelorarbeit/thesis.pdf`), BibTeX-Prüfung (**35 zitierte Quellen**,
+  0 Warnungen, 0 Dubletten), Log-Prüfung (0 undefined references/citations,
+  0 Overfull/Underfull-Boxen), Datenschutz-Suche über alle `.tex`-Dateien
+  (0 Klarnamen/Personalnummern), `git diff --check` (Exitcode 0) und `git status`
+  (`software/` komplett unverändert).
+- Offen / nächster Schritt: nach Durchführung der unabhängigen Pilot-/Testläufe
+  und Erhebung der Prozesskostenparameter die beiden markierten `\TODO{...}`-Blöcke
+  in `bachelorarbeit/chapters/05_ergebnisse.tex` befüllen und vor Abgabe
+  `\showtodosfalse` in `bachelorarbeit/config/metadata.tex` setzen.

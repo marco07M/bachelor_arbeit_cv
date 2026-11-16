@@ -40,6 +40,9 @@
 
 % Satzspiegel und Gliederungstiefe
 \KOMAoptions{DIV=12,BCOR=8mm}
+\sloppy
+\hbadness=10000
+\hfuzz=2pt
 \setcounter{secnumdepth}{3}
 \setcounter{tocdepth}{3}
 
@@ -64,3 +67,4 @@
     \par\smallskip
   \fi
 }
+\newcommand{\todo}[1]{\TODO{#1}}

@@ -17,7 +17,7 @@
 % Aktueller Titel: Automatisierte Informationsextraktion aus ausgefüllten Teilnehmerlisten: Analyse KI-basierter Ansätze hinsichtlich Qualität, Effizienz und praktischer Einsatzfähigkeit
 % Englischer Titel: Automated Information Extraction from Participant Lists: Analysis of AI-Based Approaches in Terms of Quality, Efficiency, and Practical Applicability
 % Titelbestandteile werden für das Titelblatt in config/metadata.tex gepflegt.
-\newcommand{\researchquestion}{Wie unterscheiden sich verschiedene \acs{ki}-basierte Ansätze zur automatisierten Informationsextraktion aus handschriftlich ausgefüllten Teilnehmerlisten hinsichtlich Extraktionsqualität, Effizienz und praktischer Einsatzfähigkeit?}
+\newcommand{\researchquestion}{Wie unterscheiden sich verschiedene \acs{ki}-basierte Ansätze zur automatisierten Informationsextraktion aus ausgefüllten Teilnehmerlisten hinsichtlich Extraktionsqualität, Effizienz und praktischer Einsatzfähigkeit?}
 
 \input{config/metadata}
 \input{config/preamble}
@@ -30,12 +30,12 @@
 \input{frontmatter/abstract}
 
 \tableofcontents
-% Aktivieren, sobald Abbildungen bzw. Tabellen vorhanden sind.
-% \listoffigures
-% \listoftables
+\listoffigures
+\listoftables
 \input{frontmatter/abkuerzungsverzeichnis}
 
 \mainmatter
+\acresetall
 \input{chapters/01_einleitung}
 \input{chapters/02_grundlagen}
 \input{chapters/03_methodik}
