@@ -21,7 +21,7 @@ from .scientific_efficiency import costs_per_1000, enrich_effort
 from .scientific_metadata import course_metadata, load_metadata, template
 from .scientific_stats import METRICS, cluster_bootstrap, pareto
 
-VERSION = "scientific-evaluation-v2-dashboard"
+VERSION = "scientific-evaluation-v4-detected-similarity"
 MODES = ("original_roles", "best_fit_no_swap", "best_fit_swap", "conservative_no_swap", "conservative_swap")
 PAIRS = (("vlm", "ocr_vlm"), ("docling", "docling_vlm"), ("ocr_llm", "paddle_llm"))
 
@@ -293,6 +293,7 @@ def analyze(
                         exact_recall=score["overall"]["exact_recall"],
                         exact_f1=score["overall"]["exact_f1"],
                         soft_f1=score["overall"]["soft_f1"],
+                        detected_similarity=score["overall"]["detected_similarity"],
                         missing_participants=score["missing_participants"],
                         extra_participants=score["extra_participants"],
                     )
@@ -634,12 +635,17 @@ def analyze(
 
     render_errors(output)
     error_summary=read_json(output/"error_analysis/summary.json")
+    from .metric_audit import build as build_metric_audit
+
+    metric_audit = build_metric_audit(output, details, case_rows, overview, source_identities, scoped)
     dashboard_rows=[]
     for candidate,r in primary.items():
         e=efforts[candidate]
         dashboard_rows.append(dict(candidate=candidate,status=r["status"],reference_fields=r["reference_fields"],
             predicted_fields=r["predicted_fields"],exact_fields=r["exact_fields"],exact_recall=r["exact_recall"],
             exact_f1=r["exact_f1"],soft_f1=r["soft_f1"],field_coverage=r["field_coverage"],
+            detected_similarity=r["detected_similarity"],detected_fields=r["detected_fields"],
+            detected_similarity_credit=r["detected_similarity_credit"],
             **r["participant_quality"],page_time_median=e["page_time"]["median"],page_times=e["page_time"]["n"],
             actual_calls=e["selected_actual_calls"],llm_calls=e["selected_llm_calls"],vlm_calls=e["selected_vlm_calls"],
             measured_eur_per_1000=e["costs"]["measured_eur_per_1000"],
@@ -666,8 +672,10 @@ def analyze(
         distributions=distributions,
         ablation_strata=ablation_strata,
         errors=error_summary,
+        metric_audit=metric_audit,
         dashboard=dashboard_rows,
         normalization_rule=user_id_rule(config.matching.ignore_leading_user_id_zeros),
+        normalization_config=config.matching.model_dump(),
         definitions=QUALITY_DEFINITIONS,
         bootstrap=dict(
             seed=seed,
@@ -680,7 +688,9 @@ def analyze(
             reference_sha256=ref_hash,
             reference_snapshot_sha256=file_hash(output / "reference_snapshot.json"),
             sources=source_identities,
-            implementation={p.name: file_hash(p) for p in Path(__file__).parent.glob("scientific*.py")},
+            implementation={p.name: file_hash(p) for p in [*Path(__file__).parent.glob("scientific*.py"),
+                *(Path(__file__).parent / name for name in ("metrics.py", "matching.py", "metric_audit.py",
+                    "metric_audit_report.py", "dashboard_report.py", "references.py", "field_assessment.py"))]},
         ),
         limitations=[
             "reference_assisted_identity_even_without_swap",

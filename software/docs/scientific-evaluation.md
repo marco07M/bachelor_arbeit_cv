@@ -10,6 +10,24 @@ sichtbaren Primäransicht ist keine Änderung historischer Extraktionen.
 
 ## Start aus `software/`
 
+Aktuelle [Levenshtein-Bewertung](detected-similarity.md): Mittel der normalisierten
+Ähnlichkeiten nichtleerer bewertbarer Referenzpaare, getrennt von Coverage und
+Exact Recall/F1. Fehlende Felder senken dieses bedingte Mittel nicht; D=0 ist
+nicht definiert. Der frühere Soft-F1 bleibt nur als dokumentierter Legacyexport.
+
+[Feldstatus und Textähnlichkeit](field-assessment.md) erklärt die fünf gemeinsamen
+Status in Metrikentscheidungen und HTML-Details. Die prozentuale bestehende
+Levenshtein-Ähnlichkeit bleibt von Exact Match und Verfügbarkeit getrennt.
+Unklare Paarungen bestätigen keine Identität. Historische Ergebnisse werden für
+diese Änderung ausschließlich in neue Ausgabeordner neu analysiert.
+
+Der [Evaluationsaudit vom 16.11.2026](evaluation-audit-20261116.md) dokumentiert
+den aktuellen Dreidokumentreport und die Randkorrekturen für ausdrücklich leere
+Nullwerte und reine Whitespace-Extras. Bereich G des Hauptreports ergänzt
+filterbare Einzelbewertungen aus denselben vorhandenen Feld-/Teilnehmerzählern,
+R/P/E-Beiträge, Gründe und Original-PDF-Links. Primäre Originalrollenbewertung
+und referenzgestützte Swap-Sensitivitäten bleiben getrennt.
+
 Neue reguläre Vergleiche enthalten automatisch eine wissenschaftliche Ansicht.
 Ohne manuelle Metadaten bleiben Schriftmerkmale und Evaluationsphase `unknown`;
 es werden keine Konfidenzintervalle aus ungeprüften Gruppen berechnet.

@@ -9,7 +9,7 @@ from statistics import median
 
 from .schema import TEXT_FIELDS
 
-VERSION = "document-column-context-v2-verified-continuation"
+VERSION = "document-column-context-v3-visual-text-prefix"
 MAX_EDGE_SHIFT = .035
 
 
@@ -101,7 +101,7 @@ def mapping_diagnostics(raw):
 
 def mapping_reason(trace):
     """Explain saved decisions without recomputing a historical assignment."""
-    return {
+    explanation = {
         "explicit_current_headings": "Eindeutige aktuelle Überschriften haben Vorrang.",
         "same_column_count_and_normalized_geometry": "Gleiche Spaltenzahl und passende gemessene X-Positionen.",
         "same_text_column_prefix_geometry": "Alle Textspalten und ihre gemessenen Grenzen stimmen überein; nur hintere Nichttextspalten fehlen.",
@@ -113,6 +113,11 @@ def mapping_reason(trace):
         "document_or_page_order_mismatch": "Andere PDF, falsche Seitenfolge oder alte Kontextversion; keine Übernahme.",
         "no_unambiguous_current_headings": "Keine zuverlässig zuordenbaren Überschriften und kein gültiger Fortsetzungskontext.",
     }.get(trace.get("reason"), "Historischer Grund: " + str(trace.get("reason", "nicht gespeichert")))
+    if (trace.get("geometry") or {}).get("basis", "").endswith("_text_prefix"):
+        explanation += " Geprüft werden die gemessenen Zielspalten; hintere Signaturspalten und Seitenränder liefern keine Teilnehmerfelder."
+    if trace.get("header_interpretation") == "current_participant_row_echo":
+        explanation += " Zurückgegebene Überschriften sind ein exaktes Echo der ersten aktuellen Teilnehmerzeile, keine gedruckten Feldbezeichnungen."
+    return explanation
 
 
 def heading_structure(headings):
@@ -217,15 +222,16 @@ def resolve(mapping, headings, profile, previous=None, *, document_id=None, page
     return {}, previous if scoped else {}, trace
 
 
-def image_boundaries(image):
+def image_boundaries(image, *, include_page_margins=True):
     """The same grid detector already used by Tesseract layout enrichment."""
     from .image_preprocessing import grid_masks
     from .rules import line_positions
 
     _, _, vertical = grid_masks(image)
-    edges = [0.0]
+    edges = [0.0] if include_page_margins else []
     for value in line_positions(vertical, 0, .05):
-        if value - edges[-1] > .008 and value < .992:
+        if (not edges or value - edges[-1] > .008) and (not include_page_margins or value < .992):
             edges.append(value)
-    edges.append(1.0)
+    if include_page_margins:
+        edges.append(1.0)
     return edges if len(edges) >= 3 else []

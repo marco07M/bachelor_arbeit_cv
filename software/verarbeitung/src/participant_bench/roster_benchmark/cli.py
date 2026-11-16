@@ -94,12 +94,13 @@ def main(argv=None, *, default_config=DEFAULT_CONFIG, allow_api=False):
             output, metrics = evaluate_run(args.run, reference, config, resolve(base, config.output_dir),
                                            args.method, output=args.output)
         for method, score in metrics.items():
-            value = score.get("score_percent")
-            if value is None:
+            value = score.get("detected_similarity_percent")
+            if "overall" not in score:
                 print(f"{method}: kein Teilnehmerfeldscore ({score.get('reason', 'keine bewertbaren Referenzfelder')})")
             else:
                 overall = score["overall"]
-                print(f"{method}: Levenshtein-Feld-F1 {value:.2f}%; "
+                display = "nicht definiert" if value is None else f"{value:.2f}%"
+                print(f"{method}: Ø Levenshtein-Ähnlichkeit erkannter Felder {display} (D={overall.get('detected_fields', 0)}); "
                       f"{overall['exact_fields']}/{overall['reference_fields']} Referenzfelder exakt; "
                       f"{score['missing_participants']} Personen fehlen, {score['extra_participants']} zusätzlich")
         print(f"Vergleichsbericht: {(output / 'report.html').resolve()}")

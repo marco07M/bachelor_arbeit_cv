@@ -16,8 +16,13 @@ from ..identifiers import user_id_rule
 from ..io import digest, file_hash, read_json, read_jsonl, write_json
 from ..schema import PageResult
 from .config import BenchmarkConfig, ReferenceConfig
+from .field_assessment import LABELS as FIELD_LABELS
+from .field_assessment import assess
+from .field_assessment import counts as assessment_counts
+from .field_assessment import percent as similarity_percent
 from .matching import FIELDS, expected_values, normalize, pair_evidence, similarity
-from .metrics import scores
+from .metrics import DETECTED_LABEL, detected_value, scores
+from .report import detected_percent
 
 STATUS = {"matched": "Zugeordnet", "missing": "Referenzperson ohne Zuordnung", "extra": "Ausgabe ohne Zuordnung",
           "ambiguous": "Mehrdeutige Zuordnung", "identity_conflict": "Widerspruch zwischen ID und Namen",
@@ -94,19 +99,27 @@ def table(headings, rows):
 
 def contribution(row, config):
     eligible = truth(row["assessable"])
+    if "detected_contribution" in row:
+        detected, credit = int(row["detected_contribution"]), float(row.get("detected_similarity") or 0)
+    else:
+        detected, credit = detected_value(bool(row.get("reference_row")) and eligible,
+                                         normalize(row["reference_value"], row["field"], config),
+                                         normalize(row["prediction_value"], row["field"], config))
+    additional = dict(detected_fields=detected, detected_similarity_credit=credit)
     if "reference_contribution" in row:
         return dict(reference_fields=int(row["reference_contribution"]),
                     predicted_fields=int(row["prediction_contribution"]),
                     similarity_credit=float(row["similarity"] or 0),
-                    exact_fields=int(truth(row["exact"])))
+                    exact_fields=int(truth(row["exact"])), **additional)
     return dict(reference_fields=int(eligible and bool(row["reference_row"])),
                 predicted_fields=int(eligible and bool(normalize(row["prediction_value"], row["field"], config))),
                 similarity_credit=float(row["similarity"] or 0) if eligible else 0.0,
-                exact_fields=int(eligible and truth(row["exact"])))
+                exact_fields=int(eligible and truth(row["exact"])), **additional)
 
 
 def totals(rows, config):
-    result = dict(reference_fields=0, predicted_fields=0, similarity_credit=0.0, exact_fields=0)
+    result = dict(reference_fields=0, predicted_fields=0, similarity_credit=0.0, exact_fields=0,
+                  detected_fields=0, detected_similarity_credit=0.0)
     for row in rows:
         for key, value in contribution(row, config).items():
             result[key] += value
@@ -117,13 +130,12 @@ def formula(count):
     r, p, credit, exact = (count[key] for key in (
         "reference_fields", "predicted_fields", "similarity_credit", "exact_fields"))
     computed = scores(Counter(count))
-    soft = 100 * computed["soft_f1"] if computed["soft_f1"] is not None else None
     strict = 100 * computed["exact_f1"] if computed["exact_f1"] is not None else None
     if not r:
-        return (f'<div class="formula">R = {r}; P = {p}; C = {number(credit)}; E = {exact}<br>'
+        return (f'<div class="formula">R = {r}; P = {p}; E = {exact}<br>{DETECTED_LABEL}: nicht definiert.<br>'
                 'Nur Nenner-/Ausschlussbeitrag, kein eigener F1 ohne bewertbare Referenzfelder.</div>')
-    return (f'<div class="formula">R = {r}; P = {p}; C = {number(credit)}; E = {exact}<br>'
-            f"Levenshtein-Feld-F1 = 100 × 2 × {number(credit)} / ({r} + {p}) = {number(soft)} %<br>"
+    return (f'<div class="formula">R = {r}; P = {p}; E = {exact}<br>'
+            f"{DETECTED_LABEL} = {number(count.get('detected_similarity_credit', 0))} / {count.get('detected_fields', 0)} = {detected_percent(computed['detected_similarity'])}<br>"
             f"Exakter Feld-F1 = 100 × 2 × {exact} / ({r} + {p}) = {number(strict)} %</div>")
 
 
@@ -237,7 +249,7 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
     content += "</tr></thead><tbody>"
     for row in fields:
         field = row["field"]
-        left, right = normalize(row["reference_value"], field, config.matching), normalize(row["prediction_value"], field, config.matching)
+        right = normalize(row["prediction_value"], field, config.matching)
         count = contribution(row, config.matching)
         eligible = truth(row["assessable"])
         reason = REASONS.get(row["exclusion_reason"], row["exclusion_reason"])
@@ -246,18 +258,13 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
             if status == "matched" and not right:
                 reason += "; Referenz lesbar, Ausgabe fehlt: null Punkte, R bleibt im Nenner"
         raw_value = getattr(raw, FIELDS[field]).value if raw else row.get("original_prediction_value", row["prediction_value"])
-        credit = (f"1 − {row['levenshtein_distance']} / {max(len(left), len(right))} = {number(count['similarity_credit'])}"
-                  if eligible and status == "matched" and right else number(count["similarity_credit"]) if eligible else "ausgeschlossen")
-        assessment = ("Korrekt" if truth(row["exact"]) else "Fehlend" if not right else "Falsch") if eligible else "Nicht bewertbar"
-        if row.get("exclusion_reason") == "invalid_prediction_placeholder":
-            assessment = "Fehlend (Platzhalter)"
-        if row.get("reference_state") == "empty":
-            assessment = "Zusätzlicher Wert" if right else "Leerzelle"
+        assessment = assess(dict(row, normalized_prediction=right, original_prediction_value=raw_value))
+        credit = similarity_percent(assessment["similarity_percent"])
         reason += f"; Feldstatus: {row['prediction_state']}; Beitrag R={count['reference_fields']}, P={count['predicted_fields']}"
         if truth(case.get("name_swapped")) and field in ("first_name", "last_name"):
             reason += f"; bewertete Namensgruppe: {row['prediction_value']}"
-        cells = [labels[field], row["reference_value"], raw_value if raw_value not in (None, "") else "Leer / nicht erkannt",
-                 assessment, credit, reason]
+        cells = [labels[field], row["reference_value"], raw_value if raw_value is not None else "Unbekannt (null)",
+                 assessment["evaluation_label"], credit, assessment["evaluation_reason"] + " " + reason]
         css = "ok" if truth(row["exact"]) else "bad" if eligible else "muted"
         content += f'<tr data-field="{field}" class="{css}">' + "".join(f"<td>{esc(cell)}</td>" for cell in cells) + "</tr>"
     content += "</tbody></table></div>" + formula(totals(fields, config.matching))
@@ -316,10 +323,11 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
                     "Die Referenzzuordnung verändert diese Reihenfolge nicht. Nur in der Referenz vorhandene "
                     "Personen stehen anschließend in einem eigenen Abschnitt.</p>"
                     "<p>R = bewertbare Referenzfelder, P = ausgegebene bewertbare Felder, C = Summe der "
-                    "Levenshtein-Teilpunkte tatsächlicher Paarungen, E = Anzahl exakter Feldtreffer. "
+                    "historischen Levenshtein-Teilpunkte tatsächlicher Paarungen, E = Anzahl exakter Feldtreffer. "
                     "Fehlende Personen und zusätzliche Ausgaben behalten ihre Beiträge im Nenner.</p>"
-                    "<p>Der Gesamtwert wird aus den summierten Beiträgen aller Felder berechnet; Einzelfall-F1-Werte "
-                    "werden nicht gemittelt. Die angezeigten Nachkommastellen sind gerundet.</p>"
+                    "<p>Die neue mittlere Ähnlichkeit verwendet die separate Summe Σs über D nichtleere bewertbare Referenzpaare. "
+                    "Fehlende Felder reduzieren sie nicht; bei D=0 ist sie nicht definiert. Sie ist kein F1 und keine alleinige Gesamtqualität. "
+                    "Exakter F1 und Coverage bleiben getrennt. Summen werden gepoolt, Kursmittel nicht gemittelt; Nachkommastellen sind gerundet.</p>"
                     "<p>Eine Personenpaarung wird innerhalb derselben Class ID global und höchstens einmal "
                     "verwendet. Erst danach werden ihre Felder bewertet. Wörter aus verschiedenen Personen "
                     "werden nicht für einen günstigeren Feldscore kombiniert. Eine fehlgeschlagene Zuordnung "
@@ -339,16 +347,16 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
         method_fields = [row for row in fields if row["method"] == method]
         count = totals(method_fields, config.matching)
         calculated = 100 * 2 * count["similarity_credit"] / (count["reference_fields"] + count["predicted_fields"]) if count["reference_fields"] else None
-        consistent = (all(math.isclose(count[key], score["overall"][key], abs_tol=1e-9) for key in count) and
+        consistent = (all(math.isclose(count[key], score["overall"][key], abs_tol=1e-9) for key in count if key in score["overall"]) and
                       ((calculated is None and score["score_percent"] is None) or
                        (calculated is not None and score["score_percent"] is not None and
                         math.isclose(calculated, score["score_percent"], abs_tol=1e-9))))
         checks[method] = dict(count, saved_score_percent=score["score_percent"], contributions_match_saved_metrics=consistent,
                               name_order_hints=0, source_pages=source_pages[method])
-        overview.append(f"<section><h2>{esc(method)}: {number(score['score_percent'])} %</h2>" + formula(count))
+        overview.append(f"<section><h2>{esc(method)}</h2>" + formula(count))
         if score.get("conservative_score_percent") is not None:
             overview.append(f"<p>Konservativer Vergleich auf denselben unveränderten Ausgaben: "
-                            f"{number(score['conservative_score_percent'])} % bei "
+                            f"{detected_percent(score.get('conservative_comparison', {}).get('overall', {}).get('detected_similarity'))} bei "
                             f"{score['conservative_assigned_participants']} Paarungen. "
                             "Ein höherer Best-Fit-Score belegt keine verbesserte OCR.</p>")
         overview.append(f"<p>{score['assigned_participants']} / {score['reference_participants']} Referenzpersonen zugeordnet · "
@@ -363,6 +371,8 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
             [labels[field], *(totals([row for row in method_fields if row["field"] == field], config.matching)[key]
                               for key in ("reference_fields", "predicted_fields", "similarity_credit", "exact_fields"))]
             for field in FIELDS]))
+        overview.append(table(["Bewertungsstatus (alle Feldfälle)", "Anzahl"], [
+            [FIELD_LABELS[k], v] for k, v in assessment_counts(method_fields).items()]))
         if source_pages[method]:
             overview.append(table(["Datei", "PDF-Seite", "Ausgegebene Personen", "Verarbeitungsstatus", "Antwortformat", "Verarbeitungshinweis"],
                                   [[row["source_file"], row["page_number"], row["rows"], row["status"], row["parse_status"],

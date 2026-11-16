@@ -25,6 +25,8 @@ def counter(reference, exact, predicted=None):
         exact_fields=exact,
         raw_exact_fields=exact,
         similarity_credit=exact,
+        detected_fields=reference if predicted is None else min(reference, predicted),
+        detected_similarity_credit=exact,
         missing_fields=reference - exact,
     )
 
@@ -294,7 +296,7 @@ def test_frozen_replay_preserves_sources_masks_and_denominators_and_does_not_rel
     assert all(file_hash(p) == value for p, value in hashes.items())
     html = (tmp_path / "new/report.html").read_text(encoding="utf-8")
     assert "Wissenschaftliche Analyse" in html and "keine referenzunabhängige" in html
-    assert not re.search(r"\b(?:Anna|Weber)\b", html)
+    assert not re.search(r"\b(?:Anna|Weber)\b", html.split('<section class="panel" id="audit"')[0])
     assert (tmp_path / "new/error_analysis/summary.csv").is_file()
 
 

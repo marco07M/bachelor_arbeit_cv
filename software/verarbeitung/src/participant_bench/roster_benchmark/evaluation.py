@@ -23,12 +23,18 @@ from .matching import Prediction
 from .metrics import aggregate, course_metrics
 from .references import read_reference
 
-VERSION = "roster-levenshtein-v5-reference-denominators"
+VERSION = "roster-levenshtein-v7-detected-similarity"
 DEFINITIONS = {
     "output_order": "PDF input order, page number and original output_index. Reference-only rows follow "
                     "the extracted participants separately; reference order never reorders predictions.",
-    "score": "100 * 2 * sum(field_similarity) / (assessable_reference_fields + predicted_assessable_fields). "
-             "Micro-average over training IDs. Missing fields contribute zero, extra predictions increase the denominator.",
+    "score": "Detected-field similarity = detected_similarity_credit / detected_fields; undefined if D=0. "
+             "Pool both counters across courses, never average course means. This is conditional text accuracy, not F1 or overall quality.",
+    "detected_scope": "D contains readable nonempty expected fields with a nonempty output after existing matching, "
+                      "normalization and configured uncertain-value policy. Wrong values, nonempty ID placeholders and "
+                      "ambiguous paired values remain included. Unpaired outputs, known-empty and unknown/masked GT are excluded. "
+                      "Missing fields are measured by coverage/recall; extras retain their existing P and participant penalties.",
+    "legacy_score": "soft_f1, soft_precision, soft_recall and score_percent are retained as legacy export keys only; "
+                    "their old formulas are unchanged. They are not the new detected-field metric.",
     "similarity": "1 - Levenshtein distance / max(reference length, prediction length), in [0,1]. "
                   "NFC and documented whitespace/case normalization; no spelling repairs. Leading numeric User ID "
                   "zeroes are ignored when matching.ignore_leading_user_id_zeros=true; original values remain unchanged.",

@@ -9,10 +9,20 @@ from ..identifiers import user_id_rule
 from ..io import write_csv
 from .config import MatchingConfig
 from .matching import FIELDS
+from .metrics import DETECTED_LABEL
 
 
 def percent(value):
     return "—" if value is None else f"{100 * value:.2f} %"
+
+
+def detected_percent(value):
+    return "nicht definiert" if value is None else percent(value)
+
+
+def detected_basis(count):
+    return (f"Σs = {count.get('detected_similarity_credit', 0):.4f} / |D| = {count.get('detected_fields', 0)}; "
+            f"{count.get('detected_fields', 0)} / {count.get('reference_fields', 0)} erwartete Felder einbezogen")
 
 
 def render(output, metrics, scope, courses, source, *, columns=None, matching=None):
@@ -53,12 +63,12 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
         row.update(overall)
         row["name_swapped_participants"] = score.get("name_swapped_participants", 0)
         summary.append(row)
-        value = score.get("score_percent")
-        display = "nicht anwendbar" if value is None else f"{value:.2f} %"
+        value = score.get("detected_similarity_percent")
+        display = detected_percent(overall.get("detected_similarity")) + "<br>" + escape(detected_basis(overall))
         bar = f'<span class="bar" style="width:{value:.3f}%"></span>' if value is not None else ""
         model_html.append(f"<tr><td>{escape(method)}</td><td><strong>{percent(overall.get('exact_reference_accuracy'))}</strong></td>"
-                          f"<td>{percent(overall.get('soft_recall'))}</td><td>{display}<div class='track'>{bar}</div></td>"
-                          f"<td>{'—' if score.get('conservative_score_percent') is None else format(score['conservative_score_percent'], '.2f') + ' %'}</td>"
+                          f"<td>{percent(overall.get('field_coverage'))}</td><td>{display}<div class='track'>{bar}</div></td>"
+                          f"<td>{detected_percent(score.get('conservative_comparison', {}).get('overall', {}).get('detected_similarity'))}</td>"
                           f"<td>{score.get('assigned_participants', '—')}</td>"
                           f"<td>{score.get('excluded_instructors', '—')}</td>"
                           f"<td>{percent(overall.get('exact_f1'))}</td>"
@@ -78,23 +88,23 @@ def render(output, metrics, scope, courses, source, *, columns=None, matching=No
                 counts = comparison["overall"]
                 matching_html.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in (
                     method, mode, comparison["assigned_participants"], counts["reference_fields"],
-                    counts["predicted_fields"], counts["similarity_credit"], percent(counts["soft_recall"]),
-                    percent(counts["soft_f1"]))) + "</tr>")
+                    counts["predicted_fields"], detected_basis(counts), percent(counts["field_coverage"]),
+                    detected_percent(counts.get("detected_similarity")))) + "</tr>")
         for name in FIELDS:
             if name not in score.get("fields", {}):
                 continue
             values = score["fields"][name]
             field_rows.append(dict(method=method, field=name, field_label=labels[name], **values))
             field_html.append(f"<tr><td>{escape(method)}</td><td>{escape(labels[name])}</td>"
-                              f"<td>{percent(values['soft_f1'])}</td><td>{percent(values['exact_reference_accuracy'])}</td>"
+                              f"<td>{detected_percent(values.get('detected_similarity'))}<br>{escape(detected_basis(values))}</td><td>{percent(values['exact_reference_accuracy'])}</td>"
                               f"<td>{values['exact_fields']} / {values['reference_fields']}</td>"
                               f"<td>{values.get('incorrect_fields', '—')}</td><td>{values.get('missing_fields', '—')}</td>"
                               f"<td>{values['excluded_reference_fields'] + values['excluded_masked_predictions']}</td></tr>")
     write_csv(output / "summary.csv", summary)
     write_csv(output / "field_scores.csv", field_rows,
-              fields=None if field_rows else ["method", "field", "soft_f1", "exact_reference_accuracy"])
+              fields=None if field_rows else ["method", "field", "detected_similarity", "exact_reference_accuracy"])
     course_html = "".join(f"<tr><td>{escape(row['method'])}</td><td>{escape(row['class_id'])}</td>"
-                          f"<td>{percent(row['soft_f1'])}</td><td>{percent(row['exact_reference_accuracy'])}</td>"
+                          f"<td>{detected_percent(row.get('detected_similarity'))}<br>{escape(detected_basis(row))}</td><td>{percent(row['exact_reference_accuracy'])}</td>"
                           f"<td>{row['reference_participants']}</td><td>{row['predicted_participants']}</td>"
                           f"<td>{row['missing_participants']}</td><td>{row['extra_participants']}</td></tr>"
                           for row in courses[:200])
@@ -136,14 +146,14 @@ code{{background:#e7eff5;padding:2px 4px}}.scroll{{overflow-x:auto}}
 <p>{scope['input_pdfs']} PDF-Dateien · {scope['courses_compared']} Schulungen mit Referenz ·
 {scope['reference_rows_in_scope']} Referenzteilnehmer im Vergleich</p>
 <div class="box"><strong>Primär: exakter Feld-Recall (Referenzgenauigkeit).</strong> Er zeigt den Anteil korrekt erkannter erwarteter Werte.
-Daneben stehen Vollständigkeit, Levenshtein-Recall und ergänzend Levenshtein-Feld-F1. Fast richtige Wörter erhalten dort Teilpunkte.
-Fehlende Werte geben null Punkte; zusätzliche Werte vergrößern den Nenner.
-<code>Score = 100 × 2 × Ähnlichkeitssumme / (Referenzfelder + vorhergesagte Felder)</code>.
-Daneben steht derselbe F1 mit ausschließlich exakten Treffern. Beide berücksichtigen fehlende und zusätzliche Werte.
-Die Zähler zeigen zusätzlich, wie viele Referenzfelder exakt erkannt wurden. Keine Kennzahl ist eine Wahrscheinlichkeit.</div>
+Daneben stehen Field Coverage, Exact F1 und {DETECTED_LABEL}.
+<code>S_detected = Σs / |D|</code>: nur ausgefüllte, bewertbare Referenzpaare, einschließlich falscher Werte.
+Fehlende Felder reduzieren diese Ähnlichkeit nicht; bei keinem Vergleich ist sie nicht definiert.
+Leere/unbekannte Referenzen und zusätzliche Ausgaben gehören nicht zu D. Zusätzliche Ausgaben bleiben in Exact F1 und Zusatzmetriken bestraft.
+Diese bedingte Textgenauigkeit ist kein F1 und keine alleinige Gesamtqualität.</div>
 <p>Kontrollbeispiel: 24 von 40 erwarteten Feldern, alle 24 richtig: Recall 60 %, Precision 100 %, F1 75 %.
 Ein höherer F1 als Recall ist mathematisch korrekt und bedeutet keine vollständige Extraktion.</p>
-<div class="scroll"><table><tr><th>Verfahren</th><th>Exakter Feld-Recall</th><th>Levenshtein-Recall</th><th>Levenshtein-Feld-F1</th><th>F1 bei konservativer Zuordnung</th><th>Paarungen</th><th>Ausgeschlossene Kursleiter</th><th>Exakter Feld-F1</th>
+<div class="scroll"><table><tr><th>Verfahren</th><th>Exakter Feld-Recall</th><th>Field Coverage</th><th>{DETECTED_LABEL}</th><th>Ø Ähnlichkeit bei konservativer Zuordnung</th><th>Paarungen</th><th>Ausgeschlossene Kursleiter</th><th>Exakter Feld-F1</th>
 <th>Exakt / bewertbar</th><th>Fehlende Personen</th><th>Zusätzliche Personen</th><th>Prüfzeilen</th><th>Extraktion</th></tr>
 {''.join(model_html)}</table></div>
 <h2>Vollständigkeit und technische Zuverlässigkeit</h2><div class="scroll"><table><tr>
@@ -163,18 +173,19 @@ Die Zuordnung verwendet Referenzwerte; die Ergebnisse messen Referenzübereinsti
 Der konservative Vergleich ist keine andere oder strengere Feldmetrik. Bei unbekannten Referenzfeldern kann
 die Zuordnung verändern, welche ausgegebenen Werte bewertbar sind; deshalb werden auch beide Vorhersagenenner gezeigt.</p>
 <div class="scroll"><table><tr><th>Verfahren</th><th>Zuordnung</th><th>Paare</th><th>Referenzfelder R</th>
-<th>Vorhersagefelder P</th><th>Ähnlichkeitssumme C</th><th>Levenshtein-Recall</th><th>Levenshtein-F1</th></tr>{''.join(matching_html)}</table></div>
-<h2>Felder getrennt</h2><div class="scroll"><table><tr><th>Verfahren</th><th>Feld</th><th>Levenshtein-F1</th>
+<th>Vorhersagefelder P</th><th>Ähnlichkeitszähler / Nenner D</th><th>Field Coverage</th><th>{DETECTED_LABEL}</th></tr>{''.join(matching_html)}</table></div>
+<h2>Felder getrennt</h2><div class="scroll"><table><tr><th>Verfahren</th><th>Feld</th><th>{DETECTED_LABEL}</th>
 <th>Exakter Feld-Recall</th><th>Exakt / bewertbar</th><th>Falsch</th><th>Fehlend</th><th>Ausgeschlossen</th></tr>{''.join(field_html)}</table></div>
 <p>NFC und vereinheitlichte Leerzeichen; Namen/Kurzzeichen laut Konfiguration ohne Beachtung der Groß-/Kleinschreibung.
 {escape(user_id_rule(matching.ignore_leading_user_id_zeros))} Leere/maskierte Referenz-IDs werden ausgeschlossen.
-Modell-Platzhalter und unbekannte Modell-IDs bei lesbarer Referenz zählen als Fehler und erhalten null Teilpunkte.
+Modell-Platzhalter und unbekannte Modell-IDs bei lesbarer Referenz bleiben Fehler in Exact Match und nutzbarer Coverage;
+für die neue Textähnlichkeit wird jede nichtleere Angabe wörtlich verglichen, auch ein Platzhalter.
 Nicht annotierte leere Referenzzellen bleiben unbekannt. Nachweislich leere Zellen werden separat bewertet und geben keine positiven Informationspunkte.
 Unsichere, aber ausgegebene Feldwerte werden gemäß Konfiguration inhaltlich verglichen und bleiben prüfpflichtig.</p>
 <p>Namensgruppen in beiden Richtungen vergleichen: {'aktiv; höhere Namensähnlichkeit je Kandidat, bei Gleichstand Originalrollen' if matching.compare_name_orientations else 'inaktiv'}.
 Ein Tausch wird in Teilnehmer- und Feldbelegen ausgewiesen; Originalextraktionen bleiben unverändert.</p>
 <h2>Schulungen</h2><p>Anzeige maximal 200 Zeilen; vollständige Daten unter <a href="courses.csv">courses.csv</a>.</p>
-<div class="scroll"><table><tr><th>Verfahren</th><th>{escape(labels['class_id'])}</th><th>Levenshtein-F1</th><th>Exakt</th>
+<div class="scroll"><table><tr><th>Verfahren</th><th>{escape(labels['class_id'])}</th><th>{DETECTED_LABEL}</th><th>Exakt</th>
 <th>Referenzpersonen</th><th>Vorhersagen</th><th>Fehlend</th><th>Zusätzlich</th></tr>{course_html}</table></div>
 <h2>Umfang und Prüfpunkte</h2><ul>
 <li>{scope['reference_rows_outside_input']} Referenzzeilen gehören zu Schulungen ohne Eingabe-PDF und sind nicht im Nenner.</li>

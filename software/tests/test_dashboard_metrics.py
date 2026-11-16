@@ -183,8 +183,9 @@ def test_dashboard_and_error_analysis_share_strict_counters_and_no_duplicate_cau
         r["missing_fields"] + r["incorrect_fields"] + r["extra_fields"] for r in primary
     )
     assert "Originalrollen" in errors["grading_label"]
-    # Primary overview remains free of per-person values; they stay on existing detail pages.
-    assert not re.search(r"\b(?:Anna|Weber)\b", html)
+    # Aggregate panels remain free of per-person values; G explicitly contains the requested ledger.
+    assert not re.search(r"\b(?:Anna|Weber)\b", html.split('<section class="panel" id="audit"')[0])
+    assert 'id="audit-fields"' in html and 'id="audit-participants"' in html
     assert read_json(report / "scientific/analysis.json")["definitions"]
     assert (report / "scientific/participant_scores.csv").is_file()
     grading = read_json(report / "scientific/error_grading.json")

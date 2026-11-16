@@ -6,7 +6,7 @@ import numpy as np
 
 from .metrics import empty_counts, scores
 
-METRICS = ("exact_recall", "exact_f1", "soft_f1")
+METRICS = ("exact_recall", "exact_f1", "detected_similarity")
 
 
 def pooled(counts):

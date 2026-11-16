@@ -6,11 +6,21 @@ from ..evaluation import edits
 from ..output_order import ordered_rows
 from ..person_roles import UNCONFIRMED_ROLE
 from ..reference_states import reference_state
+from .field_assessment import alignment_unclear, assess
 from .matching import FIELDS, align, normalize, similarity, values
 
 
 def divide(numerator, denominator):
     return numerator / denominator if denominator else None
+
+
+DETECTED_LABEL = "Ø Levenshtein-Ähnlichkeit erkannter Felder"
+
+
+def detected_value(assessable, reference, prediction):
+    """One existing reference pair; no filtering by correctness, ID format or alignment confidence."""
+    included = int(bool(assessable and prediction))
+    return included, similarity(reference, prediction) if included else 0.0
 
 
 def scores(count):
@@ -29,6 +39,7 @@ def scores(count):
         incorrect_rate=divide(count["incorrect_fields"], reference),
         raw_exact_reference_accuracy=divide(count["raw_exact_fields"], reference),
         exact_f1=divide(2 * count["exact_fields"], total) if reference else None,
+        detected_similarity=divide(count.get("detected_similarity_credit", 0), count.get("detected_fields", 0)),
         soft_precision=divide(count["similarity_credit"], predicted),
         soft_recall=divide(count["similarity_credit"], reference),
         soft_f1=divide(2 * count["similarity_credit"], total) if reference else None,
@@ -42,6 +53,8 @@ def empty_counts():
         exact_fields=0,
         raw_exact_fields=0,
         similarity_credit=0.0,
+        detected_fields=0,
+        detected_similarity_credit=0.0,
         excluded_reference_fields=0,
         excluded_masked_predictions=0,
         incorrect_fields=0,
@@ -140,11 +153,11 @@ QUALITY_DEFINITIONS = [
         direction="lower",
     ),
     dict(
-        key="soft_f1",
-        label="Levenshtein-Feld-F1 (separat)",
-        numerator="2S (summierte Ähnlichkeitsgutschrift)",
-        denominator="R+P",
-        formula="2S/(R+P)",
+        key="detected_similarity",
+        label=DETECTED_LABEL,
+        numerator="Σs: normalisierte Ähnlichkeit aller nichtleeren Ausgaben auf bewertbaren Referenzpaaren",
+        denominator="|D|: diese ausgefüllten Referenzfelder; ohne Leer-/Fehlwerte, Extras und leere/unbekannte GT",
+        formula="Σs/|D|; bei |D|=0 nicht definiert",
         unit="fraction",
         direction="higher",
     ),
@@ -193,6 +206,11 @@ def participant_scores(counts):
     )
 
 
+def correct_empty(state, normalized):
+    """The schema permits both null and '' for an explicitly empty output."""
+    return state == "empty" and not normalized
+
+
 def participant_quality(references, rows, details, config, reference_config):
     """Additional strict dimensions; never equate a best-fit pair with identity correctness.
 
@@ -223,13 +241,13 @@ def participant_quality(references, rows, details, config, reference_config):
                 if r["reference_state"] == "read"
                 else (
                     r["reference_state"] == "empty"
-                    and r["prediction_value"] is not None
-                    and not r["normalized_prediction"]
+                    and correct_empty(r["prediction_state"], r["normalized_prediction"])
                 )
             )
 
         complete = len(known) == len(FIELDS)
-        all_correct = bool(known) and row["status"] == "matched" and all(correct(f) for f in known)
+        reliable_alignment = row["status"] == "matched" and not alignment_unclear(row)
+        all_correct = bool(known) and reliable_alignment and all(correct(f) for f in known)
         identity_fields = known & {"first_name", "last_name", "user_id"}
         id_value = fields["user_id"]["normalized_reference"]
         name_value = tuple(fields[f]["normalized_reference"] for f in ("first_name", "last_name"))
@@ -244,7 +262,7 @@ def participant_quality(references, rows, details, config, reference_config):
             )
         )
         identity_exact = bool(
-            basis and row["status"] == "matched" and all(correct(f) for f in identity_fields)
+            basis and reliable_alignment and all(correct(f) for f in identity_fields)
         )
         row.update(
             reference_completeness="complete" if complete else "partial" if known else "unassessable",
@@ -254,6 +272,7 @@ def participant_quality(references, rows, details, config, reference_config):
             identity_basis=basis,
             identity_assessable=bool(basis),
             identity_exact=identity_exact,
+            identity_alignment_unclear=not reliable_alignment,
             identity_is_reference_based=True,
         )
         count.update(
@@ -338,6 +357,8 @@ def course_metrics(
             exact = bool(available and left == right) if eligible else None
             raw_exact = bool(available and observed == expected) if eligible else None
             credit = similarity(left, right) if eligible and available else 0.0
+            detected, detected_credit = detected_value(eligible, left, right)
+            count.update(detected_fields=detected, detected_similarity_credit=detected_credit)
             source_field = (
                 {"first_name": "last_name", "last_name": "first_name"}.get(field, field) if swapped else field
             )
@@ -360,11 +381,12 @@ def course_metrics(
             elif state == "empty":
                 count.update(
                     reference_empty_fields=1,
-                    correct_empty_fields=int(observed is not None and not right),
+                    correct_empty_fields=int(correct_empty(prediction_state, right)),
                     hallucinated_empty_fields=int(bool(right)),
                     predicted_fields=int(bool(right)),
                     extra_fields=int(bool(right)),
                 )
+                review = review or not correct_empty(prediction_state, right)
             details.append(
                 dict(
                     row,
@@ -384,11 +406,14 @@ def course_metrics(
                     prediction_contribution=int(bool(right) and (eligible or state == "empty")),
                     levenshtein_distance=edits(left, right) if eligible else None,
                     similarity=credit if eligible else None,
+                    detected_contribution=detected,
+                    detected_similarity=detected_credit if detected else None,
                     review_required=(
                         match is None
                         or bool(review_reasons)
                         or invalid
                         or bool(eligible and (not exact or prediction_state == "uncertain"))
+                        or bool(state == "empty" and not correct_empty(prediction_state, right))
                     ),
                     identity_alignment_used_reference=True,
                 )
@@ -416,7 +441,8 @@ def course_metrics(
         row["review_required"] = True
         rows.append(row)
         for field, observed in values(prediction, config).items():
-            eligible = field in comparable and bool(observed)
+            normalized = normalize(observed, field, config)
+            eligible = field in comparable and bool(normalized)
             if eligible:
                 fields[field]["predicted_fields"] += 1
                 fields[field]["extra_fields"] += 1
@@ -426,6 +452,9 @@ def course_metrics(
                     field=field,
                     reference_value=None,
                     prediction_value=observed,
+                    original_prediction_value=getattr(prediction.person, FIELDS[field]).value,
+                    normalized_reference="",
+                    normalized_prediction=normalized,
                     prediction_state=getattr(prediction.person, FIELDS[field]).state,
                     assessable=eligible,
                     exclusion_reason=None if eligible else "not_comparable_extra_field",
@@ -435,6 +464,8 @@ def course_metrics(
                     raw_exact=False if eligible else None,
                     levenshtein_distance=None,
                     similarity=0.0 if eligible else None,
+                    detected_contribution=0,
+                    detected_similarity=None,
                     identity_alignment_used_reference=True,
                 )
             )
@@ -466,7 +497,12 @@ def course_metrics(
     result["score_percent"] = (
         100 * result["overall"]["soft_f1"] if result["overall"]["soft_f1"] is not None else None
     )
+    result["detected_similarity_percent"] = (
+        100 * result["overall"]["detected_similarity"] if result["overall"]["detected_similarity"] is not None else None
+    )
     result["participant_quality"] = participant_quality(references, rows, details, config, reference_config)
+    for field in details:
+        field.update(assess(field))
     documents = {doc: i for i, doc in enumerate(dict.fromkeys(p.document_id for p in predictions))}
     return result, ordered_rows(rows, documents), ordered_rows(details, documents), candidates
 
@@ -510,6 +546,9 @@ def aggregate(courses):
     )
     result["score_percent"] = (
         100 * result["overall"]["soft_f1"] if result["overall"]["soft_f1"] is not None else None
+    )
+    result["detected_similarity_percent"] = (
+        100 * result["overall"]["detected_similarity"] if result["overall"]["detected_similarity"] is not None else None
     )
     quality = Counter(dict.fromkeys(PARTICIPANT_COUNTERS, 0))
     available = all("participant_quality" in c for c in courses)

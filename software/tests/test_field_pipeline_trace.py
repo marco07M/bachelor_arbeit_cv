@@ -382,7 +382,7 @@ def test_local_visual_extractor_threads_only_verified_column_context_between_pag
         ]
     )
     model.generate = lambda *a: (json.dumps(next(answers)), dict(output_budget_reached=False))
-    monkeypatch.setattr("participant_bench.column_context.image_boundaries", lambda image: [0, 0.2, 0.7, 1])
+    monkeypatch.setattr("participant_bench.column_context.image_boundaries", lambda image, **kwargs: [0, 0.2, 0.7, 1])
     with Image.new("RGB", (200, 200)) as image:
         model.document_page_context = dict(document_id="doc", page_number=1)
         model.extract(image)

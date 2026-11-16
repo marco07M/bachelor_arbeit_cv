@@ -18,10 +18,24 @@ getrennt ausgewiesen. Finale Testdaten sind im Auswahlpfad gesperrt.
 Anleitung: [Verfahrensauswahl](../docs/method-selection.md). Das vorhandene
 Hauptprofil und historische Ergebnisse bleiben erhalten.
 
-Neue Vergleiche zeigen im selben Hauptbericht sechs Analysebereiche mit sortierbarer
+Neue Vergleiche zeigen im selben Hauptbericht sieben Analysebereiche mit sortierbarer
 Vergleichstabelle, striktem Teilnehmer-Recall, vollständigen beziehungsweise partiellen
 Referenzen, Feldheatmap, filterbaren Fehlerursachen, Dokumenttypen, Effizienz/Kosten
-und Cluster-Bootstrap. Die vorhandenen Matching- und Einzelfallansichten bleiben
+und Cluster-Bootstrap. Bereich G enthält filterbare Feld-/Teilnehmerbewertungen
+mit Soll-/Ist-Werten, Gründen, PDF-Links und prüfbaren R/P/E-Beiträgen.
+Die Tabellen zeigen einen Originalwert und die prozentuale Levenshtein-
+Ähnlichkeit; Normalwerte bleiben in Exporten. Fünf eindeutige
+[Feldstatus](../docs/field-assessment.md) trennen korrekte, abweichende, fehlende,
+unklar zugeordnete und nicht bewertbare Werte ohne zusätzliche Exact-Treffer.
+Die sortierbare Gesamtübersicht zeigt jetzt die
+[Ø Levenshtein-Ähnlichkeit erkannter Felder](../docs/detected-similarity.md)
+mit Σs/D und D/R neben Coverage und Exact-Metriken. Fehlende Felder senken die
+Ähnlichkeit nicht; ohne vergleichbare Werte bleibt sie nicht definiert.
+Der frühere Levenshtein-Feld-F1 wird in der aktuellen Anzeige ersetzt.
+Ausgabezeilen, exakte Identitäten und vollständig korrekte Teilnehmer werden
+getrennt gezählt. [Audit des Dreidokumentreports](../docs/evaluation-audit-20261116.md)
+erklärt Abdeckung, Namensrollen, Nullbaseline, VLM-Abbrüche und Cachezeiten.
+Die vorhandenen Matching- und Einzelfallansichten bleiben
 verlinkt; `standard_report.html` erhält die bisherige Standarddarstellung.
 Ohne geprüfte Metadaten bleiben
 Merkmale unbekannt und Unsicherheitsintervalle offen. Bestehende Berichte lassen sich

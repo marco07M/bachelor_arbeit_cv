@@ -1,6 +1,6 @@
 # Projektstand und Übergabe für folgende Agenten
 
-Zuletzt aktualisiert: **2026-11-12** (Europe/Berlin).
+Zuletzt aktualisiert: **2026-11-16** (Europe/Berlin).
 
 Diese Datei auf Wunsch des Nutzers bei Änderungen fortschreiben. Einstieg und
 Pflegepflicht stehen in [AGENTS.md](AGENTS.md). Sie ist die zentrale Übergabe,
@@ -8,7 +8,209 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
 
-### Neuer Dreidokumentlauf (12.11., läuft)
+### Bedingte Levenshtein-Ähnlichkeit erkannter Felder (16.11., abgeschlossen)
+
+- Auftrag: Levenshtein-Feld-F1 in der Darstellung durch arithmetisches Mittel
+  normalisierter Ähnlichkeiten ausgefüllter Referenzpaare ersetzen; Coverage,
+  Exact-Metriken, Matching und Teilnehmerzähler erhalten.
+- Implementiert: `metrics.detected_value` verwendet vorhandene Normalisierung/
+  Levenshtein-Funktion; neue Zähler `detected_fields` und
+  `detected_similarity_credit`, Kennzahl `detected_similarity`. Nur lesbare
+  nichtleere GT plus nichtleere nach bestehendem Profil bewertete Ausgabe.
+  Falsche/mehrdeutige Paare und nichtleere ID-Platzhalter bleiben in D;
+  zusätzliche Ausgaben sowie leere/unbekannte GT ausgeschlossen. D=0 undefiniert.
+- Darstellung/Export: Dashboard neben Coverage/Exact-Metriken, Feld-/Kurs-/
+  Detailbericht und CLI aktualisiert; Beiträge werden im Audit reconciliert.
+  Statistische Ansicht poolt neue Zähler statt Kursmittel zu mitteln.
+  Historische `soft_*`-/`score_percent`-Exportfelder bleiben ausdrücklich Legacy
+  und unverändert, um bestehende gespeicherte Scores reproduzieren zu können.
+- Aktiv: Metrikversion v7, wissenschaftliche Analyse v4; neue reguläre Vergleiche
+  und Neuanalysen zeigen das Mittel automatisch. Neuer Bericht
+  `software/testframework/ergebnisse/detected-similarity-20261116/report.html`
+  aus eingefrorenen Ausgaben. Keine neue OCR-/Modellinferenz.
+- Anhand gespeicherter Referenzen nachgewiesen: alle vorherigen Methoden-,
+  Feld-, Coverage-/Exact-/Teilnehmerwerte sowie Legacywerte unverändert.
+  Neue Mittel Regeln undefiniert, OCR+LLM 93,75 %, Paddle 87,78 %, VLM 89,61 %,
+  Hybrid 89,19 %; jeweiliges D 0/91/126/96/120 bei R=184. Definitionswechsel,
+  kein Extraktionsgewinn. 1.287 historische Vergleichs-/Quelldateien hashgleich.
+- Tests: **922 lokal (101,83 s)**, **106 gezielt (12,01 s)** und **48 API
+  (10,54 s)** bestanden; 18 neue Regressionen, Statistikfixtures ergänzt.
+  Ruff, Diff-Check, 3.449 lokale Dateilinks, beide Skriptsyntaxen/CSP-Hashes
+  sowie neue D-/Summen- und alte Feldbeiträge erfolgreich geprüft.
+- Dokumentation: `software/docs/detected-similarity.md`, wissenschaftlicher
+  Einstieg, Framework-README und Übergabe. Private Nachweise unter
+  `software/data/detected-similarity-20261116/`. Keine historischen Ergebnisse,
+  Extraktionsprofile oder Modelle geändert; frühere Arbeitskopieänderungen erhalten.
+- Offen: visuelle Browserabnahme weiterhin mangels Anbindung; unabhängige
+  Referenzannotation und kontrollierte Studien bleiben getrennte Aufgaben.
+  Nächster Schritt: neuen Bericht lokal sichten und die bedingte Kennzahl stets
+  gemeinsam mit Coverage, Exact-Metriken und Zusatzfehlern interpretieren.
+
+### Feldstatus: Abweichung, Verfügbarkeit und unklare Zuordnung (16.11., abgeschlossen)
+
+- Neuer Auftrag: fünf eindeutige Feldstatus, prozentuale bestehende Levenshtein-
+  Ähnlichkeit und einfache Soll-/Ist-Tabellen, historische Ergebnisse erhalten.
+- Implementiert: gemeinsames `roster_benchmark/field_assessment.py`, zusätzliche
+  Statusfelder neben unveränderten R/P/E-Beiträgen; Integration in Metriken,
+  Audit, Ursachen- und Standarddetailbericht. Normalisiert-Spalte entfällt in
+  G; Originalwerte und maschinenlesbare Normalwerte bleiben erhalten.
+- Strenge Identitäts-/Vollständigkeitszähler zählen ausdrücklich mehrdeutige,
+  widersprüchliche oder duplizierte Paarungen nicht als bestätigte Personen.
+  Einzelne Schreibfehler bleiben abweichend und verfügbar; keine neuen Treffer.
+  Ganz fehlende Referenzpersonen behalten alle Feldstrafen. Niedrige Ähnlichkeit
+  allein ist kein fehlender Wert oder Nachweis einer mehrdeutigen Paarung.
+- Ursachen verwenden bestehende `diagnose_field`-/Pipelinebelege; keine OCR-
+  Fehlerbehauptung aus fehlendem Referenztext im Volltext. Ausgabeindex 0 wird
+  nun auch als Integer korrekt lokalisiert. Anzeigestatus und Metrikfehler sind
+  getrennte Achsen, keine zusätzliche summierte Fehlerzählung.
+- Aktiv: neue Vergleiche und Neuanalysen erhalten die gemeinsamen Status
+  automatisch. Metrikversion v6, wissenschaftliche Analyse v3, Fehlerbericht v7.
+  Neuer Bericht `software/testframework/ergebnisse/field-states-20261116/report.html`
+  aus eingefrorenen Ergebnissen; sämtliche bisherigen primären Qualitätswerte
+  identisch. Kein neuer Exact-Treffer, keine erhöhte Coverage durch Zelltexte.
+- Anhand Referenzdaten geprüft: 928 Feld-/232 Teilnehmerfälle, Statuspartitionen
+  und R/P/E-Zähler konsistent; 787 Dateien des historischen Vergleichs und
+  Quelllaufs unverändert. 3.449 lokale Dateilinks, Skriptsyntax und beide
+  CSP-Hashes geprüft. Private Nachweise `software/data/field-states-20261116/`.
+- Tests: **904 lokale Tests (95,64 s)**, **90 gezielte Tests (10,12 s)** und
+  **48 API-Tests (9,15 s)** bestanden; Ruff und Diff-Check bestanden. 15 neue
+  Regressionen; alte Formel-Darstellungsassertion auf Prozentanzeige umgestellt.
+  Frühe Fixture-Assertion zu nicht vorhandenem Prüfschlüssel korrigiert.
+- Dokumentiert: `software/docs/field-assessment.md`, wissenschaftlicher Einstieg,
+  Framework-README und Übergabe. Keine historischen Artefakte überschrieben,
+  keine neue Inferenz, keine Extraktionskonfiguration geändert. Vorhandene
+  uncommittete Extraktionsarbeiten erhalten.
+- Offen: visuelle Browserabnahme wegen fehlender Browser-/Desktopanbindung;
+  unabhängige PDF-Anwesenheits-/Leerzellenannotation weiterhin nötig. Nicht
+  belegbare OCR-/Zuordnungsursachen bleiben unbekannt. Nächster sinnvoller
+  Schritt: neuen Bericht lokal sichten, Referenzgültigkeit unabhängig prüfen.
+
+### Evaluationsaudit und Einzelbewertungen (16.11., implementiert und geprüft)
+
+- Auftrag: aktuellen Dreidokumentreport kritisch bis zur Feldbewertung prüfen;
+  Qualitätsregeln erhalten, belegte Fehler beheben und filterbare Feld-/Personen-
+  protokolle im bestehenden Dashboard ergänzen. Bestehende uncommittete
+  Extraktionsänderungen vom 12.11. erhalten; keine neue Inferenz.
+- Implementiert: `roster_benchmark/metric_audit.py` und `metric_audit_report.py`
+  verwenden vorhandene `course_metrics`-Entscheidungen. Dashboardbereich G,
+  Original-/Normalwerte, Kategorien, Gründe, PDF-Links, CSV/JSON und Abgleich
+  mit Aggregaten. `scientific.py` integriert Audit und zusätzliche Codehashes.
+- Zwei belegte Randkorrekturen in `metrics.py`: ausdrücklich leere Ausgabe mit
+  Zustand `empty` und `null` gleichwertig zu `empty`/Leerstring; reine Leerzeichen
+  bei zusätzlichen Personen zählen normalisiert nicht als Ausgabefeld.
+  Im untersuchten eingefrorenen Vergleich kommen diese Randfälle nicht vor;
+  sämtliche primären Qualitätswerte und Standardmetriken bleiben unverändert.
+- Befund auf gespeichertem Report: primäres Paddle 94 exakte/32 falsche/58
+  fehlende Felder, 126/184 vorhanden. 40 ausgegebene Datensätze, 22 nach strengem
+  Identitätskriterium, zehn vollständig korrekt; Standard-Swapbewertung 96 exakt.
+  VLM zwei ungültige Seiten mit je 8192 Ausgabetokens, Nenner bleibt 184.
+  Baseline null Personen bei vorhandenen OCR-Belegen; erhebliche Cacheunterschiede.
+- Anhand gespeicherter Referenzen geprüft: bestehender Report direkt aktualisiert,
+  928 Feldfälle/232 Teilnehmerfälle mit vollständiger Zählerreconciliation,
+  3.449 lokale Dateilinks ohne fehlendes Ziel; CSP-Hash und JS-Syntax geprüft.
+  287 Quelllaufdateien unverändert, ebenso Referenzsnapshot, Standardbericht,
+  `metrics.json` und historische CSVs. Keine neue reale Inferenz.
+- Getestet: Gesamtlauf **888 bestanden (100,55 s)**; anschließend **44 gezielte
+  Tests (3,90 s)** einschließlich zusätzlicher HTML-Escaping-Regression sowie
+  **48 API-Tests (10,09 s)** bestanden. Acht neue Regressionen insgesamt;
+  Ruff und Diff-Check ohne Befund. Anfängliche Umgebungsfehler (gesperrter alter
+  Tempordner, Windows-Pfadlängen, API-Testdateien müssen außerhalb Repository
+  liegen) durch geeignete Testpfade gelöst, keine Sicherheitsregel gelockert.
+- Dokumentation: `software/docs/evaluation-audit-20261116.md`, wissenschaftlicher
+  Einstieg und Framework-README aktualisiert. Automatisch aktiv für neue
+  Vergleiche/Neuanalysen. Bestehende spätere Extraktionsreparaturen vom 12.11.
+  nicht rückwirkend angewandt; private Original-HTML-Sicherung erhalten.
+- Offen: unabhängige PDF-Anwesenheits-/Leerzellenannotation; Kursreferenz allein
+  belegt keine sichtbaren Personen/Felder. Visuelle Browserabnahme wegen fehlender
+  nativer Pipe und Browserhost nicht möglich. Nächster Schritt: Bereich G lokal
+  sichten und Referenzgültigkeit vor unabhängiger Studie prüfen.
+- Private Sicherung des Ausgangsreports und Hashinventar unter
+  `software/data/evaluation-review-20261116/`; keine Personenwerte in Übergabe.
+
+### Kopflose Folgeseiten: VLM-Kontext und native Absicherung (12.11., aktiv)
+
+- **Auftrag / Ursache:** fehlende ID-/Organisationsfelder auf Folgeseiten prüfen,
+  unabhängig von Handschrift. Beim neuesten Dreidokumentlauf sind Teile der
+  Rohzellen vorhanden, werden aber nach falschen Modellüberschriften gesperrt.
+  Weiße Seitenränder wurden als zusätzliche VLM-Spalten gezählt; außerdem fehlte
+  der geprüfte Spaltenkontext vor der Generierung. Einzelne vermeintliche
+  Organisationszellen enthalten tatsächlich Signaturtranskripte. Leere ID allein
+  sperrt die Organisation nicht.
+- **Implementiert / aktiv:** Kontext v3, physische Geometrie ohne Seitenränder,
+  geprüftes Präfix aller Textspalten und gruppierte Feldrollen pro physischer
+  Spalte im dynamischen VLM-Input. Kombinierte Namen bleiben eine Zelle.
+  Echte neue Überschriften haben Vorrang; fehlende innere Rastergrenzen und
+  widersprüchliche Modellspalten sperren weiterhin eine automatische Zuordnung.
+  Keine früheren Teilnehmerwerte oder Referenzen im Kontext. Promptfamilie v26,
+  Schema, Modelle, Grenzen und Bewertungsregeln unverändert.
+- **Fehlerhafte Datenheader:** exaktes Echo der ersten aktuellen benannten Person
+  wird erkannt. Die Feldreparatur benötigt zusätzlich einen eindeutigen aktuellen
+  nativen Zeilenanker aus vollständigem Namen oder ID und eine einzelne aktuelle
+  OCR-Zelle innerhalb der gemessenen Feldspalte. Vorhandene
+  `complete_observed_cells` wiederverwendet, Werte prüfpflichtig. Hybrid kann seine
+  bereits vorhandenen Paddle-Belege nutzen; direktes/API-VLM bekommt keine neue
+  separate OCR. Ohne Beleg bleibt das Feld unbekannt. Drei explizit leere IDs
+  bleiben leer. Feldbericht zeigt native Ergänzung getrennt von Modellantwort.
+- **Endgültig gemessen:** neu validierte eingefrorene Antworten, unveränderte
+  46 Kursreferenzpersonen/184 Felder pro Methode. Hybrid **exakt 92→96,
+  falsch 28→29, fehlend 64→59, zusätzlich 4→4**, weiterhin 47 Datensätze und vier
+  referenzgestützte Namenstausche. Vier exakte Gewinne, aber ein neuer falscher
+  Wert; kein allgemeiner Halluzinationsfreiheitsnachweis. Übrige Feldzähler
+  unverändert. Auf einer anderen Folgeseite fehlt eine nötige Rastergrenze;
+  Übernahme dort weiterhin gesperrt.
+- **Funktionsprüfung / offen:** zwei lokale VLM-Seitenaufrufe plus zwei Warm-ups.
+  Erste Probe erfand getrennte Namensspalten und wurde verworfen. Finale Probe
+  mit physisch gruppiertem Kontext: 3.971 Input-/101 Outputtokens, gültiges JSON,
+  aber null Teilnehmer. Direktes VLM weiterhin ohne Qualitätsgewinn auf dieser
+  Seite; technische Fehlerseiten 2→1 bedeutet keinen Erkennungserfolg.
+  Keine neue OCR/Textmodell-/API-Inferenz oder Downloads. Kein vollständiger
+  neuer Fünferlauf und kein Laufzeitvergleich.
+- **Verworfen / zurückgenommen:** ungeprüfte Freigabe aller 17 Hybridzellen
+  brachte fünf exakte, aber zwölf zusätzliche falsche Werte; nicht aktiv.
+  Tesseract-Ergänzungsprobe brachte nur einen zusätzlichen falschen Wert und
+  wurde vollständig aus dem Produktivpfad zurückgenommen. Tesseract/Paddle-
+  Zuordnungslogik bleibt unverändert, abgesehen von gemeinsamer Kontextkennung.
+- **Tests / Berichte:** 17 neue Regressionen, abschließend **881 lokale Tests
+  (100,75 s)** und **48 API-Tests (10,00 s)** bestanden; Ruff ohne Befund.
+  2.258 lokale HTML-Dateilinks geprüft, 783 historische Dateien unverändert.
+  Endfassung unter
+  `software/testframework/ergebnisse/headerless-columns-20261112-verified/report.html`;
+  `after/` enthält genau eine neue finale VLM-Seite, `frozen-response-replay/`
+  nur Neuvalidierung. Zwischenberichte ohne `-verified` als verworfen markiert.
+  Private Belege: `software/data/handwritten-fields-20261112/`, insbesondere
+  `quality_comparison_verified.json` und `publication_verification.json`.
+- **Dokumentation / Transfer:** `software/docs/headerless-columns-20261112.md`,
+  Spaltenkontext-Einstieg und API-Framework-README ergänzt. Aktuelles Paket:
+  `software/api_firmen_pc/dist/firmen-pc-20261112-folgeseiten.zip`; ältere Pakete
+  enthalten diese neue Reparatur noch nicht. API-Standardprofil weiterhin ohne
+  automatische Drehung, reale Firmenmodellqualität nicht nachgewiesen.
+
+### API-Transfer und gemeinsame Auswertung (12.11., geprüft)
+
+- API-Einstieg verwendet unmittelbar dieselbe `roster_benchmark`-CLI und damit
+  aktuelle Bewertung, Dashboard, Detail- und Fehlerberichte; `APIModel` erbt
+  die gemeinsame VLM-Extraktion und verwendet `build_system`/Antwortschema.
+  Keine Übernahme lokaler Vorhersagen in API-Prompts oder automatische
+  Synchronisierung zwischen Rechnern. Gemeinsamer Bericht mit lokalem und
+  API-VLM derzeit nicht automatisch möglich: beide Kandidaten heißen `vlm`,
+  Zusatzbericht-Import verbietet doppelte Kennungen.
+- **Konfigurationsgrenze:** API-Standardprofil erbt weiterhin ausdrücklich
+  `pdf.auto_orient: false` aus `configs/vlm-comparison.yaml`. Gemeinsame
+  Orientierungsreparatur ist enthalten, dort aber nicht aktiv. Korrekt gedrehte
+  Eingaben verwenden oder auf dem Firmen-PC Tesseract mit `deu/eng/osd`
+  bereitstellen und `pdf.auto_orient: true` im API-Profil aktivieren.
+  Laufzeitkonfiguration in diesem Schritt nicht verändert.
+- Neues lokales Transferpaket
+  `software/api_firmen_pc/dist/firmen-pc-20261112-analyse.zip`: 127 Dateien,
+  125 aktuelle Quellen bytegleich geprüft, zwei generierte Eingabe-READMEs,
+  ZIP-CRC ohne Befund. Keine echten Dokumente, Referenzen, Zugangsdaten,
+  Modellgewichte oder Ergebnisse enthalten. Prüfbeleg unter
+  `software/data/api-transfer-20261112/verification.json`.
+- API-Framework-README um diese Grenzen ergänzt. API-CLI-Hilfen `benchmark run`
+  und `benchmark analyze` erfolgreich; **48 API-Tests bestanden (22,01 s)**,
+  ohne Firmenendpunkt. Echter Firmenzugang/Modellfreischaltung nicht geprüft.
+
+### Neuer Dreidokumentvergleich (12.11., abgeschlossen und geprüft)
 
 - Auf ausdrücklichen Folgeauftrag neuer normaler Fünferlauf gestartet:
   `software/runs/20261112T071339Z-ca4962b3`, ausschließlich die drei bereits
@@ -22,16 +224,41 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
   kein manuelles Manifest: beide Seiten von `146079` um 90° korrigiert,
   übrige vier Seiten beibehalten. Alle sechs Seiten bereit, keine offenen
   Orientierungsentscheidungen. Cacheverwendung wird vom normalen Runner erfasst.
-- **Noch nicht abgeschlossen:** Modellinferenz und neuer Vergleichsbericht.
-  Die abgeschlossene Reportanalyse vom 11.11. und deren begrenzter Gegencheck
-  sind hiervon getrennt. Abschlussdaten und Berichtspfad nach Laufende ergänzen.
+- **Unterbrochene Zwischenläufe:** `20261112T071339Z-ca4962b3` hat keinen
+  Abschluss (`summary.json` fehlt; Log endet 07:53 UTC). Ebenfalls kein Abschluss
+  bei `20261112T072241Z-43859e5c`. Diese Ergebnisse nicht als vollständigen
+  Fünfervergleich ausgeben oder nochmals parallel starten.
+- **Abgeschlossener neuer Lauf:** zwischenzeitlich separat gestarteter
+  `software/runs/20261112T075916Z-2ed08591`, drei Entwicklungs-PDFs im normalen
+  Eingabeordner: `146074`, `146079`, `162575`, sechs Seiten und alle fünf
+  Verfahren. Neuer Vergleich
+  `software/testframework/ergebnisse/20261112T082436Z-ffc71ce9/report.html`.
+  Alle Verfahren auf sechs Seiten ausgeführt; direktes VLM nur vier gültige
+  Seiten, zwei ungültige Antworten am Limit 8.192 Tokens (jeweils Folgeseite von
+  `146074`/`146079`). Andere Verfahren sechs gültige Seiten; Regelbaseline
+  weiterhin ohne Teilnehmer. Kein vollständiger Erfolg aller Seiten behauptet.
+- **Referenznachweis:** gleiche drei Kurse aus historischem Vergleich separat
+  aggregiert, 46 Referenzpersonen/184 Felder je Verfahren. Exakt vorher→nachher:
+  Regeln 0→0, OCR+LLM 0→74, Paddle+LLM 0→96, VLM 25→67, Hybrid 45→92.
+  Falsche Werte danach 0/17/30/29/28; zusätzliche Felder 0/4/0/0/4.
+  Standardbewertung kann referenzgestützte Namensrollentausche enthalten
+  (Paddle einer, Hybrid vier). Keine allgemeine Fehler-/Halluzinationsfreiheit
+  und keine isolierte Wirkung einer einzelnen Reparatur behauptet.
+- **Abschlussprüfung:** Referenzdatei/-snapshot und Bewertungsimplementierung
+  unverändert, sechs tatsächlich verwendete Bilder hashgleich mit der zuvor
+  unabhängig geprüften automatischen Ausrichtung; 1.125 lokale HTML-Dateilinks
+  ohne fehlendes Ziel. Nachweis mit Vorher-/Nachherzahlen unter
+  `software/data/examples-three-20261112/observed-latest/verification.json`.
+  Die abgeschlossene Analyse vom 11.11. und deren begrenzter Gegencheck bleiben
+  getrennte Artefakte. Weiterhin Entwicklungsbeispiele, kein unabhängiger Finaltest.
 
 ### Systematischer Fehleraudit und kontrollierter Gegencheck (11.11.)
 
-- **Letzter tatsächlich vollständiger Modelllauf:** weiterhin
+- **Vollständiger Zehndokumentlauf zu Beginn des Audits:**
   `runs/20261111T091101Z-59c4b71d`, historischer Fünfervergleich
-  `testframework/ergebnisse/20261111T110330Z-09f5d83e`. Neuere Fehlerberichte sind
-  keine neuen vollständigen Modellläufe. Der neue
+  `testframework/ergebnisse/20261111T110330Z-09f5d83e`. Die danach zunächst
+  erzeugten Fehlerberichte waren keine neuen vollständigen Modellläufe;
+  der abgeschlossene Dreidokumentlauf vom 12.11. steht separat oben. Der
   `testframework/ergebnisse/systematic-audit-20261111/after/` ist ein ausdrücklich
   gekennzeichneter **Teilgegenrecheck mit zwei neuen Textmodellaufrufen**, kein
   vollständiger Fünferlauf mit neuer Ausrichtung. Die zehn PDFs bleiben wegen
@@ -78,9 +305,9 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
   Fehleranalyse-Einstieg ergänzt. Neue HTML-Übersicht unter
   `software/testframework/ergebnisse/systematic-audit-20261111/report.html`.
   Offen: neun Ausgabetokenabbrüche, vierzehn leere OCR+LLM-Antworten, falsche
-  Zeichen/Handschrift und unzuverlässige Tabellenstruktur; vollständiger neuer
-  Fünferlauf zur Wirkung der aktiven Orientierungs-/Kontextreparaturen weiterhin
-  ausstehend. Unbekannte Felder und Kursreferenzabweichungen nicht geraten reparieren.
+  Zeichen/Handschrift und unzuverlässige Tabellenstruktur. Der neue Fünferlauf
+  prüft die aktiven Reparaturen auf drei Beispielen, noch nicht auf allen zehn
+  ursprünglichen PDFs. Unbekannte Felder und Kursreferenzabweichungen nicht raten.
 
 ### Seitenübergreifende Spaltenzuordnung (11.11., erneut abgesichert)
 
@@ -2264,3 +2491,272 @@ auf die dort datierten Stände.
 - **Folgeauftrag / nächster Schritt:** Nutzer möchte normalen neuen Lauf für
   drei Beispiele einschließlich `146079` mit Berichtlink. Am 12.11. als
   `20261112T071339Z-ca4962b3` gestartet; Abschluss und Qualitätszahlen noch offen.
+
+### 2026-11-12 – API-Start auf zweitem Laptop und tatsächliche Analysegleichheit geprüft
+
+- **Auftrag:** erklären, wie das API-Modell auf dem anderen Laptop gestartet
+  wird und ob die aktualisierte Analyse sowie Ergebnisse der lokalen Modelle
+  dort verwendet werden. Gemeinsame CLI, Runner, API-Unterklasse, Systemprompt,
+  Auswertung und Konfigurationsvererbung am tatsächlichen Code geprüft.
+- **Befund:** gemeinsame neue Bericht-/Bewertungslogik ist automatisch aktiv
+  für neue API-Vergleiche mit aktuellem Quellpaket. Lokale Ergebnisse werden
+  weder synchronisiert noch als API-Belege verwendet. Gemeinsamer Vergleich
+  lokales/API-VLM wegen gleicher Kandidatenkennung kein automatischer Import.
+  Alte HTML-Dateien ändern sich nicht nachträglich. API-Standardprofil hat
+  weiterhin `auto_orient: false`; reparierte Automatik dort nur nach bewusster
+  Aktivierung mit vorhandener Tesseract-Installation nutzbar. Keine Änderung
+  der API-Konfiguration, Modelle oder Extraktionslogik.
+- **Änderungen / konkrete Bereitstellung:**
+  `software/api_firmen_pc/testframework/README.md` um Analysegleichheit,
+  Orientierung und Grenzen des Ergebnisimports ergänzt; diese Übergabe
+  aktualisiert. Vorhandenen Exporter für neues Paket
+  `software/api_firmen_pc/dist/firmen-pc-20261112-analyse.zip` benutzt.
+  Vorhandene Oktober-Pakete erhalten. Nur ausgewählte Programmquellen,
+  Konfigurationen, Tests, Anleitungen, Lockdateien und öffentliche CA-Datei;
+  keine privaten Eingaben oder Ergebnisse.
+- **Prüfungen:** 127 Archiveinträge, davon 125 vorhandene Quellen bytegleich
+  und zwei vom Exporter generierte Platzhalter-READMEs; CRC und Vorhandensein
+  der acht aktuellen Kernmodule für Prompt-/Orientierungs-/Spalten-/Analysepfade
+  geprüft. API-CLI-Hilfen für `benchmark run` und `benchmark analyze` erfolgreich.
+  **48 API-Tests bestanden (22,01 s)**; regulärer Diff-Check ohne Befund.
+  Kein echter API-Aufruf und kein Nachweis gültiger Firmenzugangsdaten.
+- **Parallel beobachteter lokaler Stand / nächster Schritt:** frühere Läufe
+  `071339Z-ca4962b3` und `072241Z-43859e5c` ohne Abschluss. Separater neuer
+  Fünferlauf `075916Z-2ed08591` auf `146074`, `146079`, `162575` läuft;
+  nach Abschluss bestehenden Vergleichsbericht und seine Integrität prüfen,
+  dem Nutzer Berichtlink geben. Keine fremden Prozesse beendet oder neue
+  parallele Modellinferenz gestartet.
+
+### 2026-11-12 – Neuen Dreidokumentreport nach extern fortgesetztem Lauf geprüft
+
+- **Grundlage / Abgrenzung:** ursprüngliche Zwischenläufe ohne Abschluss
+  erhalten. Den separat gestarteten und nun regulär abgeschlossenen Lauf
+  `software/runs/20261112T075916Z-2ed08591` geprüft, keine neue Inferenz gestartet
+  und keine fremden Prozesse beendet. Tatsächliche Beispiele `146074`, `146079`,
+  `162575`: sechs Seiten, alle fünf vereinbarten Verfahren. Der Nutzer hatte
+  drei Beispiele einschließlich `146079` verlangt; die beiden anderen nicht
+  festgelegt. Neuer automatisch erzeugter vollständiger Vergleichsreport unter
+  `software/testframework/ergebnisse/20261112T082436Z-ffc71ce9/report.html`.
+- **Befunde:** vier Verfahren mit sechs gültigen Seiten; direktes VLM mit
+  vier gültigen und zwei fehlgeschlagenen Seiten. Beide VLM-Folgeseiten
+  (`146074`/`146079`) erreichen 8.192 Ausgabetokens und haben ungültiges JSON.
+  Baseline weiterhin null Teilnehmer; übrige Ausgabedatensätze 26/40/32/47.
+  Keine Änderungen an Code, Profil, Modell, Referenz oder Bewertung für diese
+  nachträgliche Integritätsprüfung vorgenommen.
+- **Gemessene Qualität / Grenzen:** dieselben drei historischen Kurse als
+  Vorherbasis, unveränderte 46 Referenzpersonen/184 Felder pro Verfahren.
+  Exakte Felder 0/0/0/25/45→0/74/96/67/92; falsche Felder
+  0/0/0/17/13→0/17/30/29/28. Fehlende Felder
+  184/184/184/142/126→184/93/58/88/64; zusätzliche Felder
+  0/0/0/0/0→0/4/0/0/4. Reihenfolge Regeln, OCR+LLM, Paddle+LLM, VLM, Hybrid.
+  Standardzähler mit möglicher referenzgestützter Namenstauschbewertung;
+  danach Paddle ein und Hybrid vier Tausche. Mehr korrekte, zugleich mehr
+  falsche und teils zusätzliche Felder; kombinierte Reparaturen, kein isolierter
+  Kausalnachweis und keine unabhängige Finaltest- oder Laufzeitstudie.
+- **Prüfungen / Artefakte:** Referenz-XLSX und eingefrorener Snapshot identisch
+  zum historischen Vergleich; Hashes der Bewertung, des Matchers und der
+  Referenzverarbeitung identisch. Aktuelle drei PDFs und alle sechs Bilder
+  geprüft; Bilder hashgleich mit vorheriger unabhängiger Orientierungsprüfung.
+  1.125 lokale HTML-Dateilinks ohne fehlendes Ziel. Aggregierter Nachweis unter
+  `software/data/examples-three-20261112/observed-latest/verification.json`.
+  Diese Übergabe fortgeschrieben; kein weiteres Umschreiben historischer Reports.
+- **Offen / nächster Schritt:** Nutzer erhält den Reportlink zusätzlich zu
+  API-Startanleitung und Transferpaket. Ausgabelimitfehler und verbleibende
+  Erkennungsfehler bleiben sichtbar. API-Profil hat weiterhin deaktivierte
+  automatische Drehung; vor Vergleich auf dem zweiten Laptop gleiche Ausrichtung,
+  Referenz und Programmversion sicherstellen.
+
+### 2026-11-12 – Fehlende Felder auf kopflosen Folgeseiten untersucht und abgesichert
+
+- **Auftrag / tatsächlicher Befund:** anhand des neuesten abgeschlossenen
+  Vergleichs `20261112T082436Z-ffc71ce9` und seines Quelllaufs Feldverluste
+  verfolgen. Nutzer präzisiert: fehlende Überschriften auf der nächsten Seite,
+  unabhängig von Handschrift. Quellbilder visuell geprüft; gemeinsame Drehung
+  auf diesen sechs Seiten korrekt. Modellantwort enthält teilweise ID-/Org-
+  Zellen, aber erste Person wird als Header ausgegeben. Teilweise stehen
+  Signaturtexte in vermeintlichen Org-Zellen. Direktes VLM hat zusätzlich
+  Ausgabelimitabbrüche. Tesseract verliert die untersuchten Werte überwiegend
+  vor dem finalen Export; leere ID ist keine allgemeine Organisationssperre.
+- **Geänderte Implementierungen:** `column_context.py` (v3, optionale physische
+  Grenzen ohne synthetische Seitenränder, Diagnose), `vlm_cells.py`
+  (gemeinsame Headerrollen, Textpräfixgeometrie, gruppierter sicherer Kontext,
+  Echo-/Rasterkonflikterkennung und native aktuelle Zeilen-/Zellbelege),
+  `models.py` (Strukturkontext vor VLM-/Hybridaufruf, tatsächliche
+  Nachrichten/Hashes/Kontextversion gesichert), `roster_benchmark/pipeline_trace.py`
+  (native Ergänzung als eigene Stufe). Alle unter
+  `software/verarbeitung/src/participant_bench/`. Keine Modelle, Abhängigkeiten,
+  JSON-Schemas, festen Prompttemplates oder Bewertungsregeln geändert.
+- **Sicherungsprinzip:** nur Struktur derselben früheren PDF-Seite bei passenden
+  aktuellen gemessenen Zielspalten. Neue echte Header haben Vorrang, fehlende
+  Grenzen bleiben Sperrgrund. Bei fehlerhaftem Header-Echo braucht die Reparatur
+  einen eindeutigen aktuellen nativen Anker aus Name/ID und eine einzelne
+  aktuelle OCR-Zelle innerhalb der Zielspalte; keine Organisation als Anker,
+  keine formatbasierte Feldvertauschung. Bestehende `complete_observed_cells`
+  wiederverwendet. Werte bleiben unsicher markiert und manuell prüfpflichtig.
+- **Verworfene Schritte ausdrücklich erhalten:** ungeprüfte Freigabe von 17
+  Hybridfeldern ergab +5 exakte/+12 falsche Felder, darunter Signaturtext; nicht
+  aktiv. Tesseract-Ergänzungsprobe ergab nur einen neuen falschen Wert; Änderung
+  zurückgenommen, `structure_assignment.py` und Tesseract-Parser danach wieder
+  unverändert. Erste lokale VLM-Probe erfand getrennte Namensspalten, deshalb
+  physisch gruppierter Input und Rasterkonfliktsperre nachgebessert.
+  Kein wissenschaftlicher Mehrvarianten-Promptvergleich.
+- **Begrenzte Validierung:** zwei neue VLM-Seitenaufrufe plus zwei Warm-ups,
+  keine neue OCR/Textmodell-/API-Inferenz oder Downloads. Finale VLM-Probe
+  verwendet gleiche Gewichte, Systemprompt samt Schema, Bild und Grenzen:
+  gültiges JSON mit 101 Outputtokens, aber keine Teilnehmer. Die nachfolgende
+  native Belegprüfung auf eingefrorenen Antworten geprüft, tatsächlicher finaler
+  Strukturinput gegen aktuelle Konstruktion auf Gleichheit geprüft; Generierungs-
+  und Validierungscodehashes getrennt. Noch kein neuer vollständiger Fünferlauf.
+- **Gemessene Endfassung / Risiken:** gleicher Referenzsnapshot und Matcher,
+  46 Referenzpersonen/184 Felder je Verfahren. Hybrid exakt 92→96,
+  falsch 28→29, fehlend 64→59, zusätzlich 4→4; Teilnehmer 47 unverändert,
+  referenzgestützte Namenstausche vier unverändert. Fünf wiederhergestellte
+  native Felder, davon vier exakte und ein falscher Referenzwert. Andere
+  Methodenfeldzähler unverändert. Direktes VLM nur formal eine Fehlerseite
+  weniger, kein Feldqualitätsgewinn; eine andere Folgeseite bleibt wegen
+  fehlender gemessener Grenze gesperrt. Keine bestätigten Personenidentitäten,
+  Halluzinationsfreiheit, unabhängige Finaltest- oder Laufzeitstudie behauptet.
+- **Tests:** `software/tests/test_headerless_visual_context.py` mit 17 neuen
+  Fällen; bestehenden Mock in `test_field_pipeline_trace.py` angepasst.
+  Abschließend **881 lokale Tests bestanden (100,75 s)** und **48 API-Tests
+  (10,00 s)**, Ruff ohne Befund. Zuvor aufgetretene Testfehler wegen unvollständiger
+  Fixture, strenger Feldablehnung und geändertem Mockvertrag behoben; zwischenzeitliche
+  883-Tests-Läufe nicht mit dem finalen Umfang nach Rücknahme verwechseln.
+- **Dokumentation / Ausgabe:** neue
+  `software/docs/headerless-columns-20261112.md`, Einstieg
+  `software/docs/document-columns.md`, API-Framework-README und Übergabe.
+  Endgültiger Bericht
+  `software/testframework/ergebnisse/headerless-columns-20261112-verified/report.html`,
+  getrennte reine Replay-/After-Ansichten. Unsichere Zwischenberichte klar
+  verworfen markiert. 783 historische Dateien unverändert und 2.258 lokale
+  Berichtlinks ohne fehlendes Ziel. Private Nachweise nur unter
+  `software/data/handwritten-fields-20261112/`. Neues aktuelles Firmen-PC-Paket
+  `software/api_firmen_pc/dist/firmen-pc-20261112-folgeseiten.zip`; keine echten
+  Dokumente, Referenzen, Zugangsdaten, Gewichte oder Ergebnisse exportiert.
+- **Offen / nächster sinnvoller Schritt:** Modellabdeckung auf kopflosen Seiten,
+  verbleibende OCR-/VLM-Lesefehler und fehlende Rasterlinien getrennt weiter
+  untersuchen. Auf weiteren Entwicklungs-Layouts regulär neu messen, bevor ein
+  allgemeiner Qualitätsgewinn oder Einsatzfähigkeit beansprucht wird. API-Qualität
+  nicht real geprüft; dessen automatische Drehung bleibt separat zu aktivieren.
+
+
+### 2026-11-16 ? Evaluationslogik und aktueller Dreidokumentreport auditiert
+
+- Auftrag: Exact Recall/F1, Coverage, Teilnehmeridentit?t/Vollst?ndigkeit,
+  Normalisierung, globale Paarung, Folgeheader, Datenumfang und Laufzeit kritisch
+  pr?fen; bestehendes HTML um nachvollziehbare Einzelbewertungen erweitern.
+- Implementiert: neue `roster_benchmark/metric_audit.py` und
+  `metric_audit_report.py`; vorhandene `course_metrics`-Entscheidungen ohne neue
+  Punktevergabe, Kategorien f?r fehlende Personen/Werte, Platzhalter, falsche
+  Werte, Feld-/Zeilenhinweise und Zusatzwerte. Halluzinationsnachweis nur gegen
+  explizite Leerreferenzen; allgemeine Zusatzwerte bleiben unbest?tigt.
+  `scientific.py`/`dashboard_report.py` integrieren Bereich G, kombinierte Filter,
+  Suche, Original-/Normalwerte, Gr?nde, PDF-/Pipelinebelege und CSV/JSON.
+  Implementationhashes erweitert. Keine Modelle/Profile/Referenzen ver?ndert.
+- Belegte Randfehler in `metrics.py` korrigiert: `empty`/null gleichwertig zu
+  `empty`/Leerstring; unbekannte Zust?nde bleiben unbekannt. Zus?tzlicher reiner
+  Whitespace erh?ht P nicht mehr. Fehlende Leerzellenerkennung pr?fpflichtig.
+- Tats?chlicher Nachweis: Report `20261112T082436Z-ffc71ce9` aus eingefrorenen
+  Antworten direkt aktualisiert. Alle bisherigen Qualit?tswerte identisch,
+  928 Feld-/232 Teilnehmerf?lle reconciliert. Unver?nderte 46 Referenzpersonen/
+  184 Felder je Verfahren; 124 andere Kursreferenzen korrekt au?erhalb Eingaben.
+  Paddle 40 Ausgabedatens?tze, 22 strikte Identit?ten, zehn vollst?ndig korrekt;
+  zw?lf weitere Identit?ten scheitern ausschlie?lich an Organisation.
+  Baseline null strukturierte Personen bei vorhandener OCR; VLM zwei ung?ltige
+  Folgeseiten am Ausgabelimit. Cachezeiten verhindern kontrolliertes Zeitranking.
+- Pr?fungen: 888 Gesamttests (100,55 s), danach 44 gezielte Tests (3,90 s) inkl.
+  zus?tzlicher achter Regression; 48 API-Tests (10,09 s), Ruff, Diff-Check,
+  JS-Syntax/CSP und 3.449 lokale Links bestanden. Fr?he Umgebungsfehler durch
+  geeignete kurze beziehungsweise externe synthetische Testpfade behoben.
+  287 Quelllaufdateien und numerische Standardartefakte unver?ndert.
+- Dokumentation: `software/docs/evaluation-audit-20261116.md`,
+  `software/docs/scientific-evaluation.md`, `software/testframework/README.md`,
+  zwei bestehende Dashboard-/Replaytests und neues
+  `software/tests/test_evaluation_transparency.py`. Vorhandene uncommittete
+  Extraktionsarbeiten anderer Schritte erhalten. Private Sicherungen/Nachweise
+  unter `software/data/evaluation-review-20261116/`; keine Personenwerte hier.
+- Aktiv/offen: neue Vergleiche und Neuanalysen enthalten G automatisch.
+  Keine neue Inferenz oder r?ckwirkende Extraktionsreparatur. Sichtpr?fung im
+  Browser technisch nicht verf?gbar (native Pipe/Browserhost fehlen).
+  Unabh?ngige Teilnehmer-/Leerzellenannotation und kontrollierte Zeitstudie
+  bleiben n?tig; lokale Sichtpr?fung von G ist n?chster sinnvoller Schritt.
+
+
+### 2026-11-16 ? Abweichende Erkennung von fehlenden und unklaren Werten getrennt
+
+- Auftrag: f?nf konsistente Feldstatus mit vorhandener Levenshtein-?hnlichkeit,
+  ?bersichtlichen Originalwerttabellen und Fehlerstufen; keine k?nstliche
+  Exact-Match-Verbesserung und keine historischen Ergebnisse ?berschreiben.
+- Implementiert: gemeinsames `roster_benchmark/field_assessment.py` liefert
+  zus?tzliche Anzeigestatus und Prozent?hnlichkeit aus gespeicherten Feldwerten.
+  `metrics.py` exportiert diese neben unver?nderten Feldbeitr?gen; strenge
+  Identit?ts-/Vollst?ndigkeitsz?hler schlie?en ausdr?cklich mehrdeutige,
+  widerspr?chliche und duplizierte Paarungen aus. Schreibabweichungen bleiben
+  verf?gbar und exakt falsch, fehlende Personen vollst?ndig im Referenznenner.
+- Berichte: `detail_report.py`, `error_report.py`, `metric_audit.py`,
+  `metric_audit_report.py`, `dashboard_report.py` zeigen Soll/Original/Status/
+  Prozent?hnlichkeit ohne doppelte Normalwertspalte, aggregierte f?nf Status
+  und unver?nderte R/P/E-Beitr?ge als getrennte Achsen. Bestehende Diagnose-
+  und Pipelinebelege ?bernommen; fehlende OCR nicht aus Volltextl?cken geraten.
+  Ausgabeindex 0 funktioniert nun auch typisiert in `diagnose_field`.
+- Versionierung: `evaluation.py` v6, `scientific.py` v3, Fehlerbericht v7;
+  gemeinsame Statusimplementierung in Analysehashes. Keine Extraktionsmodelle,
+  Prompt-/Profil-/Referenzwerte ge?ndert und keine neue Inferenz.
+- Nachgewiesen: neuer Bericht `field-states-20261116/report.html` aus dem
+  historischen Dreidokumentvergleich. Alle bisherigen prim?ren Qualit?tswerte
+  identisch, 928 Feld-/232 Teilnehmerf?lle konsistent. 787 historische/Quell-
+  Dateien hashgleich; 3.449 lokale Links ohne fehlendes Ziel, Skriptsyntax und
+  beide CSP-Hashes gepr?ft. Nachweise privat unter
+  `software/data/field-states-20261116/` ohne Personenwerte in dieser ?bergabe.
+- Tests: 15 neue Regressionen in `test_field_assessment.py`, bestehende
+  Darstellungsassertion in `test_benchmark_details.py` auf Prozent angepasst.
+  Abschlie?end 904 lokale Tests (95,64 s), 90 gezielte Tests (10,12 s),
+  48 API-Tests (9,15 s), Ruff und Diff-Check bestanden. Fr?her Gesamtlauf hatte
+  nur die ?berholte Formelanzeige beanstandet; finale Suite vollst?ndig gr?n.
+- Dokumentation: `software/docs/field-assessment.md`,
+  `software/docs/scientific-evaluation.md`, `software/testframework/README.md`
+  und diese ?bergabe. Historischen Vergleich nicht ver?ndert; vorhandene
+  uncommittete Extraktions?nderungen anderer Schritte erhalten.
+- Aktiv/offen: automatisch in neuen Vergleichen/Neuanalysen. Visuelle lokale
+  Browserabnahme mangels Browser-/Desktopanbindung offen; Kursreferenz bleibt
+  keine unabh?ngige Bildannotation. N?chster Schritt: neuen Bericht sichten
+  und Referenzg?ltigkeit pr?fen, ohne unklare Feldtexte als Erfolge anzurechnen.
+
+
+### 2026-11-16 ? Mittlere Levenshtein-?hnlichkeit erkannter Felder eingef?hrt
+
+- Auftrag: Vollst?ndigkeit und Genauigkeit ausgef?llter Referenzfelder trennen,
+  Levenshtein-Feld-F1 in der Darstellung ersetzen, ?brige Qualit?tswerte erhalten.
+- Implementierung: `roster_benchmark/metrics.py` erg?nzt `detected_value`, D und
+  ?hnlichkeitssumme, Mittelbildung in `scores` und vorhandene Mikroaggregation.
+  Bestehende Normalisierung, Levenshtein-Funktion und Zuordnung unver?ndert.
+  Falsche/pr?fpflichtige Paare und nichtleere Platzhalter bleiben im Mittel;
+  leere/fehlende Ausgaben, Zusatzpersonen und leere/unbekannte GT geh?ren nicht D.
+  D=0 bleibt undefiniert. Bestehende Coverage-/Exact-/Teilnehmerstrafen erhalten.
+- Darstellung/Export: `evaluation.py` v7 und `scientific.py` v4,
+  `scientific_stats.py`, `report.py`, `detail_report.py`, `dashboard_report.py`,
+  `field_assessment.py`, `metric_audit.py`, `cli.py` verwenden neue Z?hler/Anzeige.
+  Sortierbare ?bersicht neben Coverage/Exactwerten, ?s/D und D/R, Feldtypen und
+  Einzelf?lle. Alte `soft_*`-/`score_percent`-Schl?ssel ausdr?cklich Legacy und
+  unver?ndert zur Reproduktion; keine Umbenennung alter Werte als neues Mittel.
+- Referenznachweis: neuer Bericht `detected-similarity-20261116/report.html`,
+  ohne Inferenz aus `field-states-20261116/`. Alle bisherigen Methoden-/Feld-/
+  Coverage-/Exact-/Teilnehmer- und Legacywerte identisch. D 0/91/126/96/120 bei
+  R=184; neue Mittel undefiniert/93,75/87,78/89,61/89,19 Prozent. 1.287 historische
+  Vergleichs-/Quelllaufdateien hashgleich, 928 Feld-/232 Teilnehmerf?lle erhalten.
+- Tests: neues `software/tests/test_detected_similarity.py` mit 18 F?llen;
+  Statistikfixtures in `test_scientific_evaluation.py` erweitert. 922 lokale
+  Tests (101,83 s), 106 gezielte Tests (12,01 s), 48 API-Tests (10,54 s), Ruff
+  und Diff-Check bestanden. Verkettete Approx-Testassertion korrigiert, keine
+  Produktionsmetrik daf?r ver?ndert. 3.449 Dateilinks, JS-Syntax und CSP sowie
+  D-/?hnlichkeitssummen und Legacybeitr?ge erfolgreich gepr?ft.
+- Dokumentation: `software/docs/detected-similarity.md`, wissenschaftlicher
+  Einstieg, Framework-README und ?bergabe aktualisiert. Private Belege unter
+  `software/data/detected-similarity-20261116/`. Keine Referenz, Prompts,
+  Extraktionsprofile, Modelle oder historischen Reports ver?ndert; bestehende
+  uncommittete Arbeiten erhalten. Kein isolierter Modellqualit?tsgewinn behauptet.
+- Aktiv/offen: automatisch in neuen Vergleichen/Neuanalysen; historische Reports
+  bleiben historische Definitionen. Visuelle Browserabnahme mangels Anbindung
+  offen. N?chster sinnvoller Schritt: neuen Bericht sichten, bedingtes Mittel
+  gemeinsam mit Vollst?ndigkeit/Exactwerten/Extras interpretieren und Referenzen
+  vor einer unabh?ngigen Studie pr?fen.

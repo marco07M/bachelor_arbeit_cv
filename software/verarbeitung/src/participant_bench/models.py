@@ -158,6 +158,7 @@ def prompt_metadata(method, text, response_type, system_prompt=None):
 def extraction_prompt_snapshot():
     """Data-free template/schema snapshot shared by extraction and frozen selection plans."""
     from . import extraction_prompts as rules
+    from .column_context import VERSION as column_context_version
     from .schema import VisualPageResponse
     from .unlimited_assignment import PROMPT_VERSION as assignment_version
     from .unlimited_assignment import RECORD_SYSTEM, AssignmentResponse
@@ -173,7 +174,8 @@ def extraction_prompt_snapshot():
         "assignment_record": build_system("ocr_llm", OCRRecordResponse, RECORD_SYSTEM),
         "name_order": build_system("ocr_llm", NameOrderDecision, rules.NAME_ORDER_SYSTEM),
     }
-    payload = dict(version=PROMPT_VERSION, system=SYSTEM, ocr_system=OCR_SYSTEM,
+    payload = dict(version=PROMPT_VERSION, column_context_version=column_context_version,
+        system=SYSTEM, ocr_system=OCR_SYSTEM,
         ocr_record_system=OCR_RECORD_SYSTEM, vlm_system=VLM_SYSTEM, method_instructions=METHOD_INSTRUCTIONS,
         all_row_instructions=ALL_ROW_INSTRUCTIONS, response_schema=ModelResponse.model_json_schema(),
         ocr_response_schema=generation_schema(OCRRecordResponse),
@@ -727,6 +729,19 @@ class LocalModel:
             progress.log(f"{self.method}: Bildabschnitt [{tile_index}/{len(positions)}], y={top}:{bottom}")
             tile = image.crop((0, top, image.width, bottom)) if self.method in VISION_METHODS else None
             text = VISION_REQUEST
+            meta, contexts, profile, column_hint = {}, {}, None, None
+            if self.method in VISION_METHODS:
+                from .column_context import geometry, image_boundaries
+                from .vlm_cells import continuation_context
+
+                meta = getattr(self, "document_page_context", {}) if tile_height is None else {}
+                contexts = getattr(self, "visual_column_context", {})
+                edges = image_boundaries(image, include_page_margins=False) if meta else []
+                profile = geometry(len(edges) - 1, boundaries=edges) if edges else None
+                column_hint = continuation_context(contexts.get(meta.get("document_id")), profile,
+                    document_id=meta.get("document_id"), page_number=meta.get("page_number"))
+                if column_hint:
+                    text += "\nDOCUMENT_COLUMN_CONTEXT:\n" + json.dumps(column_hint, ensure_ascii=False)
             if self.method == "ocr_llm":
                 text = model_input(ocr_data)
             if self.method == "ocr_vlm":
@@ -750,6 +765,11 @@ class LocalModel:
                 "prompt_version": PROMPT_VERSION,
                 "text_prompt_sha256": digest(text),
             }
+            if self.method in VISION_METHODS:
+                from .column_context import VERSION as column_context_version
+
+                record["column_context_version"] = column_context_version
+                record["document_column_context"] = column_hint
             if self.method in ("ocr_llm", "ocr_vlm"):
                 record["text_prompt"] = text
                 if order_stage:
@@ -776,16 +796,11 @@ class LocalModel:
                         "models.%s.max_new_tokens erhöhen. Die Rohantwort bleibt erhalten." % self.method
                     )
                 if self.method in VISION_METHODS:
-                    from .column_context import geometry, image_boundaries
-
-                    meta = getattr(self, "document_page_context", {}) if tile_height is None else {}
-                    contexts = getattr(self, "visual_column_context", {})
-                    edges = image_boundaries(image) if meta else []
-                    profile = geometry(len(edges) - 1, boundaries=edges) if edges else None
                     parsed, page_text, warnings, column_audit = parse_visual_response(raw,
                         document_context=contexts.get(meta.get("document_id")),
                         document_id=meta.get("document_id"), page_number=meta.get("page_number"),
-                        column_geometry=profile)
+                        column_geometry=profile,
+                        cell_observations=ocr_data.get("hints") if self.method == "ocr_vlm" else None)
                     if meta:
                         contexts[meta["document_id"]] = column_audit.get("column_context", {})
                         self.visual_column_context = contexts

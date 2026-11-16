@@ -1,5 +1,10 @@
 # Spaltenüberschriften auf Fortsetzungsseiten
 
+Aktueller Nachtrag vom 12.11.: [Ursachen, abgesicherte VLM-/Hybridreparatur und
+begrenzter Gegencheck](headerless-columns-20261112.md). Kontext v3 trennt
+Seitenränder von physischen Tabellen und übergibt geprüfte Struktur vor dem
+Modellaufruf. Fehlerhafte Datenheader benötigen zusätzlich aktuelle räumliche Belege.
+
 Stand: 11.11.2026. Der aktuelle Ergänzungsstand steht unmittelbar unten;
 die anschließende Untersuchung vom 03.11. bleibt als historischer Nachweis erhalten.
 

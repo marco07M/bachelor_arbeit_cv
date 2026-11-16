@@ -5,9 +5,13 @@ from collections import Counter
 from urllib.parse import urlencode
 
 from .detail_report import document, esc, table
-from .report import percent
+from .field_assessment import LABELS as FIELD_LABELS
+from .metric_audit_report import SCRIPT as AUDIT_SCRIPT
+from .metric_audit_report import render as render_audit
+from .metrics import DETECTED_LABEL
+from .report import detected_basis, detected_percent, percent
 
-VERSION = "roster-dashboard-v1"
+VERSION = "roster-dashboard-v2-field-ledger"
 LABELS = {
     "first_name": "Vorname",
     "last_name": "Nachname",
@@ -128,7 +132,7 @@ def render(output, payload):
     text = f'<style>{STYLE}</style><main class="dash" id="scientific-analysis" data-dashboard-version="{VERSION}">'
     text += '<noscript><style>.panel[hidden]{display:block!important}.tabs{display:none}</style><p>JavaScript ist deaktiviert; alle Bereiche stehen untereinander.</p></noscript>'
     text += '<header class="hero"><h1>Modellvergleich · Teilnehmerlisten</h1><p class="subtitle">Wissenschaftliche Analyse: Qualität, Vollständigkeit, Fehler und Aufwand auf derselben eingefrorenen Referenz.</p>'
-    text += '<div class="good-note"><strong>Primär: unveränderte Namensrollen.</strong> Die Personenpaare bleiben referenzgestützt; dies ist keine referenzunabhängige Identitätsprüfung. Exakter Feld-F1 und Levenshtein-F1 werden getrennt ausgewiesen.</div></header>'
+    text += '<div class="good-note"><strong>Primär: unveränderte Namensrollen.</strong> Die Personenpaare bleiben referenzgestützt; dies ist keine referenzunabhängige Identitätsprüfung. Vollständigkeit und Textgenauigkeit erkannter Felder sind getrennte Qualitätsdimensionen.</div></header>'
     text += (
         '<div class="cards">'
         + "".join(
@@ -149,6 +153,7 @@ def render(output, payload):
         ("robustness", "D · Dokumenttypen"),
         ("efficiency", "E · Effizienz & Kosten"),
         ("statistics", "F · Statistik"),
+        ("audit", "G · Einzelbewertungen"),
     ]
     text += (
         '<nav class="tabs" aria-label="Analysebereiche" role="tablist">'
@@ -183,6 +188,7 @@ def render(output, payload):
             f"{q['identity_exact_participants']} / {q['identity_assessable_participants']}",
         )
         row += metric_cell(r["field_coverage"], percent(r["field_coverage"]))
+        row += metric_cell(r["detected_similarity"], detected_percent(r["detected_similarity"]), detected_basis(r))
         row += metric_cell(e["page_time"]["median"], number(e["page_time"]["median"]) + " s · Median")
         row += metric_cell(calls, detail) + metric_cell(
             e["costs"]["measured_eur_per_1000"],
@@ -198,15 +204,17 @@ def render(output, payload):
             "Exakter Recall",
             "Exakter F1",
             "Vollständige Teilnehmer",
-            "Teilnehmer-Recall",
+            "Teilnehmer-Recall (Identität exakt)",
             "Field Coverage",
+            DETECTED_LABEL,
             "Laufzeit / Seite",
             "LLM-/VLM-Aufrufe",
             "Kosten / 1.000 PDFs",
         ],
         rows,
     )
-    a += "<p>„Vollständig“ bezieht sich auf Referenzen mit vier bestimmbaren Pflichtfeldern einschließlich ausdrücklich leerer Zellen. Teilnehmer-Recall verlangt eine eindeutige Referenz-ID oder eindeutige vollständige Namenskombination sowie exakte Übereinstimmung aller bestimmbaren Identitätsfelder. Eine Best-Fit-Paarung allein genügt nicht.</p>"
+    a += '<p>„Vollständig“ verlangt vier korrekte Pflichtfelder einschließlich ausdrücklich leerer Zellen. Teilnehmer-Recall verlangt einen eindeutigen Referenzanker und alle bestimmbaren Identitätsfelder exakt. Die Zahl im Zähler ist nicht die Anzahl ausgegebener Datensätze. <a href="#audit">Ausgabemengen und jede Einzelbewertung in G prüfen</a>.</p>'
+    a += '<p class="note">Ø Ähnlichkeit = Σs / |D| für ausgefüllte bewertbare Referenzpaare. Fehlende Felder reduzieren diese Ähnlichkeit nicht; sie bleiben in Coverage und Exact Recall sichtbar. Falsche Werte und prüfpflichtige Paarungen bleiben im Vergleich. Extras, leere und unbekannte Ground Truth gehören nicht zu D. Bei D=0 ist die Ähnlichkeit nicht definiert. Diese bedingte Textgenauigkeit ist kein F1 und keine alleinige Gesamtqualität.</p>'
     a += "<details><summary>Zähler, Nenner, Ausschlüsse und technische Vollständigkeit</summary>"
     a += (
         table(
@@ -250,14 +258,15 @@ def render(output, payload):
     a += "<p>Gesamtqualität ist Micro-Aggregation aus Zählern, kein Mittelwert der Schulungs-F1. Schulungsquantile sind deskriptiv. Maskierte/unlesbare Referenzen werden nach dem bestehenden Protokoll ausgeschlossen; Leerzellenerkennung bleibt getrennt. Unsichere Ausgaben werden nur gemäß der gespeicherten Bewertungskonfiguration berücksichtigt.</p>"
     a += "<p>" + esc(payload["normalization_rule"]) + "</p></details>"
     a += "<details><summary>Matching-Sensitivität und ursprünglicher Bewertungsbericht</summary>" + table(
-        ["Verfahren", "Ansicht", "E / R", "Exakter F1", "Levenshtein-F1"],
+        ["Verfahren", "Ansicht", "E / R", "Exakter F1", DETECTED_LABEL, "Zähler / Nenner"],
         [
             [
                 r["candidate"],
                 r["mode"],
                 f"{r['exact_fields']} / {r['reference_fields']}",
                 percent(r["exact_f1"]),
-                percent(r["soft_f1"]),
+                detected_percent(r["detected_similarity"]),
+                detected_basis(r),
             ]
             for r in payload["overview"]
             if r.get("mode")
@@ -296,6 +305,8 @@ def render(output, payload):
             "Exakt / R",
             "P",
             "Exakter F1",
+            DETECTED_LABEL,
+            "Ähnlichkeitssumme / berücksichtigte Felder",
             "Fehlende Felder / R",
             "Falsche Felder / R",
             "Zusätzlich",
@@ -309,6 +320,8 @@ def render(output, payload):
                 f"{r['exact_fields']} / {r['reference_fields']}",
                 r["predicted_fields"],
                 percent(r["exact_f1"]),
+                detected_percent(r["detected_similarity"]),
+                detected_basis(r),
                 f"{r['missing_fields']} ({percent(r['missing_rate'])})",
                 f"{r['incorrect_fields']} ({percent(r['incorrect_rate'])})",
                 r["extra_fields"],
@@ -326,6 +339,10 @@ def render(output, payload):
     for r in errors:
         totals[r["method"]] += r["count"]
     c = "<p>Dieselbe Originalrollenbewertung wie in A/B. Jeder falsche, fehlende oder zusätzliche Feldfall erhält genau einen konservativen Ursachenbereich und Evidenzgrad. Mehrere Hypothesen werden nicht mehrfach gezählt.</p>"
+    c += table(["Verfahren", *FIELD_LABELS.values()], [
+        [r["candidate"], *payload["errors"].get("evaluation_status_counts", {}).get(r["candidate"], {}).values()]
+        for r in primary])
+    c += '<p>Die fünf Status zählen alle Feldfälle einschließlich Zusatzwerten und nicht bewertbaren Referenzen. „Zuordnung unklar“ erklärt vorhandenen Text ohne gesicherte Struktur-/Personenzuordnung. Der Status ist getrennt von den unveränderten R/P/E-Beiträgen; die Summen werden nicht addiert. Prozentuale Textähnlichkeiten und Originalwerte stehen in G.</p>'
     c += table(
         ["Verfahren", "Feldfehler gesamt", *[CAUSES[k] for k in CAUSES]],
         [
@@ -596,7 +613,7 @@ def render(output, payload):
             for r in payload["paired"]
         ],
     )
-    f += "<p>Δ ist Vergleich minus Basis. Fehlende Seiten behalten ihre Referenznenner; vollständig fehlende Kandidaten werden markiert. Identische PDF-Hashes sind kein Nachweis gleicher Prompts/Hardware. Teilnehmermetriken sind zusätzliche deskriptive Größen; die bestehenden Bootstrap-Intervalle beziehen sich auf Feld-Recall, exakten F1 und Levenshtein-F1.</p>"
+    f += "<p>Δ ist Vergleich minus Basis. Fehlende Seiten behalten ihre Referenznenner; vollständig fehlende Kandidaten werden markiert. Identische PDF-Hashes sind kein Nachweis gleicher Prompts/Hardware. Bootstrap-Intervalle beziehen sich auf Feld-Recall, exakten F1 und die bedingte mittlere Ähnlichkeit. Für letztere werden Σs und D gepoolt; veränderte D-Mengen begrenzen die Interpretation gepaarter Unterschiede.</p>"
     f += (
         "<details><summary>Vorhandene Hybrid-/Pipelinegegenproben</summary>"
         + table(
@@ -626,6 +643,7 @@ def render(output, payload):
     )
     f += '<p><a href="scientific/intervals.csv">Alle Intervalle</a> · <a href="scientific/paired.csv">Alle gepaarten Effekte</a> · <a href="scientific/matching_effects.csv">Matchingeffekte</a> · <a href="scientific/ablations.csv">Pipelinegegenproben</a></p>'
     text += panel("statistics", "F · Statistischer Vergleich", f)
+    text += panel("audit", "G · Nachvollziehbare Einzelbewertungen", render_audit(payload))
     text += (
         '<footer><details><summary>Daten, Bewertungsprotokoll und Reproduzierbarkeit</summary><div class="links">'
         + "".join(
@@ -647,6 +665,6 @@ def render(output, payload):
     )
     text += "</main>"
     target.write_text(
-        document("Modellvergleich – wissenschaftliche Analyse", text, script_source=SCRIPT), encoding="utf-8"
+        document("Modellvergleich – wissenschaftliche Analyse", text, script_source=SCRIPT + "\n" + AUDIT_SCRIPT), encoding="utf-8"
     )
     return target

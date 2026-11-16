@@ -15,10 +15,15 @@ from ..io import digest, file_hash, read_json, read_jsonl, write_csv, write_json
 from ..ocr_observations import audit
 from ..schema import PageResult
 from .detail_report import document, esc, read_csv, table, truth
+from .field_assessment import LABELS as FIELD_LABELS
+from .field_assessment import assess
+from .field_assessment import counts as assessment_counts
+from .field_assessment import percent as similarity_percent
+from .field_assessment import scoring_status as field_status
 from .matching import FIELDS
 from .pipeline_trace import field_trace, page_trace
 
-VERSION = "extraction-error-analysis-v6-input-budget"
+VERSION = "extraction-error-analysis-v7-field-states"
 CATEGORIES = {
     "none": "Kein bewerteter Feldfehler", "unknown": "Ursache unbekannt",
     "name_swap": "Vor-/Nachname-Vertauschung (Swap)",
@@ -28,11 +33,11 @@ CATEGORIES = {
     "ocr_suspected": "OCR-Lesefehler oder falsche Zuordnung vermutet",
     "extra": "Zusätzliche Ausgabe", "unassessed": "Nicht bewertbar",
 }
-STATUSES = {"correct": "Korrekt", "incorrect": "Falsch", "missing": "Fehlend",
+STATUSES = {"correct": "Korrekt", "incorrect": "Erkannt, aber abweichend", "missing": "Nicht erkannt (final)",
             "extra": "Zusätzlich", "unassessed": "Nicht bewertbar"}
 CERTAINTY = {"proven": "Nachgewiesen", "hypothesis": "Vermutung", "unknown": "Unbekannt"}
 SCRIPT = """(() => {
-const ids=['method','document','class','page','field','cause','category','certainty','stage','result'].filter(id=>document.getElementById(id));
+const ids=['method','document','class','page','field','cause','category','certainty','stage','result','assessment'].filter(id=>document.getElementById(id));
 const controls=ids.map(id=>document.getElementById(id));
 const search=document.getElementById('search');
 const apply=()=>{let count=0;
@@ -52,14 +57,6 @@ if(typeof location!=='undefined'){
 }
 for(const control of [...controls,search])control.addEventListener('input',apply);apply();
 })();"""
-
-
-def field_status(row):
-    if row.get("reference_contribution") == "1":
-        if truth(row.get("exact")):
-            return "correct"
-        return "missing" if not row.get("normalized_prediction") or row.get("exclusion_reason") == "invalid_prediction_placeholder" else "incorrect"
-    return "extra" if row.get("prediction_contribution") == "1" else "unassessed"
 
 
 def source_field(row):
@@ -96,7 +93,7 @@ def diagnose_field(row, page=None, raw=None, ledger=None):
     result = dict(result=status, category="unknown", certainty="unknown", stage="unknown",
                   name_swapped=name_swapped,
                   reason="Die gespeicherten Daten belegen keine eindeutige Fehlerursache.", evidence=[], observations=[])
-    if not page or not row.get("output_index"):
+    if not page or row.get("output_index") in (None, ""):
         # CSV output_index '0' is truthy; missing reference rows have an empty index.
         result["reason"] = ("Kursreferenz ohne Seitenlokalisierung: keine Zuordnung zu einer PDF-Seite oder OCR-Zeile "
                             "belegt. Kein Rückschluss auf fehlende OCR-Erkennung möglich.")
@@ -363,6 +360,7 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
         key = row["method"], row.get("document_id"), row.get("page_number")
         page = pages.get(key)
         finding = diagnose_field(row, page, raw_pages.get(key), ledgers.get(key))
+        assessment = assess(row, finding)
         status, category, certainty = (finding[n] for n in ("result", "category", "certainty"))
         counts[row["method"], status] += 1
         categories[category, certainty] += 1
@@ -372,11 +370,13 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
         card = ('<article class="field-case" ' + " ".join(f'data-{k}="{esc(v)}"' for k, v in
             dict(method=row["method"], document=row.get("document_id") or "unknown", page=page_id,
                  field=row["field"],cause=CAUSE_CATEGORY.get(category,"unknown"), category=category, certainty=certainty,
-                 stage=finding["stage"], result=status,**{"class":row.get("class_id") or "unknown"}).items()) +
+                 stage=finding["stage"], result=status, assessment=assessment["evaluation_status"],
+                 **{"class":row.get("class_id") or "unknown"}).items()) +
             f'><h3>{esc(title)} · {esc(row.get("field_label") or row["field"])}</h3>')
-        card += table(["Referenz (eingefroren)", "Originales Extraktionsfeld", "Für Vergleich verwendeter Wert", "Bewertung"], [[
+        card += table(["Ground Truth", "Extrahierter Originalwert", "Bewertungsstatus", "Levenshtein-Ähnlichkeit"], [[
             row.get("reference_value"), row.get("original_prediction_value", row.get("prediction_value")),
-            row.get("prediction_value"), STATUSES[status]]])
+            assessment["evaluation_label"], similarity_percent(assessment["similarity_percent"])]])
+        card += '<p>' + esc(assessment["evaluation_reason"]) + '</p>'
         card += f'<p><strong>{esc(CERTAINTY[certainty])}: {esc(CATEGORIES[category])}</strong> · Stufe: {esc(finding["stage"])}<br>{esc(finding["reason"])}</p>'
         if row.get("name_swapped") and truth(row["name_swapped"]):
             card += '<p>Vor-/Nachnamensrollen wurden ausschließlich im Referenzvergleich vertauscht; Originalausgabe bleibt unverändert.</p>'
@@ -409,7 +409,7 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
                 [[o["id"], o["text"], o.get("confidence"), o.get("submitted_to_assignment"), o.get("reason")]
                  for o in finding["observations"]]) + '</details>'
         cards.append(card+'</article>')
-        records.append(dict(row, analysis=finding))
+        records.append(dict(row, **assessment, analysis=finding))
     page_sections = []
     for key, page in pages.items():
         raw, ledger = raw_pages[key], ledgers[key]
@@ -477,8 +477,12 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
     content += 'OCR-Score ist keine Wahrscheinlichkeit. Ein fehlender Referenztext im OCR-Volltext beweist weder einen Erkennungsfehler noch eine bestimmte Fehlerstufe. '
     content += 'Nachgewiesen bezeichnet einen gespeicherten Verarbeitungsschritt; Vermutung eine mögliche Erklärung; Unbekannt fehlende Belege. '
     content += 'Die Excel-Kursreferenz besitzt keine Seiten-/Zeilenkoordinaten. Keine künstliche Zuordnung fehlender Personen zur Handschriftseite.</div>'
-    content += table(["Verfahren", "Korrekt", "Falsch", "Fehlend", "Zusätzlich", "Nicht bewertbar"],
+    content += table(["Verfahren", "Exakte Feldbeiträge", "Abweichende Feldbeiträge", "Fehlende nutzbare Feldbeiträge", "Zusätzlich", "Nicht bewertbar"],
         [[method, *(counts[method, status] for status in STATUSES)] for method in metrics["methods"]])
+    content += table(["Verfahren", *FIELD_LABELS.values()], [
+        [method, *assessment_counts([r for r in records if r["method"] == method]).values()]
+        for method in metrics["methods"]])
+    content += '<p>Die fünf Anzeigestatus partitionieren alle Feldfälle einschließlich ungepaarter Ausgaben und unbekannter Referenzen. Die getrennten R/P/E-Beiträge bleiben unverändert. „Zuordnung unklar“ kann deshalb auch einen fehlenden finalen Referenzfeldbeitrag erklären; die Zahlen werden nicht addiert. Ohne zugeordneten nutzbaren Vergleichswert bleibt die Textähnlichkeit offen.</p>'
     unique_pages = {(k[1], k[2], v.get("image_sha256")):v for k,v in pipeline_pages.items()}
     content += '<details><summary>PDF-Ausrichtung und Laufbilder je Seite</summary>'
     content += '<p>Diese Messwerte bestätigen die verarbeitete Datei, nicht deren visuell richtige Ausrichtung. Fehlende historische OSD-Vorschläge bleiben unbekannt.</p>'
@@ -515,6 +519,7 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
     content += select("page", "PDF-Seite", page_values) + select("field", "Feldtyp", [(f, f) for f in FIELDS])
     content += select("category", "Fehlerkategorie", CATEGORIES.items()) + select("certainty", "Beleglage", CERTAINTY.items())
     content += select("result", "Feldbewertung", STATUSES.items())
+    content += select("assessment", "Bewertungsstatus", FIELD_LABELS.items())
     content += select("stage", "Verarbeitungsstufe", [(s,s) for s in sorted({r["analysis"]["stage"] for r in records})])
     content += '<label>Suche <input id="search" type="search"></label> · Sichtbare Feldfälle: <span id="visible-count"></span></div>'
     content += ''.join(cards) + '<h2>OCR und Stufen pro Verfahren/PDF-Seite</h2>' + ''.join(page_sections)
@@ -523,6 +528,8 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
     write_json(folder / "fields.json", dict(version=VERSION, source_run=str(source), fields=records,
         limitations=["course_reference_has_no_page_coordinates", "reference_alignment_is_not_independent_identity_verification"]))
     write_json(folder/"summary.json",dict(version=VERSION,fields=aggregated,page_events=events,causes=CAUSES,
+                                        evaluation_status_counts={m:assessment_counts([r for r in records if r["method"] == m])
+                                                                  for m in metrics["methods"]},
                                         grading_label=grading.get("label","saved_standard"),
                                         field_error_total=sum(r["count"] for r in aggregated),page_events_are_separate=True))
     write_csv(folder/"summary.csv",aggregated,fields=None if aggregated else ["method","document_id","field","cause","stage","certainty","result","count"])

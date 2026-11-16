@@ -6,6 +6,51 @@ Schulungszuordnung, Personenabgleich und Kennzahlen werden anschließend lokal
 berechnet. Die Referenzdatei wird vor der Inferenz eingefroren und keinem Modell
 übergeben. Eingabedateien werden nicht verändert.
 
+## Gemeinsamer Analysestand und Seitenausrichtung
+
+Der Nachtrag vom 12.11. liefert geprüften VLM-Spaltenkontext vor einer Folgeseite
+auch über diesen API-Einstieg. Weiße Seitenränder zählen nicht als Tabellenzellen;
+kombinierte Namensfelder bleiben eine physische Spalte. Echte neue Überschriften
+haben Vorrang. Gibt das Modell stattdessen Teilnehmerdaten als Überschriften aus,
+werden Feldwerte ohne zusätzliche aktuelle räumliche Belege nicht automatisch
+freigegeben. Ein realer Qualitätsgewinn des Firmenmodells wurde damit nicht
+gemessen; die gemeinsamen API-Regressionen sind synthetische Funktionsprüfungen.
+
+Stand 12.11.2026: Der API-Einstieg ruft unmittelbar das gemeinsame
+`participant_bench.roster_benchmark` auf. Neue API-Vergleiche erhalten damit
+dieselbe aktuelle HTML-Auswertung, Feldbewertung, Einzelfallansicht und
+Fehlerdiagnose wie lokale Vergleiche. Der API-Adapter verwendet außerdem den
+gemeinsamen VLM-Systemprompt, das Antwortschema und die bestehende
+Spalten-/Namenszuordnung. Dafür den gesamten aktuellen Programmstand übertragen,
+nicht nur `api_firmen_pc/` oder eine ältere ZIP-Datei.
+
+**Wichtige Konfigurationsgrenze:** `configs/api-bmw.yaml` erbt vom bisherigen
+VLM-Vergleichsprofil weiterhin `pdf.auto_orient: false`. Die reparierte
+Orientierungsfunktion ist im gemeinsamen Code enthalten, wird in diesem
+Standardprofil jedoch nicht aufgerufen. Seitlich liegende PDFs daher vor dem
+API-Vergleich korrekt ausrichten. Wer dieselbe automatische Prüfung wie im
+lokalen Fünferlauf nutzen möchte, benötigt auf dem Firmen-PC Tesseract mit
+`deu`, `eng`, `osd` und muss im API-Extraktionsprofil ausdrücklich ergänzen:
+
+```yaml
+pdf:
+  auto_orient: true
+```
+
+Das Standardprofil bleibt ohne lokale OCR installierbar. Für einen Vergleich
+müssen tatsächlich verwendete Seitenbilder und Referenz übereinstimmen;
+Bildprüfsummen stehen in den Manifesten. Gleiche PDF-Dateien allein reichen bei
+unterschiedlicher Drehung nicht aus.
+
+Die gemeinsame Analyselogik übernimmt keine Vorhersagen anderer Modelle in den
+API-Prompt. API und lokale Modelle werden unabhängig gegen die Referenz bewertet.
+Ergebnisse werden nicht zwischen Laptops synchronisiert. Ein neuer API-Bericht
+enthält zunächst nur die dort ausgeführten Verfahren. Ein gemeinsamer Bericht
+mit lokalem und API-VLM nebeneinander entsteht derzeit nicht automatisch: Beide
+heißen intern `vlm`; der vorhandene Zusatzbericht-Import erlaubt keine zweite
+gleichnamige Kandidatenkennung. Historische Berichte ändern sich durch ein
+Quellcodeupdate ebenfalls nicht von selbst.
+
 ## Start auf dem Firmen-PC
 
 Alle Befehle aus `software/api_firmen_pc/` ausführen:

@@ -168,13 +168,19 @@ def field_trace(row, page, raw, proof, observations, field):
             for w in response.get("field_warnings", [])
             if w.get("output_index") == original_index and w.get("field") == field
         ]
+        recovery = next((item.get("fields", {}).get(field)
+                         for item in assignment.get("echo_corroboration", [])
+                         if item.get("output_index") == original_index), None)
         add(
             "column_mapping",
-            "blocked" if warnings else "recorded",
+            "native_recovery" if recovery else "blocked" if warnings else "recorded",
             scalar,
             warnings=warnings,
             mapping=response.get("identity_column_assignment"),
         )
+        if recovery:
+            add("observed_cell_completion", "current_native_row_and_verified_column",
+                recovery.get("text"), evidence=recovery)
         if warnings and target.value is None:
             loss, certainty = "response_alignment" if not aligned else "column_mapping", "proven"
     else:

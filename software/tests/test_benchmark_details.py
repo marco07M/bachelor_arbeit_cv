@@ -62,7 +62,7 @@ def test_detail_export_reconciles_missing_extra_masked_and_fractional_fields(tmp
     assert "Anna" in page and "Anma" in page and "000007" in page
     assert "Referenzperson ohne Zuordnung" in page and "Ausgabe ohne Zuordnung" in page
     assert "Referenzwert fehlt oder ist maskiert" in page
-    assert "1 − 1 / 4 = 0,75" in page
+    assert "75,00 %" in page and "Erkannt, aber abweichend" in page
     assert "Alle 3 Referenzkandidaten" in page
     assert "Gewichtete Ähnlichkeit" in page and "Beitrag R=" in page and "P=" in page
     assert 'href="details.html"' in (output / "report.html").read_text(encoding="utf-8")
