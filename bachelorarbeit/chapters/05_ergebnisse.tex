@@ -183,7 +183,7 @@ Für eine transparente betriebswirtschaftliche Einordnung lässt sich der Gesamt
 \end{align}
 wobei $t_{\text{manuell}}$ die manuelle Erfassungszeit pro Seite (in Minuten), $t_{\text{Prüfung}}$ die verbleibende menschliche Kontroll- und Korrekturzeit pro Seite auf Basis der \ac{html}-/Excel-Prüfansichten, $w_{\text{Personal}}$ den internen Verrechnungssatz (in EUR/h), $c_{\text{Betrieb}}$ bzw.\ $e_{\text{Seite}} \cdot p_{\text{Strom}}$ die lokalen Hardware-/Energiekosten pro Seite und $C_{\text{einmalig}}$ den einmaligen Entwicklungs- und Integrationsaufwand bezeichnen. Eine laufende Kosteneinsparung pro Seite tritt genau dann ein, wenn die Zeitersparnis $\Delta t = t_{\text{manuell}} - t_{\text{Prüfung}} > 0$ die marginalen Rechenkosten übersteigt.
 
-\TODO{Empirische Erhebung oder betriebliche Festlegung der Prozessparameter ($t_{\text{manuell}}$, $t_{\text{Prüfung}}$ je Verfahren, $w_{\text{Personal}}$, $e_{\text{Seite}}$) in \texttt{configs/benchmark.yaml} unter \texttt{costs} eintragen und die resultierende Szenariotabelle aus \texttt{scientific/costs.csv} für $1\,000$~\acp{pdf} sowie den Gesamtbestand von ca.\ $6\,000$~\acp{pdf} hier einfügen.}
+\TODO{Empirische Erhebung oder betriebliche Festlegung der Prozessparameter ($t_{\text{manuell}}$, $t_{\text{Prüfung}}$ je Verfahren, $w_{\text{Personal}}$, $e_{\text{Seite}}$) in \texttt{configs/benchmark.yaml} unter \texttt{costs} eintragen und die resultierende Szenariotabelle aus \texttt{scientific/costs.csv} für $1\,000$ künftig eingehende \acp{pdf} sowie ein mehrjähriges Zukunftsvolumen von ca.\ $6\,000$~\acp{pdf} (analog zum bisher angesammelten Archivumfang) hier einfügen.}
 
 \section{Praktische Einsatzfähigkeit und vergleichende Gesamtbewertung}
 \label{sec:ergebnisse-gesamtbewertung}
@@ -200,7 +200,7 @@ Tabelle~\ref{tab:gesamtbewertung} führt die empirischen Befunde aus den Qualit�
     \toprule
     \textbf{Verfahren} & \textbf{Druckschrift} & \textbf{Handschrift} & \textbf{Effizienz / \ac{vram}} & \textbf{Praktische Eignung und zentrale Grenzen} \\
     \midrule
-    \texttt{ocr\_rules} & Hoch (nur feste Vorlage) & Ungenügend ($0\,\%$) & Sehr hoch ($0{,}07\,\mathrm{s}$/S., \ac{cpu}) & Scheitert bei wechselnden Spaltennamen und kombinierten Namensspalten; im realen Archiv nicht robust einsetzbar. \\
+    \texttt{ocr\_rules} & Hoch (nur feste Vorlage) & Ungenügend ($0\,\%$) & Sehr hoch ($0{,}07\,\mathrm{s}$/S., \ac{cpu}) & Scheitert bei wechselnden Spaltennamen und kombinierten Namensspalten; im realen Prozess nicht robust einsetzbar. \\
     \addlinespace[3pt]
     \texttt{ocr\_llm} & Gut ($S_{\mathrm{det.}} = 93{,}8\,\%$) & Gering (viele leere Antw.) & Mittel ($\approx 22\,\mathrm{s}$/S., $8{,}9\,\text{GiB}$) & Hohe Präzision auf erkannten Zeilen, aber geringe Abdeckung ($49{,}5\,\%$) durch schwache Tesseract-Handschrift. \\
     \addlinespace[3pt]

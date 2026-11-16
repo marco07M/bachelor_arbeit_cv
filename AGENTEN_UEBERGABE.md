@@ -29,14 +29,17 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
     Abkürzungsverzeichnis verlinkt und vor Kapitel 1 mittels `\acresetall` in
     `thesis.tex` zurückgesetzt.
   - `bachelorarbeit/chapters/01_einleitung.tex` & `02_grundlagen.tex`:
-    Praxisproblem im internen Schulungswesen der BMW Group (~6.000 historische
-    BMW-Teilnehmerlisten-PDFs, 5 Zielfelder inkl. BMW-spezifischer Spalten
-    `Benutzer`/`User ID` und `Kurzzeichen`, Sichtbarkeitsprüfung der Unterschrift
-    ohne biometrische Verifikation, kein Datum, 16-GiB-VRAM- und
-    BMW-Datenschutzrahmen), Stand der Technik, Forschungsfragen FF1–FF4 sowie
-    theoretische Grundlagen (DIA/DLA, Hintergrundnormalisierung, OCR/HTR,
-    TableFormer/Docling, LayoutLMv3, Qwen3/Qwen2-VL/Qwen3-VL, Levenshtein,
-    CER/WER, Konfidenzkalibrierung mit Platt/PAVA/ECE/Brier) mit IEEE-Zitaten.
+    Praxisproblem im internen Schulungswesen der BMW Group (~6.000 historische,
+    bereits manuell eingetragene BMW-Teilnehmerlisten-PDFs als Nachweis des
+    angefallenen Erfassungsaufwands sowie als Referenzdatensatz für ein System,
+    das künftig neu eingehende Teilnehmerlisten automatisiert überträgt; 5
+    Zielfelder inkl. BMW-spezifischer Spalten `Benutzer`/`User ID` und
+    `Kurzzeichen`, Sichtbarkeitsprüfung der Unterschrift ohne biometrische
+    Verifikation, kein Datum, 16-GiB-VRAM- und BMW-Datenschutzrahmen), Stand der
+    Technik, Forschungsfragen FF1–FF4 sowie theoretische Grundlagen (DIA/DLA,
+    Hintergrundnormalisierung, OCR/HTR, TableFormer/Docling, LayoutLMv3,
+    Qwen3/Qwen2-VL/Qwen3-VL, Levenshtein, CER/WER, Konfidenzkalibrierung mit
+    Platt/PAVA/ECE/Brier) mit IEEE-Zitaten.
   - `bachelorarbeit/chapters/03_methodik.tex`: Forschungsdesign, Ground-Truth-
     Reflexion (manuelle Seitenreferenz vs. externe BMW-Excel-/CSV-Kursreferenz),
     Fokussierung auf die fünf ausgewählten Vergleichsverfahren aus
