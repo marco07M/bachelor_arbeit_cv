@@ -29,17 +29,19 @@ auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
     Abkürzungsverzeichnis verlinkt und vor Kapitel 1 mittels `\acresetall` in
     `thesis.tex` zurückgesetzt.
   - `bachelorarbeit/chapters/01_einleitung.tex` & `02_grundlagen.tex`:
-    Praxisproblem (~6.000 Unternehmens-PDFs, 5 Zielfelder, Sichtbarkeitsprüfung
-    der Unterschrift ohne biometrische Verifikation, kein Datum, 16-GiB-VRAM-
-    und Datenschutzrahmen), Stand der Technik, Forschungsfragen FF1–FF4 sowie
+    Praxisproblem im internen Schulungswesen der BMW Group (~6.000 historische
+    BMW-Teilnehmerlisten-PDFs, 5 Zielfelder inkl. BMW-spezifischer Spalten
+    `Benutzer`/`User ID` und `Kurzzeichen`, Sichtbarkeitsprüfung der Unterschrift
+    ohne biometrische Verifikation, kein Datum, 16-GiB-VRAM- und
+    BMW-Datenschutzrahmen), Stand der Technik, Forschungsfragen FF1–FF4 sowie
     theoretische Grundlagen (DIA/DLA, Hintergrundnormalisierung, OCR/HTR,
     TableFormer/Docling, LayoutLMv3, Qwen3/Qwen2-VL/Qwen3-VL, Levenshtein,
     CER/WER, Konfidenzkalibrierung mit Platt/PAVA/ECE/Brier) mit IEEE-Zitaten.
   - `bachelorarbeit/chapters/03_methodik.tex`: Forschungsdesign, Ground-Truth-
-    Reflexion (manuelle Seitenreferenz vs. externe Excel-/CSV-Kursreferenz),
-    Fokussierung auf die fünf ausgewählten Vergleichsverfahren (`ocr_rules`,
-    `ocr_llm`, `paddle_llm`, `vlm`, `ocr_vlm` in `configs/benchmark-five.yaml`)
-    und Auswahlprotokoll (`selection.yaml`, `calibration.yaml`), Vorverarbeitung,
+    Reflexion (manuelle Seitenreferenz vs. externe BMW-Excel-/CSV-Kursreferenz),
+    Fokussierung auf die fünf ausgewählten Vergleichsverfahren aus
+    `software/start_testframework_5.cmd` (`ocr_rules`, `ocr_llm`, `paddle_llm`,
+    `vlm`, `ocr_vlm` in `configs/benchmark-five.yaml`), Vorverarbeitung,
     Spaltenvererbung v3, Namensaufteilung, Promptfamilie v26 (Regelmatrix
     R01–R10), mathematische Metriken v7 (inkl. bedingter mittlerer
     Levenshtein-Ähnlichkeit $S_{\mathrm{detected}} = \Sigma_s / |D|$,
@@ -2852,14 +2854,21 @@ auf die dort datierten Stände.
   `bachelorarbeit/README.md`, `bachelorarbeit/BUILDSTATUS.md`, `README.md` und
   `AGENTEN_UEBERGABE.md`.
 - Zweck: durchgängige Synchronisierung der schriftlichen Bachelorarbeit mit dem
-  implementierten und getesteten Stand des Evaluationsframeworks (sechs
-  Hauptverfahren plus `ocr_rules`, `docling-vlm`, `unlimited_ocr`,
-  Kalibrierung und zweistufige Verfahrensauswahl; zweistufige automatische
-  Seitenorientierung; zerstörungsfreie Hintergrundnormalisierung; verlustfreies
-  Beobachtungsregister; Spaltenkontext v3 mit `echo_corroboration`;
-  zeilenindividuelle Namensaufteilung; verlustfreie Input-Kompaktierung;
-  fünfstufiger Feldstatus v6; bedingte Levenshtein-Ähnlichkeit erkannter Felder
-  v7; Dashboard A–G; isoliertes Firmen-API-Projekt).
+  implementierten und getesteten Stand des Evaluationsframeworks, fokussiert auf
+  die fünf in `software/start_testframework_5.cmd` (`configs/benchmark-five.yaml`)
+  konfigurierten Verfahren (`ocr_rules`, `ocr_llm`, `paddle_llm`, `vlm`, `ocr_vlm`
+  mit Tesseract 5.4, PaddleOCR/PP-StructureV3 + PP-OCRv5,
+  `Qwen3-4B-Instruct-2507` und `Qwen3-VL-4B-Instruct`) sowie konkretisiert auf
+  den realen Anwendungsfall im internen Schulungswesen der BMW Group (~6.000
+  historische BMW-Teilnehmerlisten, BMW-Spaltenkonventionen `Benutzer`/`User ID`
+  und `Kurzzeichen`, BMW-Dateinamenskonvention mit 6-stelliger Class ID,
+  zweistufige automatische Seitenorientierung, zerstörungsfreie
+  Hintergrundnormalisierung, verlustfreies Beobachtungsregister, Spaltenkontext
+  v3 mit `echo_corroboration`, zeilenindividuelle Namensaufteilung,
+  verlustfreie Input-Kompaktierung, fünfstufiger Feldstatus v6, bedingte
+  Levenshtein-Ähnlichkeit erkannter Felder v7, Dashboard A–G, isoliertes
+  BMW-Firmen-API-Projekt). Abkürzungen in Kurzfassung und Abstract sind direkt
+  mit dem Abkürzungsverzeichnis verlinkt.
 - Prüfungen: `powershell -NoProfile -ExecutionPolicy Bypass -File bachelorarbeit/build.ps1`
   (Exitcode 0, **75 Seiten**, `bachelorarbeit/build/thesis.pdf` und
   `bachelorarbeit/thesis.pdf`), BibTeX-Prüfung (**35 zitierte Quellen**,
