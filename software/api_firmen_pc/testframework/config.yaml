@@ -18,6 +18,7 @@ reference:
   delimiter: null
   merge_identical_duplicates: false
 matching:
+  exclude_probably_unsigned_extras: true  # post-matching, requires row-local signature evidence
   compare_name_orientations: true
   ignore_leading_user_id_zeros: true
   mode: best_fit

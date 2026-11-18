@@ -13,6 +13,7 @@ from pydantic import Field, field_validator
 from .config import ConfigModel
 from .evaluation import normalized
 from .excel_columns import resolve_columns
+from .writing_style import Schriftart, schriftart_column, validate_schriftart
 
 
 class ExcelColumns(ConfigModel):
@@ -55,6 +56,10 @@ class ReferencePerson:
     last_name: str
     short_code: str
     field_states: dict[str, str] = field(default_factory=dict)
+    schriftart: Schriftart | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "schriftart", validate_schriftart(self.schriftart))
 
     @property
     def name_key(self) -> tuple[str, str, str] | None:
@@ -104,6 +109,7 @@ def read_reference(path: Path, config: ExcelConfig, *, column_names=None) -> tup
         sheet = workbook[config.sheet] if config.sheet else workbook.active
         headers = next(sheet.iter_rows(min_row=config.header_row, max_row=config.header_row), ())
         indices, labels = resolve_columns([cell.value for cell in headers], config.columns.model_dump())
+        style_index = schriftart_column([cell.value for cell in headers])
         if column_names is not None:
             column_names.update(labels)
         records = []
@@ -116,7 +122,8 @@ def read_reference(path: Path, config: ExcelConfig, *, column_names=None) -> tup
                 continue
             if not values["class_id"]:
                 raise ValueError(f"Class ID fehlt in Excel-Zeile {number}")
-            records.append(ReferencePerson(row_number=number, **values))
+            records.append(ReferencePerson(row_number=number, **values,
+                                           schriftart=cell_text(row[style_index]) if style_index is not None and style_index < len(row) else None))
         if not records:
             raise ValueError("Excel enthält keine Referenzeinträge")
         return records, sheet.title

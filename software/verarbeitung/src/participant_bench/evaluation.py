@@ -8,6 +8,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from .schema import TEXT_FIELDS
+from .writing_style import STYLES
 
 DEFINITIONS = {
     "information": "information_prf and information_exact_match exclude genuinely empty GT from positive information credit; "
@@ -142,7 +143,7 @@ def prf(tp, fp, fn):
     }
 
 
-def evaluate(results, ground_truth):
+def evaluate(results, ground_truth, *, _schriftart=None, _matches=None):
     results = list(results)
     if any(result.output_kind == "ocr_text" for result in results):
         raise ValueError("Reine OCR-Ausgaben benötigen CER/WER; keine strukturierte Feldbewertung")
@@ -154,12 +155,20 @@ def evaluate(results, ground_truth):
         result = by_page.get((page.document_id, page.page_number))
         predictions = result.participants if result else []
         truths = page.participants
-        pairs, extras, missing = match_rows(predictions, truths)
+        selected = {i for i, truth in enumerate(truths)
+                    if _schriftart is None or (truth.schriftart or "unclassified") == _schriftart}
+        if _schriftart is not None and not selected:
+            continue
+        pairs, extras, missing = (_matches[(page.document_id, page.page_number)] if _matches is not None
+                                  else match_rows(predictions, truths))
+        pairs = [p for p in pairs if p[1] in selected]
+        missing = [i for i in missing if i in selected]
+        extras = extras if _schriftart is None else []
         truth_to_pred = {i: (j, source) for j, i, source in pairs}
         totals.update(
             gt_pages=1,
-            gt_rows=len(truths),
-            prediction_rows=len(predictions),
+            gt_rows=len(selected),
+            prediction_rows=len(predictions) if _schriftart is None else len(pairs),
             matched_rows=len(pairs),
             missing_rows=len(missing),
             extra_rows=len(extras),
@@ -169,6 +178,8 @@ def evaluate(results, ground_truth):
             schema_failure_pages=int(result is not None and result.parse_status == "invalid"),
         )
         for i, truth in enumerate(truths):
+            if i not in selected:
+                continue
             item = truth_to_pred.get(i)
             pred = predictions[item[0]] if item else None
             if item:
@@ -212,6 +223,7 @@ def evaluate(results, ground_truth):
                         "document_id": page.document_id,
                         "page_number": page.page_number,
                         "truth_index": i,
+                        "schriftart": truth.schriftart,
                         "truth_row_ref": truth.row_ref,
                         "prediction_index": item[0] if item else None,
                         "matching_source": item[1] if item else "missing",
@@ -311,11 +323,18 @@ def evaluate(results, ground_truth):
 
 
 def evaluate_groups(results, ground_truth):
-    aggregate, details = evaluate(results, ground_truth)
+    results, ground_truth = list(results), list(ground_truth)
+    by_page = {(r.document_id, r.page_number): r for r in results}
+    fixed = {(p.document_id, p.page_number): match_rows(
+        by_page[p.document_id, p.page_number].participants if (p.document_id, p.page_number) in by_page else [], p.participants)
+        for p in ground_truth}
+    aggregate, details = evaluate(results, ground_truth, _matches=fixed)
     grouped = {}
     for attribute in ("split", "content_type"):
         grouped[attribute] = {}
         for value in sorted({getattr(page, attribute) for page in ground_truth}):
             subset = [page for page in ground_truth if getattr(page, attribute) == value]
-            grouped[attribute][value] = evaluate(results, subset)[0]
+            grouped[attribute][value] = evaluate(results, subset, _matches=fixed)[0]
+    grouped["schriftart"] = {style: evaluate(results, ground_truth, _schriftart=style, _matches=fixed)[0]
+                              for style in STYLES}
     return {"aggregate": aggregate, "groups": grouped}, details

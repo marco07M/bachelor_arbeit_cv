@@ -4,12 +4,16 @@ import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
+import yaml
 from scipy.optimize import linear_sum_assignment
 
+from ..config import SignatureConfig
 from ..evaluation import edits
 from ..identifiers import normalized_user_id
+from ..io import file_hash, read_json
 from ..reference_states import assessable_reference
 from ..schema import Participant
 
@@ -23,6 +27,71 @@ class Prediction:
     page_number: int
     index: int
     person: Participant
+    signature_evidence: dict | None = None
+
+
+def page_predictions(page, method_dir):
+    """Attach existing signature records, never infer absence from missing OCR text."""
+    from ..signatures import evaluation_evidence
+
+    root = Path(method_dir).resolve()
+    path = (root / f"raw-{page.page_id}.json").resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("Ungültiger Rohdatenpfad")
+    raw = read_json(path) if path.is_file() else {}
+    artifact_hash = file_hash(path) if path.is_file() else None
+    config_path = root.parent / "config.yaml"
+    source_config = yaml.safe_load(config_path.read_text(encoding="utf8")) if config_path.is_file() else {}
+    signature_config = SignatureConfig.model_validate((source_config or {}).get("signature") or {})
+    records = raw.get("signature_checks", [])
+    cell_records = raw.get("signature_cell_checks", [])
+    predictions = []
+    for i, person in enumerate(page.participants):
+        found = [r for r in records if r.get("output_index") == i]
+        # A record must also agree with the saved person's geometry and final state.
+        record = found[0] if len(found) == 1 else {}
+        cells = [r for r in cell_records if r.get("output_index") == i]
+        evidence = evaluation_evidence(person, page.participants, record, signature_config,
+                                       cells[0] if len(cells) == 1 else {})
+        evidence.update(raw_artifact=path.name, raw_artifact_sha256=artifact_hash)
+        predictions.append(Prediction(page.document_id, page.page_number, i, person, evidence))
+    return predictions
+
+
+def unmatched_review(prediction, references, config, reference_config, status):
+    """Post-match exclusion only; similarity guards never create identity credit."""
+    from ..signatures import evaluation_evidence
+
+    evidence = prediction.signature_evidence or evaluation_evidence(prediction.person, [prediction.person], {})
+    observed = {f: normalize(v, f, config) for f, v in values(prediction, config).items()}
+    expected = [expected_values(r, config, reference_config) for r in references]
+    ids = Counter(r["user_id"] for r in expected)
+    reference_unclear = any(not (r["first_name"] or r["last_name"] or reference_config.usable_id(r["user_id"])) for r in expected)
+    near = []
+    # A stricter scoring view must not turn a recognizable name swap into an exclusion.
+    name_guard = config.model_copy(update={"compare_name_orientations": True})
+    for reference, row in zip(references, expected):
+        pair = pair_evidence(observed, row, config, reference_config, ids[row["user_id"]])
+        oriented = name_orientation(observed, row, name_guard)[0]
+        names = [similarity(oriented[f], row[f]) for f in ("first_name", "last_name") if oriented[f] and row[f]]
+        name_score = sum(names) / len(names) if names else None
+        same_id = bool(reference_config.usable_id(observed["user_id"]) and observed["user_id"] == row["user_id"])
+        if same_id or pair["conservative_qualifies"] or (names and name_score >= config.minimum_name_similarity):
+            near.append(dict(reference_row=reference.row_number, name_similarity=name_score,
+                             exact_user_id=same_id, conservative_qualifies=pair["conservative_qualifies"]))
+    excluded = bool(config.exclude_probably_unsigned_extras and references and not reference_unclear and status == "extra"
+                    and not near and evidence["probable_absence"])
+    reason = ("Keine Referenzpaarung oder hinreichend ähnliche Namenskandidaten; lokalisierter Signaturbeleg spricht für ein leeres Feld. "
+              "Wahrscheinlicher Nichtunterzeichner, nicht visuell bestätigt." if excluded else
+              "Ähnliche oder identische Referenzanker vorhanden; mögliche Schreibabweichung, Doppelung oder Zuordnungsfehler." if near else
+              "Mehrdeutige, widersprüchliche oder leere Teilnehmerausgabe; kein automatischer Ausschluss." if status != "extra" else
+              "Keine Teilnehmerreferenz für eine belastbare Ausschlussentscheidung." if not references else
+              "Referenz enthält Personen ohne lesbaren Namen oder nutzbare ID; fehlende Zuordnung ist nicht belastbar." if reference_unclear else
+              "Signatur vorhanden, unbekannt oder ohne verlässlichen Zeilenbeleg; mögliche Fehlzuordnung manuell prüfen." if not evidence["probable_absence"] else
+              "Automatischer Ausschluss ist in der gespeicherten Vergleichskonfiguration deaktiviert.")
+    return dict(excluded_from_quality=excluded, exclusion_reason_participant=reason,
+                manual_review_required=not excluded, reference_assignment="unassigned",
+                reference_candidates=near, signature_assessment=evidence)
 
 
 @dataclass

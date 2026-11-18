@@ -23,6 +23,89 @@ from participant_bench.structured_mapping import extract_structured
 from participant_bench.table_mapping import extract_docling
 
 
+def test_ruled_ocr_groups_split_blocks_after_cover_and_preserves_empty_id():
+    from participant_bench.ocr_layout import model_input
+
+    def blocks(labels, y):
+        return dict(words=[dict(text=label, line=[i, 1, 1], ocr_confidence=24,
+            bbox=dict(x0=.12+.2*i, x1=.25+.2*i, y0=y, y1=y+.03))
+            for i, label in enumerate(labels) if label])
+
+    with Image.new("RGB", (500, 500), "white") as cover, cover.copy() as image:
+        draw = ImageDraw.Draw(image)
+        for x in [50, 150, 250, 350, 450]:
+            draw.line((x, 50, x, 450), fill="black", width=3)
+        for y in [50, 150, 250, 350, 450]:
+            draw.line((50, y, 450, y), fill="black", width=3)
+        blank = with_table_columns(dict(words=[]), cover, document_id="A", page_number=1)
+        first = with_table_columns(blocks(HEADINGS, .18), image, blank, document_id="A", page_number=2)
+        following = blocks(["Eva", "Meyer", "", "XY-9"], .40)
+        following["words"].extend(blocks(["Lea", "Bach", "123", ""], .62)["words"])
+        page = with_table_columns(following, image, first, document_id="A", page_number=3)
+    assert page["mapping_provenance"]["source_page"] == 2
+    assert page["mapping_provenance"]["current_ruled_rows"] == 4
+    assert len(page["text_rows"]) == 2
+    assert [c["column"] for c in page["text_rows"][0]["column_texts"]] == [1, 2, 4]
+    assert sorted(i for r in page["text_rows"] for c in r["cells"] for i in c["word_ids"]) == list(range(6))
+    assert "inherited_from_previous_page" in model_input(page)
+
+
+def test_docling_sparse_continuation_uses_current_anchored_image_grid():
+    edges = [0, .25, .5, .75, 1]
+    first = dict(table(), image_column_boundaries=edges)
+    _, _, _, context = extract_structured(first, document_id="A", page_number=2)
+    second = dict(table(header=False), image_column_boundaries=edges)
+    cells = second["tables"][0]["native"]["data"]["table_cells"]
+    del cells[2]  # No native ID cell anywhere on this page.
+    people, _, _, _ = extract_structured(second, context, document_id="A", page_number=3)
+    assert people[0].department.value == VALUES[0][3] and people[0].personnel_number.value is None
+    assert second["mapping_diagnostics"][0]["status"] == "inherited_from_previous_page"
+    second["image_column_boundaries"] = [0, .12, .37, .6, 1]
+    assert not extract_structured(second, context, document_id="A", page_number=3)[0]
+
+
+def test_trailing_removed_columns_cannot_move_signature_into_scalar_band():
+    from participant_bench.column_context import project_bands
+    from participant_bench.structured_mapping import _field_for_x
+
+    before = geometry(4, boundaries=[0, .2, .4, .8, 1])
+    after = geometry(3, boundaries=[0, .21, .39, .81])
+    projected = project_bands(dict(department=[.4, 1], signature=[.8, 1]), before, after)
+    assert projected == {"department": [.39, .81]}
+    adjacent = dict(department=[.4, .8], signature=[.8, 1])
+    assert _field_for_x(.8, adjacent) == _field_for_x(.805, adjacent) == []
+
+
+def test_visual_full_grid_includes_verified_signature_and_rejects_compressed_slots():
+    from test_headerless_visual_context import EDGES, parse, payload
+
+    from participant_bench.vlm_cells import continuation_context
+
+    edges = EDGES[:-1]
+    _, _, _, first = parse(payload(), edges=edges)
+    snap = first["column_context"]
+    hint = continuation_context(snap, geometry(4, boundaries=edges), document_id="doc", page_number=2)
+    assert hint["physical_columns"][-1]["fields"] == ["signature"]
+    people, _, warnings, audit = parse(payload([None, None], ["", "wrong"]), snap, 2, edges=edges)
+    assert audit["measured_column_conflict"] and warnings and people[0].department.value is None
+
+
+def test_docling_without_native_table_uses_only_observations_inside_current_cells():
+    edges = [0, .25, .5, .75, 1]
+    _, _, _, context = extract_structured(dict(table(), image_column_boundaries=edges),
+                                          document_id="A", page_number=1)
+    observations = orphan_observations()
+    observations.pop(2)
+    observations.append(dict(index=9, text="Footer", bbox=dict(x0=.03, x1=.15, y0=.86, y1=.89)))
+    page = dict(tables=[], image_column_boundaries=edges, image_row_boxes=[[0, .18, 1, .26]],
+                ocr_cells=observations)
+    people, proofs, _, _ = extract_structured(page, context, document_id="A", page_number=2)
+    assert len(people) == 1 and people[0].first_name.value == "Nora"
+    assert people[0].personnel_number.value is None and people[0].department.value == "DEF-34"
+    assert proofs[0]["grid_source"] == "ruled_ocr_cells"
+    assert proofs[0]["mapping_provenance"]["source_page"] == 1
+
+
 def orphan_observations():
     return [dict(index=c, text=value, bbox=dict(x0=c*.25+.02, x1=c*.25+.15, y0=.2, y1=.24))
             for c, value in enumerate(["Nora", "Beispiel", "009876", "DEF-34"])]
@@ -286,3 +369,129 @@ def test_final_name_postprocessing_respects_verified_separate_continuation_colum
         for field, value in (("first_name", "Nora"), ("last_name", "Beispiel")):
             stages = field_trace(dict(output_index=0), page, raw, {}, [], field)["stages"]
             assert next(s for s in stages if s["stage"] == "model_response")["value"] == value
+
+
+def test_ocr_llm_shifted_continuation_recovers_combined_name_and_department(monkeypatch):
+    from participant_bench.models import parse_ocr_response
+
+    monkeypatch.setattr("participant_bench.column_context.image_boundaries", lambda image: [0.0, 0.25, 0.55, 0.80, 1.0])
+    p1_words = dict(text="Benutzer Name Kurzzeichen Unterschrift 123456 Muster, Anna ZX-T-1", words=[
+        dict(text="Benutzer", bbox=dict(x0=.02, x1=.15, y0=.10, y1=.12), line=[1, 1, 1], ocr_confidence=92),
+        dict(text="Name", bbox=dict(x0=.28, x1=.38, y0=.10, y1=.12), line=[1, 1, 1], ocr_confidence=92),
+        dict(text="‚Kuszzeichen", bbox=dict(x0=.58, x1=.72, y0=.10, y1=.12), line=[1, 1, 1], ocr_confidence=85),
+        dict(text="Unterschrift", bbox=dict(x0=.82, x1=.95, y0=.10, y1=.12), line=[1, 1, 1], ocr_confidence=92),
+        dict(text="123456", bbox=dict(x0=.02, x1=.15, y0=.20, y1=.22), line=[1, 1, 2], ocr_confidence=90),
+        dict(text="Muster,", bbox=dict(x0=.28, x1=.38, y0=.20, y1=.22), line=[1, 1, 2], ocr_confidence=90),
+        dict(text="Anna", bbox=dict(x0=.39, x1=.48, y0=.20, y1=.22), line=[1, 1, 2], ocr_confidence=90),
+        dict(text="ZX-T-1", bbox=dict(x0=.58, x1=.70, y0=.20, y1=.22), line=[1, 1, 2], ocr_confidence=90),
+    ])
+    p2_words = dict(text="Krasnigi, Blenar TK-U-42 Sign", words=[
+        dict(text="Krasnigi,", bbox=dict(x0=.28, x1=.38, y0=.20, y1=.22), line=[1, 1, 1], ocr_confidence=82),
+        dict(text="Blenar", bbox=dict(x0=.39, x1=.48, y0=.20, y1=.22), line=[1, 1, 1], ocr_confidence=82),
+        dict(text="TK-U-42", bbox=dict(x0=.58, x1=.70, y0=.20, y1=.22), line=[1, 1, 1], ocr_confidence=88),
+        dict(text="Sign", bbox=dict(x0=.82, x1=.90, y0=.20, y1=.22), line=[1, 1, 1], ocr_confidence=40),
+    ])
+    with Image.new("RGB", (100, 100), "white") as image:
+        first = with_table_columns(p1_words, image, document_id="docA", page_number=1)
+        second = with_table_columns(p2_words, image, first, document_id="docA", page_number=2)
+    assert second["column_mapping"] == {"personnel_number": [0], "last_name": [1], "department": [2], "signature": [3]}
+    # Simulate an LLM response that shifted combined name into first_name, department into last_name, and signature into department
+    shifted_raw = json.dumps(dict(participants=[dict(
+        source_row="r1", is_participant=True,
+        first_name="Krasnigi, Blenar", last_name="TK-U-42", personnel_number=None, department="Sign",
+    )]))
+    people = parse_ocr_response(shifted_raw, second, [])
+    assert len(people) == 1
+    assert people[0].first_name.value == "Blenar"
+    assert people[0].last_name.value == "Krasnigi"
+    assert people[0].personnel_number.value is None
+    assert people[0].department.value == "TK-U-42"
+
+
+def test_paddle_continuation_tolerates_left_border_touch_and_merged_id_name_box():
+    from participant_bench.structure_assignment import ground_positions, position_matches
+    from participant_bench.unlimited_assignment import AssignedRow, AssignmentResponse, ground_response
+
+    edges = [0.0, 0.13, 0.26, 0.36, 0.45, 1.0]
+    p1 = dict(tables=[], image_column_boundaries=edges, native=dict(width=1000, height=1000, overall_ocr_res=dict(
+        rec_texts=["User ID", "User Name", "Organization", "Unterschrift", "111111", "Muster", "Anna", "ORG-1"],
+        rec_boxes=[[140, 100, 220, 120], [270, 100, 350, 120], [370, 100, 440, 120], [500, 100, 620, 120],
+                   [140, 200, 220, 220], [270, 200, 310, 220], [315, 200, 350, 220], [370, 200, 430, 220]],
+    )))
+    r1, _, _ = prepare_rows(p1, "paddle_structure")
+    b1 = header_bands(r1)
+    _, ctx, _ = document_bands(p1, r1, b1, None, document_id="docP", page_number=1)
+    # Page 2: row 0 has a handwritten name touching the left border of col 2 (x0=0.255 < 0.26);
+    # row 1 has a merged ID + Name box spanning col 1 and col 2 ("358383 Heimisc Bernhar").
+    p2 = dict(tables=[], image_column_boundaries=edges, native=dict(width=1000, height=1000, overall_ocr_res=dict(
+        rec_texts=["Krasnigi", "Blenar", "TK-U-1", "358383 Heimisc Bernhar", "TK-U-2"],
+        rec_boxes=[[255, 200, 305, 220], [310, 200, 350, 220], [370, 200, 430, 220],
+                   [140, 300, 350, 320], [370, 300, 430, 320]],
+    )))
+    r2, _, _ = prepare_rows(p2, "paddle_structure")
+    inherited, _, trace = document_bands(p2, r2, {}, ctx, document_id="docP", page_number=2)
+    assert trace["status"] == "inherited_from_previous_page"
+    resp = AssignmentResponse(participants=[
+        AssignedRow(source_row="t0r0", first_name=(0, "Blenar"), last_name=(0, "Krasnigi"),
+                    personnel_number=(None, None), department=(0, "TK-U-1")),
+        AssignedRow(source_row="t0r1", first_name=(0, "Bernhar"), last_name=(0, "Heimisc"),
+                    personnel_number=(0, "358383"), department=(0, "TK-U-2")),
+    ])
+    people, proofs, _ = ground_response(resp, r2, trusted_headers=False,
+        field_validator=lambda f, c, m: position_matches(f, c, m, inherited))
+    ground_positions(people, proofs, r2, inherited)
+    assert len(people) == 2
+    assert (people[0].first_name.value, people[0].last_name.value, people[0].department.value) == ("Blenar", "Krasnigi", "TK-U-1")
+    assert (people[1].personnel_number.value, people[1].first_name.value, people[1].last_name.value, people[1].department.value) == (
+        "358383", "Bernhar", "Heimisc", "TK-U-2")
+
+
+def test_docling_stage2b_separates_vertically_adjacent_handwritten_rows_with_x_conflict():
+    edges = [0.0, 0.25, 0.50, 0.75, 1.0]
+    _, _, _, context = extract_structured(dict(table(), image_column_boundaries=edges), document_id="docD", page_number=1)
+    # Continuation page with 1 native row and 2 vertically touching orphan handwritten rows at the bottom
+    cont = dict(table(HEADINGS, [VALUES[0]], header=False), image_column_boundaries=edges, ocr_cells=[
+        dict(index=10, text="Ferhol", bbox=dict(x0=.03, x1=.18, y0=.500, y1=.535)),
+        dict(index=11, text="Kaya", bbox=dict(x0=.28, x1=.42, y0=.500, y1=.542)),
+        dict(index=12, text="TK-U-53", bbox=dict(x0=.78, x1=.90, y0=.502, y1=.532)),
+        dict(index=13, text="Eren", bbox=dict(x0=.03, x1=.17, y0=.534, y1=.568)),
+        dict(index=14, text="Pelin", bbox=dict(x0=.28, x1=.41, y0=.535, y1=.568)),
+        dict(index=15, text="TK-U-54", bbox=dict(x0=.78, x1=.90, y0=.536, y1=.566)),
+    ])
+    people, _, _, _ = extract_structured(cont, context, document_id="docD", page_number=2)
+    assert len(people) == 3
+    assert [p.first_name.value for p in people] == [VALUES[0][0], "Ferhol", "Eren"]
+    assert [p.last_name.value for p in people] == [VALUES[0][1], "Kaya", "Pelin"]
+
+
+def test_visual_continuation_rejects_split_name_in_department_and_completes_from_native_ocr():
+    from participant_bench.vlm_cells import parse_visual_response
+
+    profile = geometry(4, boundaries=[0.0, 0.25, 0.55, 0.80, 1.0])
+    p1_raw = json.dumps(dict(
+        page_text="",
+        identity_headers=["User ID", "User Name", "Organization", "Unterschrift"],
+        participants=[dict(first_name="Anna", last_name="Muster",
+                           identity_cells=["123456", "Muster, Anna", "ZX-T-1", "sig"])],
+    ))
+    _, _, _, p1_audit = parse_visual_response(p1_raw, document_id="docV", page_number=1, column_geometry=profile)
+    # On page 2, VLM split "Hijc" and "Kaan" across col 1 (User Name) and col 2 (Organization), leaving dept uncaptured
+    p2_raw = json.dumps(dict(
+        page_text="",
+        identity_headers=[None, None, None, None],
+        participants=[dict(first_name="Hijc", last_name="Kaan",
+                           identity_cells=["", "Hijc", "Kaan", "sig"])],
+    ))
+    hints = dict(coordinate_scale=1000, rows=[dict(
+        source_row="t0r1",
+        cells=[["Hijc Kaan", 246, 200, 480, 230, 88], ["TK-U-53", 560, 200, 720, 230, 91]],
+    )])
+    people, _, _, _ = parse_visual_response(
+        p2_raw, document_context=p1_audit["column_context"], document_id="docV", page_number=2,
+        column_geometry=profile, cell_observations=hints,
+    )
+    assert len(people) == 1
+    assert people[0].first_name.value == "Hijc" and people[0].last_name.value == "Kaan"
+    assert people[0].personnel_number.value == ""
+    assert people[0].department.value == "TK-U-53"
+

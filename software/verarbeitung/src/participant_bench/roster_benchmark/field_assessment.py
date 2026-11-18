@@ -51,7 +51,10 @@ def assess(row, diagnosis=None):
     mapping_blocked = diagnosis.get("certainty") == "proven" and (
         diagnosis.get("category") in ("not_submitted", "model_omission") or
         diagnosis.get("category") == "column_mapping" and proposal_present)
-    if (text_present and (unpaired or alignment_unclear(row))) or mapping_blocked:
+    excluded = true(row.get("excluded_from_quality"))
+    if excluded:
+        status = "unassessed"
+    elif (text_present and (unpaired or alignment_unclear(row))) or mapping_blocked:
         status = "unclear"
     elif not reference_known:
         status = "unassessed"
@@ -72,6 +75,8 @@ def assess(row, diagnosis=None):
         "unclear": "Text oder ein belegter Zellvorschlag ist vorhanden, aber Personen-/Feldzuordnung oder Nutzbarkeit ist nicht gesichert. Keine bestätigte Identifikation.",
         "unassessed": "Keine verlässlich bestimmbare Feldreferenz; keine Aussage über die Richtigkeit.",
     }[status]
+    if excluded:
+        reason = str(row.get("exclusion_reason_participant") or "Wahrscheinlich nicht unterschriebene Zusatzperson; von Qualität ausgeschlossen.")
     # Saved field similarity comes from matching.similarity (normalized Levenshtein).
     # A zero contribution for an unpaired/missing value is not a measured text similarity.
     measured = row.get("detected_similarity", row.get("similarity"))

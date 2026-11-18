@@ -9,7 +9,7 @@ from statistics import median
 
 from .schema import TEXT_FIELDS
 
-VERSION = "document-column-context-v3-visual-text-prefix"
+VERSION = "document-column-context-v4-ruled-rows"
 MAX_EDGE_SHIFT = .035
 
 
@@ -54,6 +54,23 @@ def column_intervals(mapping, profile):
         elif field == "signature" and valid:
             intervals[field] = [edges[valid[0]], edges[valid[-1] + 1]]
     return intervals
+
+
+def native_table_geometry(width, rows, image_edges):
+    """Anchor native column indices to a unique contiguous part of the page grid."""
+    anchors = [(c["column_start"], c["bbox"]) for row in rows for c in row["cells"]
+               if c.get("bbox") and c.get("colspan", 1) == 1]
+    if width >= 2 and image_edges and len({col for col, _ in anchors}) >= 2:
+        candidates = []
+        for start in range(len(image_edges)-width):
+            edges = image_edges[start:start+width+1]
+            if all(0 <= col < width and edges[col] <= (b["x0"]+b["x1"])/2 < edges[col+1]
+                   and b["x0"] >= edges[col]-.015 and b["x1"] <= edges[col+1]+.015
+                   for col, b in anchors):
+                candidates.append(edges)
+        if len(candidates) == 1:
+            return geometry(width, boundaries=candidates[0])
+    return geometry(width, rows)
 
 
 def compatible(previous, current, *, text_width=None):
@@ -155,10 +172,13 @@ def project_bands(bands, previous, current):
     """Move heading bands along measured corresponding edges, without new roles."""
     old, new = previous["edges"], current["edges"]
     def project(value):
-        for index, (left, right) in enumerate(zip(old, old[1:])):
+        for index, (left, right) in enumerate(zip(old[:len(new)-1], old[1:])):
             if value <= right:
                 return max(0., min(1., new[index] + (value-left) / (right-left) * (new[index+1]-new[index])))
         return value + new[-1] - old[-1]
+    if len(new) < len(old):
+        limit = old[len(new)-1]
+        bands = {field: (left, min(right, limit)) for field, (left, right) in bands.items() if left < limit}
     return {field: [project(left), project(right)] for field, (left, right) in bands.items()}
 
 
@@ -235,3 +255,47 @@ def image_boundaries(image, *, include_page_margins=True):
     if include_page_margins:
         edges.append(1.0)
     return edges if len(edges) >= 3 else []
+
+
+def ruled_row_boxes(image):
+    """Find rows in a mildly skewed grid, ignoring isolated rules and scanner borders."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    from .image_preprocessing import binary, grid_masks
+
+    if image is None:
+        return []
+    small = image.convert("L")
+    small.thumbnail((1100, 1100))
+    w, h = small.size
+    ink = binary(small)
+    lines = cv2.HoughLinesP(ink, 1, np.pi/720, max(20, w//16), minLineLength=w*.24, maxLineGap=12)
+    if lines is None:
+        return []
+    angles = [np.degrees(np.arctan2(y1-y0, x1-x0)) for (x0,y0,x1,y1), in lines
+              if abs(y1-y0) <= .05*(x1-x0)]
+    if not angles:
+        return []
+    rotation = cv2.getRotationMatrix2D((w/2, h/2), float(np.median(angles)), 1)
+    upright = cv2.warpAffine(np.asarray(small), rotation, (w, h), borderValue=255)
+    _, horizontal, vertical = grid_masks(Image.fromarray(upright))
+    horizontal = cv2.morphologyEx(horizontal, cv2.MORPH_CLOSE, np.ones((1, 9), np.uint8))
+    contours, _ = cv2.findContours(horizontal, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    rules = sorted((y+height/2, x, x+width-1) for x,y,width,height in map(cv2.boundingRect, contours)
+                   if width >= w*.24 and height <= max(5, h*.012))
+    inverse = cv2.invertAffineTransform(rotation)
+    boxes = []
+    for (top, left, right), (bottom, l2, r2) in zip(rules, rules[1:]):
+        if max(abs(left-l2), abs(right-r2)) > .015*w or bottom-top < 4:
+            continue
+        strip = vertical[round(top):round(bottom), :]
+        if not all((strip[:, max(0,x-4):x+5] > 0).any(axis=1).mean() >= .8 for x in (left, right)):
+            continue
+        if not np.any((strip[:, left+5:right-4] > 0).mean(axis=0) >= .8):
+            continue  # At least one internal separator is needed.
+        corners = np.array([[x,y,1.] for y in (top,bottom) for x in (left,right)]) @ inverse.T
+        boxes.append([max(0., corners[:,0].min()/w), max(0., corners[:,1].min()/h),
+                      min(1., corners[:,0].max()/w), min(1., corners[:,1].max()/h)])
+    return boxes

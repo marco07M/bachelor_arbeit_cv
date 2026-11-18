@@ -10,13 +10,18 @@ Docling ordnet ohne LLM anhand der Tabellenspalten zu. Der Hybridvergleich erhä
 einen eigenen Feldbericht. Die neuen Textgewichte müssen einmalig eingerichtet
 werden; vorhandene ältere Qwen3-4B-Gewichte ersetzen sie nicht.
 
+Das lokale **Testframework verwendet seit 18.11.2026 Qwen3-VL-8B-Instruct mit
+explizitem LLM.int8** für `vlm` und `ocr_vlm`. Der Bildencoder bleibt BF16;
+Textmodell und Auswertungsregeln bleiben gleich. Das feste 4B-Hauptprofil oben
+bleibt separat verfügbar. Einrichtung und Grenzen: [GPU-Ausführung](docs/gpu-inference.md#größeres-vlm-im-testframework-18112026).
+
 ## Direkt starten
 
 | Aufgabe | Start | Eingabe |
 | --- | --- | --- |
 | Modelle ausführen und mit Excel/CSV vergleichen | [`start_testframework.cmd`](start_testframework.cmd) | PDFs in `testframework/eingabe_pdfs/`, Referenz in `testframework/referenz/` |
-| Aktuelle Nutzerwahl: Regeln, Tesseract+LLM, Paddle+LLM, VLM und OCR+VLM | [`start_testframework_5.cmd`](start_testframework_5.cmd) | Dieselben PDF-/Referenzordner; Profil `configs/benchmark-five.yaml`, ohne Docling |
-| Tesseract+Regeln, Paddle+LLM, VLM und OCR+VLM ausführen | [`start_testframework_4.cmd`](start_testframework_4.cmd) | Dieselben PDF-/Referenzordner; vorläufiges Profil `configs/benchmark-four.yaml` |
+| Aktuelle Nutzerwahl: Regeln, Tesseract+LLM, Paddle+LLM, VLM und OCR+VLM | [`start_testframework_5.cmd`](start_testframework_5.cmd) | Dieselben PDF-/Referenzordner; Profil `configs/benchmark-five-vlm8b.yaml`, ohne Docling |
+| Tesseract+Regeln, Paddle+LLM, VLM und OCR+VLM ausführen | [`start_testframework_4.cmd`](start_testframework_4.cmd) | Dieselben PDF-/Referenzordner; Profil `configs/benchmark-four-vlm8b.yaml` |
 | Alle lokalen Modelle ohne Referenzvergleich ausführen | [`start_alle_lokalen_modelle.cmd`](start_alle_lokalen_modelle.cmd) | PDFs in `data/cv-test-20261020-093337/` |
 | Über die Firmen-API ausführen und vergleichen | [`api_firmen_pc/start_api_testframework.cmd`](api_firmen_pc/start_api_testframework.cmd) | Eigene Eingaben unter `api_firmen_pc/testframework/` |
 

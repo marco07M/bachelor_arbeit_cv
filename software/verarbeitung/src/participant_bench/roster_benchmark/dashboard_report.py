@@ -10,8 +10,10 @@ from .metric_audit_report import SCRIPT as AUDIT_SCRIPT
 from .metric_audit_report import render as render_audit
 from .metrics import DETECTED_LABEL
 from .report import detected_basis, detected_percent, percent
+from .schriftart_report import SCRIPT as SCHRIFTART_SCRIPT
+from .schriftart_report import render as render_schriftart
 
-VERSION = "roster-dashboard-v2-field-ledger"
+VERSION = "roster-dashboard-v4-signature-exclusions"
 LABELS = {
     "first_name": "Vorname",
     "last_name": "Nachname",
@@ -154,6 +156,7 @@ def render(output, payload):
         ("efficiency", "E · Effizienz & Kosten"),
         ("statistics", "F · Statistik"),
         ("audit", "G · Einzelbewertungen"),
+        ("schriftart", "H · Schriftart"),
     ]
     text += (
         '<nav class="tabs" aria-label="Analysebereiche" role="tablist">'
@@ -644,6 +647,7 @@ def render(output, payload):
     f += '<p><a href="scientific/intervals.csv">Alle Intervalle</a> · <a href="scientific/paired.csv">Alle gepaarten Effekte</a> · <a href="scientific/matching_effects.csv">Matchingeffekte</a> · <a href="scientific/ablations.csv">Pipelinegegenproben</a></p>'
     text += panel("statistics", "F · Statistischer Vergleich", f)
     text += panel("audit", "G · Nachvollziehbare Einzelbewertungen", render_audit(payload))
+    text += panel("schriftart", "H · Schriftart pro Teilnehmer", render_schriftart(payload))
     text += (
         '<footer><details><summary>Daten, Bewertungsprotokoll und Reproduzierbarkeit</summary><div class="links">'
         + "".join(
@@ -665,6 +669,7 @@ def render(output, payload):
     )
     text += "</main>"
     target.write_text(
-        document("Modellvergleich – wissenschaftliche Analyse", text, script_source=SCRIPT + "\n" + AUDIT_SCRIPT), encoding="utf-8"
+        document("Modellvergleich – wissenschaftliche Analyse", text,
+                 script_source=SCRIPT + "\n" + AUDIT_SCRIPT + "\n" + SCHRIFTART_SCRIPT), encoding="utf-8"
     )
     return target

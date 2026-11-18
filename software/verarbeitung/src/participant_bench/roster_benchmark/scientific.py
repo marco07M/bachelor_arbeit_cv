@@ -13,15 +13,16 @@ from ..identifiers import user_id_rule
 from ..io import digest, file_hash, read_json, read_jsonl, write_csv, write_json
 from ..schema import PageResult
 from .detail_report import read_csv
-from .matching import Prediction, normalize
+from .matching import normalize, page_predictions
 from .metrics import QUALITY_DEFINITIONS, aggregate, empty_counts
 from .metrics import course_metrics as evaluate_course
 from .references import saved_reference
-from .scientific_efficiency import costs_per_1000, enrich_effort
+from .schriftart_report import prepare as prepare_schriftart
+from .scientific_efficiency import costs_per_1000, enrich_effort, technical_observations
 from .scientific_metadata import course_metadata, load_metadata, template
 from .scientific_stats import METRICS, cluster_bootstrap, pareto
 
-VERSION = "scientific-evaluation-v4-detected-similarity"
+VERSION = "scientific-evaluation-v9-writing-style-analysis"
 MODES = ("original_roles", "best_fit_no_swap", "best_fit_swap", "conservative_no_swap", "conservative_swap")
 PAIRS = (("vlm", "ocr_vlm"), ("docling", "docling_vlm"), ("ocr_llm", "paddle_llm"))
 
@@ -63,10 +64,11 @@ def effort(source, method, pages, selected_ids):
     summary = read_json(source / "summary.json").get(method, {})
     manifest = read_json(source / "manifest.json")
     complete_scope = {r["sha256"] for r in manifest["inputs"] if r["kind"] == "pdf"} == selected_ids
-    rows, cache, assists, assist_skips, cache_pages = [], [], [], 0, 0
+    rows, cache, assists, assist_skips, cache_pages, raw_pages = [], [], [], 0, 0, []
     for page in pages:
         raw_path = source / method / f"raw-{page.page_id}.json"
         raw = read_json(raw_path) if raw_path.is_file() else {}
+        raw_pages.append(raw)
         timings = page.timings
         page_cache = [v for k, v in timings.items() if k.endswith("cache_hit")]
         assignment_cache = raw.get("assignment", {}).get("cache_hit")
@@ -132,8 +134,11 @@ def effort(source, method, pages, selected_ids):
     )
     configuration=yaml.safe_load((source/"config.yaml").read_text(encoding="utf-8")) if (source/"config.yaml").is_file() else {}
     enrich_effort(values,rows,pages,summary,method,configuration)
-    expected_count=sum(p.get("document_id") in selected_ids for p in manifest.get("pages",[]))
+    expected_count=sum((p.get("document_id") or p.get("source_sha256")) in selected_ids for p in manifest.get("pages",[]))
     values["costs"]=costs_per_1000(configuration,documents=len(selected_ids),pages=expected_count)
+    values["technical"] = technical_observations(source, method, pages, raw_pages, expected_count)
+    values["technical"]["saved_generation_seconds_sum"] = _sum_known(
+        [r["saved_response_generation_seconds"] for r in rows])
     return values, rows
 
 
@@ -157,6 +162,9 @@ def analyze(
     additional_reports=None,
     source_run=None,
     figures=True,
+    document_annotations=None,
+    anls=False,
+    page_annotations=None,
 ):
     if phase not in {"all", "development", "pilot", "test"}:
         raise ValueError("Unbekannte Evaluationsphase")
@@ -223,6 +231,7 @@ def analyze(
         [] for _ in range(9)
     )
     field_summary, stratum_fields, ablation_strata = [], [], []
+    schriftart_rows, schriftart_fields, schriftart_unassigned = [], [], []
     distributions, quality, details, case_rows, efforts, page_rows, image_sets = {}, {}, {}, {}, {}, [], {}
     for candidate, (current_source, method) in source_specs.items():
         summary = read_json(current_source / "summary.json").get(method, {})
@@ -271,9 +280,7 @@ def analyze(
         lookup = {d: annotations[d]["class_id"] for d in selected_ids}
         predictions = defaultdict(list)
         for page in pages:
-            predictions[lookup[page.document_id]].extend(
-                Prediction(page.document_id, page.page_number, i, p) for i, p in enumerate(page.participants)
-            )
+            predictions[lookup[page.document_id]].extend(page_predictions(page, current_source / method))
         quality[candidate], details[candidate], case_rows[candidate] = {}, {}, {}
         for mode in MODES:
             quality[candidate][mode], details[candidate][mode], case_rows[candidate][mode] = {}, [], []
@@ -314,6 +321,10 @@ def analyze(
         }
         for mode, scores_by_course in quality[candidate].items():
             aggregate_score = aggregate(list(scores_by_course.values()))
+            style_rows, style_fields, style_unassigned = prepare_schriftart(aggregate_score, candidate, mode, scoped)
+            schriftart_rows.extend(style_rows)
+            schriftart_fields.extend(style_fields)
+            schriftart_unassigned.append(style_unassigned)
             overall = aggregate_score["overall"]
             field_summary.extend(
                 dict(candidate=candidate, mode=mode, field=field, **counts)
@@ -344,6 +355,8 @@ def analyze(
                     **overall,
                     missing_participants=aggregate_score["missing_participants"],
                     extra_participants=aggregate_score["extra_participants"],
+                    excluded_probably_unsigned_participants=aggregate_score["excluded_probably_unsigned_participants"],
+                    unsigned_exclusion=aggregate_score["unsigned_exclusion"],
                     name_swapped_participants=aggregate_score["name_swapped_participants"],
                     participant_quality=aggregate_score["participant_quality"],
                 )
@@ -630,7 +643,10 @@ def analyze(
     primary_fields=[dict(method=candidate,**{k:"" if v is None else str(v) for k,v in row.items()})
                     for candidate in details for row in details[candidate]["original_roles"]]
     write_json(folder/"error_grading.json",dict(label="Originalrollen auf festen referenzgestützten Best-Fit-Paaren",
-        document_ids=sorted(selected_ids),sources={c:source_identities[c] for c in quality},fields=primary_fields))
+        document_ids=sorted(selected_ids),sources={c:source_identities[c] for c in quality},fields=primary_fields,
+        participants=[dict(method=c, **r) for c in case_rows for r in case_rows[c]["original_roles"]],
+        exclusion_metrics={r["candidate"]: dict(overall={k: r[k] for k in empty_counts()},
+            unsigned_exclusion=r["unsigned_exclusion"]) for r in overview if r.get("mode") == "original_roles"}))
     from .error_report import render_errors
 
     render_errors(output)
@@ -663,6 +679,9 @@ def analyze(
         overview=overview,
         strata=group_rows,
         field_summary=field_summary,
+        schriftart=schriftart_rows,
+        schriftart_fields=schriftart_fields,
+        schriftart_unassigned=schriftart_unassigned,
         intervals=intervals,
         paired=paired,
         matching_effects=effects,
@@ -690,7 +709,10 @@ def analyze(
             sources=source_identities,
             implementation={p.name: file_hash(p) for p in [*Path(__file__).parent.glob("scientific*.py"),
                 *(Path(__file__).parent / name for name in ("metrics.py", "matching.py", "metric_audit.py",
-                    "metric_audit_report.py", "dashboard_report.py", "references.py", "field_assessment.py"))]},
+                    "metric_audit_report.py", "dashboard_report.py", "references.py", "field_assessment.py", "schriftart_report.py",
+                    "document_availability.py", "missing_fields_report.py", "schriftart_analysis_report.py")),
+                Path(__file__).parent.parent / "writing_style.py", Path(__file__).parent.parent / "schema.py",
+                Path(__file__).parent.parent / "excel_reference.py"]},
         ),
         limitations=[
             "reference_assisted_identity_even_without_swap",
@@ -706,6 +728,9 @@ def analyze(
     for name, rows, columns in (
         ("courses", course_rows, ["candidate", "mode", "class_id"]),
         ("fields", field_rows, ["candidate", "mode", "class_id", "field"]),
+        ("schriftart", schriftart_rows, ["candidate", "mode", "schriftart"]),
+        ("schriftart_fields", schriftart_fields, ["candidate", "mode", "schriftart", "field"]),
+        ("schriftart_unassigned", schriftart_unassigned, ["candidate", "mode"]),
         ("dashboard",dashboard_rows,["candidate","exact_recall","exact_f1"]),
         ("metric_definitions",QUALITY_DEFINITIONS,["key","label","numerator","denominator","unit","direction"]),
         ("participant_scores",[dict(candidate=c,mode=mode,class_id=course,**s["participant_quality"])
@@ -755,6 +780,18 @@ def analyze(
     from .scientific_report import render
 
     render(output, payload, figures=figures)
+    from .missing_fields_report import render as render_missing_fields
+
+    render_missing_fields(output, document_annotations)
+    from .scientific_validity_report import render as render_validity
+
+    render_validity(output, payload, anls=anls, page_annotations=page_annotations)
+    from .schriftart_analysis_report import render as render_schriftart_analysis
+
+    render_schriftart_analysis(output, payload)
+    from ..document_sampling import annotate_report
+
+    annotate_report(output, original_manifest)
     return payload
 
 

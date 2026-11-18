@@ -200,10 +200,12 @@ def test_signature_only_recheck_preserves_source_and_never_runs_participant_extr
 
     config = load_config(Path("configs/local.yaml"))
     config.cache_dir = str(tmp_path / "cache")
+    config.rules.columns["signature"] = (.75, .98)
     source = tmp_path / "source"
     source.mkdir()
     page = PageResult(run_id="old", document_id="doc", page_id="doc-p0001", page_number=1,
                       method_id="ocr_llm", status="partial", parse_status="valid", participants=[person()])
+    page.participants[0].bbox = Box(x0=0, x1=1, y0=.38, y1=.46)
     write_json(source / "summary.json", {"ocr_llm": {"status": "partial"}})
     write_jsonl(source / "ocr_llm/extractions.jsonl", [page.model_dump()])
     write_json(source / "manifest.json", {"automatic_page_selection": False, "pages": [{
@@ -211,7 +213,9 @@ def test_signature_only_recheck_preserves_source_and_never_runs_participant_extr
         "status": "ready", "include": True, "review_required": False,
     }]})
     (source / "pages").mkdir()
-    Image.new("RGB", (1000, 1000), "white").save(source / "pages/doc-p0001.png")
+    with Image.new("RGB", (1000, 1000), "white") as image:
+        ImageDraw.Draw(image).line([(800, 400), (850, 440), (900, 400)], fill="black", width=3)
+        image.save(source / "pages/doc-p0001.png")
     hashes = {path: file_hash(path) for path in source.rglob("*") if path.is_file()}
 
     class ReviewDouble(DetailDouble):
@@ -250,6 +254,7 @@ def test_runner_records_separate_signature_calls_and_unloads_ocr_model_first(tmp
 
     config = load_config(Path("configs/local.yaml"))
     config.methods = [method]
+    config.rules.columns["signature"] = (.75, .98)
     config.pdf.auto_orient = False
     config.output_dir, config.cache_dir = str(tmp_path / "runs"), str(tmp_path / "cache")
     for spec in config.models.values():
@@ -257,7 +262,9 @@ def test_runner_records_separate_signature_calls_and_unloads_ocr_model_first(tmp
     raw = tmp_path / "raw"
     raw.mkdir()
     with pymupdf.open() as pdf:
-        pdf.new_page().insert_text((50, 50), "Synthetic participant fixture")
+        sheet = pdf.new_page()
+        sheet.insert_text((50, 50), "Synthetic participant fixture")
+        sheet.draw_polyline([(470, 335), (510, 375), (550, 335)], color=(0, 0, 0), width=3)
         pdf.save(raw / "123456.pdf")
     events = []
 
@@ -270,7 +277,9 @@ def test_runner_records_separate_signature_calls_and_unloads_ocr_model_first(tmp
             events.append("loaded:" + selected)
 
         def extract(self, image, data):
-            return [person()], [{"parse_status": "valid"}], "success", 0.01
+            row = person()
+            row.bbox = Box(x0=0, x1=1, y0=.38, y1=.46)
+            return [row], [{"parse_status": "valid"}], "success", 0.01
 
         def resources(self):
             return {"load_seconds": 0.0, "warmup_calls": 0, "calls": self.calls}

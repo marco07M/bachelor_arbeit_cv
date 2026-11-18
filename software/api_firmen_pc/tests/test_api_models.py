@@ -17,7 +17,7 @@ from participant_bench.config import Config, ModelConfig
 from participant_bench.io import file_hash, read_json, read_jsonl
 from participant_bench.models import Unavailable, create_model
 from participant_bench.runner import run
-from participant_bench.schema import SignatureResponse
+from participant_bench.schema import Box, SignatureResponse
 from participant_bench.signature_review import recheck_run
 from PIL import Image
 from pydantic import ValidationError
@@ -435,11 +435,23 @@ def test_synthetic_pdf_api_signature_export_resume_and_recheck(service, tmp_path
     config.pdf.auto_orient = False
     config.signature.backend = "vlm"
     config.signature.use_ocr_positions = False
+    config.rules.columns["signature"] = (.75, .98)
+    # This fixture supplies a known table row; unknown positions are tested separately.
+    extract = APIModel.extract
+
+    def extract_with_fixture_position(self, *args, **kwargs):
+        people, records, status, elapsed = extract(self, *args, **kwargs)
+        for person in people:
+            person.bbox = Box(x0=0, x1=1, y0=.35, y1=.46)
+        return people, records, status, elapsed
+
+    monkeypatch.setattr(APIModel, "extract", extract_with_fixture_position)
     raw = tmp_path / "pdfs"
     raw.mkdir()
     with pymupdf.open() as document:
         page = document.new_page()
         page.insert_text((80, 300), "Anna Weber 00123 MUC")
+        page.draw_polyline([(470, 320), (510, 365), (550, 325)], color=(0, 0, 0), width=3)
         document.save(raw / "123456.pdf")
     original = file_hash(raw / "123456.pdf")
     monkeypatch.setattr("participant_bench.runner.environment", lambda *args: {})
@@ -448,7 +460,7 @@ def test_synthetic_pdf_api_signature_export_resume_and_recheck(service, tmp_path
     people = read_jsonl(output / "vlm/extractions.jsonl")[0]["participants"]
     assert len(people) == 1 and people[0]["first_name"]["value"] == "Anna"
     assert people[0]["signature_present"] is True and people[0]["signature_method"] == "api_vlm_detail"
-    assert read_json(output / "vlm/resources.json")["http_model_requests"] == 3
+    assert read_json(output / "vlm/resources.json")["http_model_requests"] == 2
     assert (output / "report.html").is_file()
     assert "Modell-Backend" in (output / "report.html").read_text(encoding="utf-8")
     calls = len(service.requests)

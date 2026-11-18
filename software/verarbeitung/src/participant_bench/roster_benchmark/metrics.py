@@ -6,8 +6,10 @@ from ..evaluation import edits
 from ..output_order import ordered_rows
 from ..person_roles import UNCONFIRMED_ROLE
 from ..reference_states import reference_state
+from ..signatures import evaluation_evidence
+from ..writing_style import STYLES
 from .field_assessment import alignment_unclear, assess
-from .matching import FIELDS, align, normalize, similarity, values
+from .matching import FIELDS, align, normalize, similarity, unmatched_review, values
 
 
 def divide(numerator, denominator):
@@ -275,7 +277,7 @@ def participant_quality(references, rows, details, config, reference_config):
             identity_alignment_unclear=not reliable_alignment,
             identity_is_reference_based=True,
         )
-        count.update(
+        row["participant_counts"] = dict(
             reference_participants=1,
             complete_reference_participants=int(complete),
             partial_reference_participants=int(bool(known) and not complete),
@@ -286,6 +288,7 @@ def participant_quality(references, rows, details, config, reference_config):
             identity_unassessable_participants=int(not basis),
             identity_exact_participants=int(identity_exact),
         )
+        count.update(row["participant_counts"])
     return participant_scores(count)
 
 
@@ -322,6 +325,7 @@ def course_metrics(
             actual["first_name"], actual["last_name"] = actual["last_name"], actual["first_name"]
         row = dict(
             class_id=class_id,
+            schriftart=reference.schriftart,
             reference_row=reference.row_number,
             document_id=prediction.document_id if prediction else None,
             page_number=prediction.page_number if prediction else None,
@@ -333,12 +337,18 @@ def course_metrics(
             matching_mode=config.mode,
             name_swapped=swapped,
             matching_review_reasons=" | ".join(review_reasons),
+            excluded_from_quality=False,
+            reference_assignment="matched" if match else "missing",
+            exclusion_reason_participant="Referenzperson bleibt unabhängig vom Signaturstatus vollständig bewertet.",
+            signature_assessment=(prediction.signature_evidence or evaluation_evidence(
+                prediction.person, [prediction.person], {})) if prediction else None,
         )
         evaluated, correct = 0, 0
+        field_review_reasons = []
         review = not match or match.similarity < 1.0 or bool(review_reasons)
         for field, model_field in FIELDS.items():
             expected, observed = getattr(reference, field), actual[field]
-            count = fields[field]
+            count = empty_counts()
             state = reference_state(reference, field, reference_config)
             eligible = state == "read"
             reason = (
@@ -387,6 +397,12 @@ def course_metrics(
                     extra_fields=int(bool(right)),
                 )
                 review = review or not correct_empty(prediction_state, right)
+            fields[field].update(count)
+            if eligible and (not exact or prediction_state == "uncertain"):
+                field_review_reasons.append(field + ": " + ("kein nutzbarer Wert" if not available else
+                    "abweichend" if not exact else "unsicherer Erkennungszustand"))
+            elif state == "empty" and not correct_empty(prediction_state, right):
+                field_review_reasons.append(field + ": Referenz leer, Leerzustand nicht korrekt erkannt")
             details.append(
                 dict(
                     row,
@@ -408,6 +424,7 @@ def course_metrics(
                     similarity=credit if eligible else None,
                     detected_contribution=detected,
                     detected_similarity=detected_credit if detected else None,
+                    field_counts=dict(count),
                     review_required=(
                         match is None
                         or bool(review_reasons)
@@ -420,32 +437,39 @@ def course_metrics(
             )
         row["fully_exact"] = bool(match and evaluated and evaluated == correct)
         row["review_required"] = bool(review)
+        row["manual_review_required"] = bool(review)
+        row["field_review_reasons"] = " | ".join(field_review_reasons)
         full_rows += int(row["fully_exact"])
         rows.append(row)
     for i, status in issues.items():
         prediction = predictions[i]
+        decision = unmatched_review(prediction, references, config, reference_config, status)
+        excluded = decision["excluded_from_quality"]
         row = dict(
             class_id=class_id,
+            schriftart=None,
             reference_row=None,
             document_id=prediction.document_id,
             page_number=prediction.page_number,
             output_index=prediction.index,
-            status=status,
+            status="excluded_probably_unsigned" if excluded else status,
             matching_source=None,
             identity_similarity=None,
             alternative_gap=None,
             fully_exact=False,
             matching_mode=config.mode,
             matching_review_reasons=status,
+            **decision,
         )
-        row["review_required"] = True
+        row["review_required"] = not excluded
         rows.append(row)
         for field, observed in values(prediction, config).items():
             normalized = normalize(observed, field, config)
-            eligible = field in comparable and bool(normalized)
+            eligible = not excluded and field in comparable and bool(normalized)
+            count = empty_counts()
             if eligible:
-                fields[field]["predicted_fields"] += 1
-                fields[field]["extra_fields"] += 1
+                count.update(predicted_fields=1, extra_fields=1)
+            fields[field].update(count)
             details.append(
                 dict(
                     row,
@@ -457,15 +481,17 @@ def course_metrics(
                     normalized_prediction=normalized,
                     prediction_state=getattr(prediction.person, FIELDS[field]).state,
                     assessable=eligible,
-                    exclusion_reason=None if eligible else "not_comparable_extra_field",
+                    exclusion_reason="probably_unsigned_participant" if excluded else None if eligible else "not_comparable_extra_field",
                     reference_contribution=0,
                     prediction_contribution=int(eligible),
+                    excluded_prediction_contribution=int(excluded and field in comparable and bool(normalized)),
                     exact=False if eligible else None,
                     raw_exact=False if eligible else None,
                     levenshtein_distance=None,
                     similarity=0.0 if eligible else None,
                     detected_contribution=0,
                     detected_similarity=None,
+                    field_counts=dict(count),
                     identity_alignment_used_reference=True,
                 )
             )
@@ -476,11 +502,14 @@ def course_metrics(
         class_id=class_id,
         reference_participants=len(references),
         predicted_participants=len(predictions),
+        evaluated_predicted_participants=len(predictions) - sum(r["excluded_from_quality"] for r in rows),
+        excluded_probably_unsigned_participants=sum(r["excluded_from_quality"] for r in rows),
+        unassigned_manual_review_participants=sum(r["reference_row"] is None and r["review_required"] for r in rows),
         matching_mode=config.mode,
         name_swapped_participants=sum(match.name_swapped and not score_original_roles for match in matches),
         assigned_participants=len(matches),
         missing_participants=len(references) - len(matches),
-        extra_participants=len(issues),
+        extra_participants=sum(r["reference_row"] is None and not r["excluded_from_quality"] for r in rows),
         fully_exact_participants=full_rows,
         ambiguous_participants=sum(value == "ambiguous" for value in issues.values()),
         identity_conflicts=sum(value == "identity_conflict" for value in issues.values()),
@@ -501,6 +530,16 @@ def course_metrics(
         100 * result["overall"]["detected_similarity"] if result["overall"]["detected_similarity"] is not None else None
     )
     result["participant_quality"] = participant_quality(references, rows, details, config, reference_config)
+    excluded_fields = sum(r.get("excluded_prediction_contribution", 0) for r in details)
+    before = total.copy()
+    before.update(predicted_fields=excluded_fields, extra_fields=excluded_fields)
+    result["unsigned_exclusion"] = dict(enabled=config.exclude_probably_unsigned_extras,
+        excluded_field_values=excluded_fields, before_exclusion=scores(before))
+    result["schriftart_groups"] = group_schriftart(rows, details)
+    extras = [r for r in details if r["reference_row"] is None]
+    result["schriftart_unassigned"] = dict(
+        participants=sum(r["reference_row"] is None and not r["excluded_from_quality"] for r in rows),
+        fields=sum_counts(r["field_counts"] for r in extras))
     for field in details:
         field.update(assess(field))
     documents = {doc: i for i, doc in enumerate(dict.fromkeys(p.document_id for p in predictions))}
@@ -508,12 +547,14 @@ def course_metrics(
 
 
 def aggregate(courses):
-    fields = {field: empty_counts() for field in FIELDS}
     result = {
         key: sum(course[key] for course in courses)
         for key in (
             "reference_participants",
             "predicted_participants",
+            "evaluated_predicted_participants",
+            "excluded_probably_unsigned_participants",
+            "unassigned_manual_review_participants",
             "assigned_participants",
             "missing_participants",
             "extra_participants",
@@ -529,15 +570,10 @@ def aggregate(courses):
             "name_swapped_participants",
         )
     }
-    for course in courses:
-        for field in FIELDS:
-            fields[field].update({key: course["fields"][field][key] for key in empty_counts()})
-    total = empty_counts()
-    for count in fields.values():
-        total.update(count)
+    fields, total = aggregate_fields(course["fields"] for course in courses)
     result.update(
-        fields={field: scores(count) for field, count in fields.items()},
-        overall=scores(total),
+        fields=fields,
+        overall=total,
         matching_mode=courses[0]["matching_mode"] if courses else "conservative",
         courses=len(courses),
         fully_exact_participant_recall=divide(
@@ -550,12 +586,73 @@ def aggregate(courses):
     result["detected_similarity_percent"] = (
         100 * result["overall"]["detected_similarity"] if result["overall"]["detected_similarity"] is not None else None
     )
-    quality = Counter(dict.fromkeys(PARTICIPANT_COUNTERS, 0))
     available = all("participant_quality" in c for c in courses)
-    if available:
-        for course in courses:
-            quality.update({key: course["participant_quality"][key] for key in PARTICIPANT_COUNTERS})
     result["participant_quality"] = (
-        participant_scores(quality) if available else dict(status="unavailable_legacy_counts")
+        aggregate_participants(c["participant_quality"] for c in courses) if available else dict(status="unavailable_legacy_counts")
     )
+    if all("unsigned_exclusion" in c for c in courses):
+        result["unsigned_exclusion"] = dict(
+            enabled=any(c["unsigned_exclusion"]["enabled"] for c in courses),
+            excluded_field_values=sum(c["unsigned_exclusion"]["excluded_field_values"] for c in courses),
+            before_exclusion=scores(sum_counts(
+                {k: c["unsigned_exclusion"]["before_exclusion"][k] for k in empty_counts()} for c in courses)))
+    if all("schriftart_groups" in c for c in courses):
+        result["schriftart_groups"] = {}
+        for style in STYLES:
+            members = [c["schriftart_groups"][style] for c in courses]
+            fields, overall = aggregate_fields(m["fields"] for m in members)
+            result["schriftart_groups"][style] = dict(
+                schriftart=style, fields=fields, overall=overall,
+                participant_quality=aggregate_participants(m["participant_quality"] for m in members),
+                assigned_participants=sum(m["assigned_participants"] for m in members),
+                localized_documents=sorted({d for m in members for d in m["localized_documents"]}),
+                class_ids=sorted({c for m in members for c in m["class_ids"]}))
+        result["schriftart_unassigned"] = dict(
+            participants=sum(c["schriftart_unassigned"]["participants"] for c in courses),
+            fields=sum_counts(c["schriftart_unassigned"]["fields"] for c in courses))
+    return result
+
+
+def aggregate_fields(field_sets):
+    """Pool the already evaluated counters; shared by overall and GT-only subsets."""
+    fields = {field: empty_counts() for field in FIELDS}
+    for current in field_sets:
+        for field in FIELDS:
+            fields[field].update({k: current[field].get(k, 0) for k in empty_counts()})
+    total = sum_counts(fields.values())
+    return {f: scores(c) for f, c in fields.items()}, scores(total)
+
+
+def sum_counts(vectors):
+    total = empty_counts()
+    for vector in vectors:
+        total.update(vector)
+    return total
+
+
+def aggregate_participants(qualities):
+    total = Counter(dict.fromkeys(PARTICIPANT_COUNTERS, 0))
+    for quality in qualities:
+        total.update({k: quality[k] for k in PARTICIPANT_COUNTERS})
+    return participant_scores(total)
+
+
+def group_schriftart(rows, details):
+    """Slice fixed decisions AFTER matching; retain whole-course identity uniqueness."""
+    result = {}
+    for style in STYLES:
+        selected = [r for r in rows if r["reference_row"] is not None
+                    and (r["schriftart"] or "unclassified") == style]
+        keys = {r["reference_row"] for r in selected}
+        fields = {f: empty_counts() for f in FIELDS}
+        for field in details:
+            if field["reference_row"] in keys:
+                fields[field["field"]].update(field["field_counts"])
+        field_scores, overall = aggregate_fields([fields])
+        result[style] = dict(
+            schriftart=style, fields=field_scores, overall=overall,
+            participant_quality=aggregate_participants(r["participant_counts"] for r in selected),
+            assigned_participants=sum(r["status"] == "matched" for r in selected),
+            localized_documents=sorted({r["document_id"] for r in selected if r["document_id"]}),
+            class_ids=sorted({r["class_id"] for r in selected}))
     return result

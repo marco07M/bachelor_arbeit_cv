@@ -25,6 +25,7 @@ CATEGORIES = {
     "correct_empty": "Bestätigt leer korrekt erkannt",
     "unknown_empty": "Bestätigte Leerzelle nicht als leer erkannt",
     "unassessed": "Referenz nicht bewertbar",
+    "excluded_probably_unsigned": "Zusatzperson wahrscheinlich ohne Unterschrift; ausgeschlossen",
 }
 
 
@@ -37,7 +38,9 @@ def explain(row, siblings, reference_index):
     """Categories partition decisions. Cross-field/row equality is evidence, not identity proof."""
     status = field_status({k: "" if v is None else str(v) for k, v in row.items()})
     result = dict(result=status, category="unassessed", reason="Unbekannte/maskierte Referenz: kein Feldpunkt.")
-    if row.get("reference_state") == "empty":
+    if row.get("excluded_from_quality"):
+        result.update(category="excluded_probably_unsigned", reason=row["exclusion_reason_participant"])
+    elif row.get("reference_state") == "empty":
         empty = correct_empty(row["prediction_state"], row.get("normalized_prediction"))
         result.update(category="hallucinated_empty" if row["prediction_contribution"] else
                       "correct_empty" if empty else "unknown_empty",
@@ -114,7 +117,8 @@ def build(output, details, cases, overview, specs, documents):
             participant = dict(candidate=candidate, **row, **location(candidate, row))
             participant["participant_label"] = " ".join(str(r.get("reference_value") or r.get("prediction_value") or "")
                                                        for f in ("first_name", "last_name") for r in siblings if r["field"] == f)
-            participant["participant_result"] = ("extra" if row["reference_row"] is None else "missing" if row["status"] == "missing"
+            participant["participant_result"] = ("excluded" if row.get("excluded_from_quality") else
+                                                  "extra" if row["reference_row"] is None else "missing" if row["status"] == "missing"
                                                   else "unclear" if alignment_unclear(row)
                                                   else "complete" if row["fully_correct_required"] else "identity_only"
                                                   if row["identity_exact"] else "identity_error")
@@ -130,7 +134,8 @@ def build(output, details, cases, overview, specs, documents):
                 method_fields.append(record)
                 if explanation["category"] not in ("correct", "correct_empty", "unassessed"):
                     reasons.append(field["field"] + ": " + CATEGORIES[explanation["category"]])
-            participant["reason"] = "; ".join(reasons) or "Alle bestimmbaren Felder korrekt."
+            participant["reason"] = (row.get("exclusion_reason_participant") if row["reference_row"] is None else
+                                     "; ".join(reasons) or "Alle bestimmbaren Felder korrekt.")
             if row.get("reference_row") is not None and not row.get("identity_assessable"):
                 participant["reason"] += " Identitätsnenner ausgeschlossen: kein eindeutiger lesbarer Referenzanker."
         tally = Counter(r["result"] for r in method_fields)
@@ -154,6 +159,8 @@ def build(output, details, cases, overview, specs, documents):
                               available_reference_fields=primary["reference_fields"] - primary["missing_fields"],
                               assigned_participants=sum(r["status"] == "matched" for r in method_cases),
                               predicted_participants=sum(r.get("output_index") is not None for r in method_cases),
+                              evaluated_predicted_participants=sum(r.get("output_index") is not None and not r.get("excluded_from_quality") for r in method_cases),
+                              excluded_probably_unsigned_participants=sum(bool(r.get("excluded_from_quality")) for r in method_cases),
                               evaluation_status_counts=assessment_counts(method_fields),
                               reference_status_counts=assessment_counts([r for r in method_fields if r["reference_contribution"]]),
                               **q))

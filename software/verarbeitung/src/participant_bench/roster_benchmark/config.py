@@ -20,6 +20,8 @@ class MatchingConfig(ConfigModel):
     ignore_leading_user_id_zeros: bool = False
     # Reference-assisted whole-name-group comparison; absent in old snapshots.
     compare_name_orientations: bool = False
+    # Explicit opt-in: old frozen comparisons retain their original FP accounting.
+    exclude_probably_unsigned_extras: bool = False
 
 
 class ReferenceConfig(ExcelConfig):

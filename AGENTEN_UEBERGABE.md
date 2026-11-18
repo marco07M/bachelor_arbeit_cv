@@ -1,12 +1,405 @@
 # Projektstand und Übergabe für folgende Agenten
 
-Zuletzt aktualisiert: **2026-11-16** (Europe/Berlin).
+Zuletzt aktualisiert: **2026-11-18** (Europe/Berlin).
 
 Diese Datei auf Wunsch des Nutzers bei Änderungen fortschreiben. Einstieg und
 Pflegepflicht stehen in [AGENTS.md](AGENTS.md). Sie ist die zentrale Übergabe,
 auch wenn frühere Chatnachrichten oder ein vorheriges Kontextfenster fehlen.
 
 ## Aktueller Stand
+
+### Dokumentweite Spaltenzuordnung auf PDF-Folgeseiten (18.11., abgeschlossen und verifiziert)
+
+- Auftrag: Fertigstellung und Absicherung der dokumentweiten Spaltenzuordnung auf
+  headerlosen PDF-Folgeseiten über alle fünf strukturierten Verfahren (`ocr_llm`,
+  `paddle_llm`, `docling`, `vlm`, `ocr_vlm`) inkl. Audit und Bereinigung der
+  durch ein Nutzungslimit unterbrochenen Vorarbeiten der vorherigen Sitzung.
+- Audit der Vorarbeiten:
+  - Saubere Architekturbausteine übernommen (`column_context.native_table_geometry`,
+    `column_context.ruled_row_boxes`, `column_context.project_bands`,
+    `structured_mapping.ruled_ocr_rows`, `vlm_cells`-Signaturspaltenprüfung und
+    Ablehnung verkürzter `identity_headers`, `unlimited_assignment`-Zeilenerhalt
+    auf geerbten Seiten). Temporäre Testordner `software/data/tc18*` und
+    `software/data/continuation-audit-20261118/tests1` bereinigt.
+  - Sechs unfertige bzw. regressionsverursachende Stellen der abgebrochenen Sitzung
+    behoben: (1) `ocr_layout.table_line_groups` gruppiert vollständige Tesseract-
+    Zeilengruppen mit `0,004` Linientoleranz statt einzelner Wörter; (2)
+    `structure_assignment.document_bands` bewahrt die linke Toleranz `-0,012` auf
+    geerbten `column_intervals` und kappt aktuelle Bänder rechts an der physischen
+    Spaltengrenze, `box_in_band` unterstützt proportionale Teilspannen in
+    spaltenübergreifend verschmolzenen `row_transcript`-Boxen, `complete_observed_cells`
+    erlaubt `0,006` Linientoleranz; (3) `models.LocalModel.extract` entfernt die
+    kontraproduktive `current_row_boxes_xyxy`-/Null-Header-Übergabe im VLM-Prompt,
+    die bei Qwen3-VL auf Folgeseiten zu `participants: []` führte, und übergibt
+    eine kompakte Strukturrepräsentation (`source_page`, `physical_columns`,
+    `physical_column_count`, `instruction`); (4) `models.complete_ocr_mapped_columns`,
+    `column_headers.field_roles` und `unlimited_assignment.header_fields` verhindern
+    Spaltenverschiebungen in `ocr_llm` bei leeren `personnel_number`-Zellen und
+    erkennen unscharfe Überschriften; (5) `structured_mapping._apply_stage2_geometry_fallback`
+    trennt vertikal benachbarte handschriftliche Zeilen bei horizontalem
+    Spaltenkonflikt (`x_conflict`); (6) `vlm_cells.parse_visual_response` verhindert
+    die Übernahme verschobener Namensbestandteile als `department` bei kombinierter
+    Namensspalte und ergänzt auf geerbten `ocr_vlm`-Folgeseiten fehlende Skalarfelder
+    (`None`) aus aktuellen nativen OCR-Zellen.
+- HTML-Diagnose: `report.py` (`report.html` und `document_column_mappings.csv`),
+  `detail_report.py` (`details.html`) und `error_report.py` (`extraction_errors.html`)
+  weisen pro PDF-Seite verwendete Spaltenzuordnung, Herkunft/Status, zugeordnete
+  Felder (`assigned_fields`) und fehlgeschlagene Zuordnungen samt Begründung
+  (`failed_assignments`) aus.
+- Getestet und anhand von Referenzdaten nachgewiesen:
+  - **1.100 lokale Pytest-Tests bestanden (141,81 s)** inkl. vier neuer gezielter
+    Regressionen in `software/tests/test_column_continuation_audit.py` (insgesamt
+    39 Tests in dieser Datei) und **51 API-Tests bestanden (14,49 s)**; `ruff check`
+    fehlerfrei; `software/api_firmen_pc/` vollständig unverändert.
+  - Reproduzierbarer Vorher-Nachher-Nachweis auf `140829.pdf` (Läufe
+    `20261118T121320Z-ed8f9224` und `20261118T122048Z-a161ca63`, Auswertungen
+    `20261118T121755Z-57a0a3fb` und `20261118T122249Z-09ff6d57`, getrennt nach
+    Seite 1 mit $R=36$ und headerloser Folgeseite 2 mit $R=36$):
+    Seite 1 bleibt bei allen fünf Verfahren ohne Regression unverändert
+    ($R_{\mathrm{exact}}$ zwischen $75{,}00\,\%$ und $83{,}33\,\%$, $0$ fehlende Felder).
+    Auf Folgeseite 2 steigt $R_{\mathrm{exact}}$ bei `ocr_vlm` von $0{,}00\,\%$ ($D=0$,
+    $36$ fehlend) auf **$36{,}11\,\%$** ($13$ exakt, $14$ abweichend, $9$ fehlend
+    [unbedruckte ID-Spalte], $D=27$), bei `paddle_llm` von $27{,}78\,\%$ (bzw.
+    $13{,}89\,\%$ nach dem ChatGPT-Abbruch mit $25$ fehlenden Feldern) auf
+    **$30{,}56\,\%$** ($11$ exakt, $15$ abweichend, $10$ fehlend, $D=26$), bei
+    `vlm` von $0{,}00\,\%$ ($D=0$, $36$ fehlend) auf **$11{,}11\,\%$** ($4$ exakt,
+    $14$ abweichend, $18$ fehlend, $D=18$), bei `ocr_llm` von $0{,}00\,\%$ ($D=8$,
+    $28$ fehlend) auf **$5{,}56\,\%$** ($2$ exakt, $21$ abweichend, $13$ fehlend,
+    $D=23$), und bei `docling` sinken die fehlenden Felder auf Folgeseite 2 von
+    $17$ (bzw. $13$) auf **$10$** ($D=26$, alle $9/9$ Personen erkannt).
+  - Über den gesamten 10-Dokumente-Benchmark ($R=620$, Seite 1 vs. Folgeseite 2)
+    sinken die fehlenden Felder auf Folgeseiten (Seite 2) bei `ocr_llm` von
+    $106 \to 74$, bei `paddle_llm` von $85 \to 72$ ($R_{\mathrm{exact}}$ Seite 2:
+    $46{,}13\,\% \to 48{,}24\,\%$), bei `vlm` von $188 \to 170$ ($R_{\mathrm{exact}}$
+    Seite 2: $25{,}72\,\% \to 27{,}17\,\%$) und bei `ocr_vlm` von $135 \to 115$
+    ($R_{\mathrm{exact}}$ Seite 2: $39{,}44\,\% \to 42{,}86\,\%$).
+
+### Größeres lokales VLM für neue CMD-Läufe (18.11., eingerichtet und funktionsgeprüft)
+
+- Auftrag: bisheriges VLM eine Modellgröße größer einbauen. Implementiert und
+  aktiv konfiguriert: Qwen3-VL-8B-Instruct, feste Revision
+  `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`, eigener Ordner
+  `software/models/qwen3-vl-8b`. Lokales Testframework und Vierer-/Fünferstarter
+  wählen neue separate `benchmark[-four/-five]-vlm8b.yaml`-Profile. Das feste
+  4B-Hauptprofil und alte Vierer-/Fünferprofile bleiben unverändert verfügbar.
+- 16-GiB-GPU: vorhandene LLM.int8-Integration auf lokale VLM-Sprachschichten
+  erweitert; `visual` und `lm_head` bleiben BF16. Feste CUDA-Zuordnung ohne
+  CPU-Offload, 11-GiB-Budget plus bestehende 2-GiB-Reserve. Beide Bildverfahren
+  teilen exakt dieselbe Konfiguration. Textmodell, Prompt-/Bild-/Tokenbudgets,
+  Evaluationslogik und Referenzdaten unverändert; API-Konfiguration unberührt.
+- Geprüft: 25 GPU-/Konfigurationstests und alle 1.091 lokalen Tests erfolgreich
+  (150,45 s), 51 API-Tests (12,68 s), Ruff/Diff-Check erfolgreich. API-Tests
+  benötigen ihren eigenen Interpreter und temporäre Fixtures außerhalb des
+  Repositories; ein Testaufruf mit Repo-Basetemp triggert erwartbar dessen
+  Credential-Dateipfadschutz, keine Änderung an diesem Schutz. Echter 4B-int8-Kompatibilitätslauf
+  lädt auf CUDA und erzeugt zwei gültige Bildantworten; 252 quantisierte
+  Sprachschichten, Bildencoder/Ausgabekopf nachweislich BF16, 4,88 GiB Gewichte.
+  Dies beweist noch keine 8B-Hardware-/Extraktionsqualität. Ein exakter Treffer
+  von zwei einfachen synthetischen Transkriptionen im 4B-Vorabtest; keine
+  nachträgliche Änderung der strengen Feldbewertung.
+- Nachgewiesen: 17.534.339.512 Bytes Originalgewichte vollständig heruntergeladen,
+  alle 15 Modelldateien SHA-256-verifiziert. Echter 8B-GPU-Smoke erfolgreich:
+  alle Parameter auf CUDA, 252 quantisierte Sprachschichten, Bildencoder und
+  Ausgabekopf BF16; Gewichte 9,86 GiB, Peak-Allokation 10,66 GiB, reserviert
+  11,04 GiB. Zwei synthetische Bildanfragen erzeugen gültige, nicht abgeschnittene
+  JSON-Antworten; ein exakter Texttreffer von zwei. Reiner Funktionsnachweis,
+  kein belegter Qualitätsgewinn auf Referenz-PDFs. Modell danach entladen.
+  Nachweise in `software/data/vlm8b-20261118/smoke-proof.json`.
+  Downloaderweiterung hf-xet 1.8.0 ausschließlich isoliert unter diesem
+  Diagnoseordner, keine Änderung an uv.lock/pyproject/Inferenzumgebung.
+  Netzfreigabe durch automatisches Review für öffentliche Modellgewichte,
+  keine Dokumentübertragung. 7.567 geschützte Dateien hashgleich.
+  Neue Qualitätswerte benötigen einen neuen Extraktionslauf; keine historischen
+  HTML-Dateien umgeschrieben. Dokumentation in GPU-Anleitung und beiden lokalen
+  READMEs aktualisiert. Vorhandene fremde Änderungen/PDF-Löschungen erhalten.
+  Offen/nächster Schritt: neuer Referenzlauf, z.B.
+  `software/start_testframework_5.cmd --documents 3`; alle normalen lokalen
+  Testframework-Starter verwenden jetzt das größere VLM. Kein vollständiger
+  Referenzvergleich oder HTR-Qualitätsgewinn behauptet. Historische Berichte
+  bleiben Ergebnisse ihrer eingefrorenen Modelle.
+
+### Handschrift vs. Maschinenschrift: detaillierte Feldanalyse (18.11., abgeschlossen)
+
+- Auftrag: Qualität, Feldverteilung und Fehler nach h/m/g vergleichen, mit
+  unabhängiger Dokumentbasis, Filtern und vorhandenen Bewertungsfunktionen.
+- Implementiert: `schriftart_report.analyse_fields` projiziert eingefrorene
+  Originalrollen-Feldvektoren über vorhandene `document_availability.project`,
+  `scores`, `sum_counts` und Feldstatuszähler. Identische GT zwischen Verfahren
+  wird geprüft, einmal gezählt; fehlende Teilnehmer behalten sämtliche FN.
+  Matching/Normalisierung/Metrikformeln und Extraktion bleiben unverändert.
+- Neue `schriftart_analysis_report.py` erzeugt automatisch
+  `handschrift_maschinenschrift.html`, JSON und CSV bei neuen wissenschaftlichen
+  Analysen (Analyseversion v9, bestehende Metrikversion v9). Verlinkt aus
+  Gesamt-/Standard-/Fehler-/Dokument-/Validitätsbericht. Fünf Filter: Verfahren,
+  Feldtyp, Referenzdokument/Kurs, Teilnehmer-Schriftart, Bewertungsgrundlage.
+  Tabellen und SVGs zeigen R-Verteilung, E/W/M, Coverage, Exact Recall, bestehende
+  bedingte Ähnlichkeit, unklare Zuordnung sowie absolute Fehler, gruppeninterne
+  Raten und Anteile aller Fehler mit festen Nennern einschließlich g/unknown.
+- Annotation weiterhin nur pro Teilnehmer, keine feldgenaue Handschrift-GT.
+  g und unbekannt getrennt, Signatur kein Textfeld. M zusätzlich in völlig
+  fehlende Endwerte und vorhandene, nicht nutzbare Endwerte aufgeteilt; dies
+  ändert keinen Score. Extras bleiben ohne Schriftart, vollständig global P/FP.
+  Dokumentfilter niemals aus Modellposition: einzelnes Kurs-PDF oder bestehende
+  unabhängige Lokalisierung, sonst Kursgruppe mit ungeprüfter PDF-Zuordnung.
+- Referenznachweis ohne neue Inferenz in neuen Ausgabeverzeichnissen unter
+  `software/testframework/ergebnisse/handschrift-maschinenschrift-20261118-*`:
+  `aktuell`: drei PDFs/47 Personen/188 Felder, h16/m31; `zehn-pdfs`: zehn PDFs/
+  155 Personen/620 Felder, h44/m111; `docling`: eigene ältere Datenbasis,
+  ein PDF/18 Personen/72 Felder, sämtliche Schriftarten unklassifiziert.
+  Kein Zusammenführen inkompatibler Läufe und keine erfundenen Docling-Nullwerte.
+- Alle bisherigen `metrics.json` und Übersichten aller fünf Matchingansichten
+  exakt erhalten; 4.077 geschützte historische Dateien hashgleich. Gesicherte
+  Matching-/Metrik-/Feldentscheidungs-/Dokumentverfügbarkeitsquellen unverändert.
+  Private Nachweise unter `software/data/handwriting-analysis-20261118/`.
+- Getestet: 13 neue Regressionen, 1.086 lokale Tests (223,64 s), 51 API-Tests
+  (21,28 s); die 13 neuen Tests nach reinem HTML-Breitenfix erneut erfolgreich
+  (2,63 s). Reale HTML-/Skript-/Link-/Zählerprüfung und Sichtprüfung siehe Protokoll.
+- Grenzen/offen: im Dreidokumentlauf keine unabhängigen Originalfeldprüfungen;
+  im Zehn-PDF-Lauf R_doc=86 ausschließlich m, 13 lesbare Referenzkonflikte;
+  im Docling-Lauf R_doc=30 ohne Schriftart. Keine unabhängige h-Dokumentbasis,
+  keine g-Referenzdaten und keine nachträglich erfundenen Feldlabels. Für belastbare
+  HTR-Schlussfolgerungen unabhängige, möglichst doppelte Feld-/Originalannotation
+  und vergleichbare Dokumentbasis ergänzen. Keine GT-/Konfigurations-/LaTeX-
+  Änderungen, keine Inferenz; vorhandene Änderungen/PDF-Löschungen erhalten.
+
+### PDF-Anzahl und Zufallsauswahl beim CMD-Start (17.11., abgeschlossen)
+
+- Auftrag: Testframework per CMD einfach auf eine zufällige Anzahl PDFs begrenzen,
+  z.B. drei Dokumente, ohne Originale zu verschieben/löschen.
+- Implementiert: gemeinsame `document_sampling.py` erzeugt einmalig eine
+  SHA-256-basierte PDF-Auswahl mit gespeichertem Seed; alle Verfahren erhalten
+  dieselben vollständigen Dokumente. Nur ausgewählte PDFs werden geöffnet und
+  gerendert; alle Seiten bleiben enthalten. Identische Kopien zählen als ein
+  Inhalt, ihre Aliasnamen bleiben für bestehende Kursmehrdeutigkeitsprüfungen
+  erhalten. Keine Metrik-/Matching-/Modelländerung.
+- Aktiv: `start_testframework.cmd` fragt nach Anzahl, damit auch die Vierer-/
+  Fünfer-Wrapper. Enter/alle nimmt den ganzen Bestand. `--documents 3` wählt ohne
+  Frage, `--sample-seed 42` macht Auswahl wiederholbar, `--all-documents` nimmt
+  alle ohne Frage. Python-CLI bleibt ohne `--prompt-documents` nicht interaktiv.
+  API-CMD fragt ebenfalls; alternativ `-Documents 3 -SampleSeed 42` oder
+  `-AllDocuments`, durchgereicht über vorhandenen privaten PowerShell-Starter.
+- Speicherung/Resume: Auswahl, vollständiger Eingabepool mit Prüfsummen und Seed
+  im Manifest, Kopie `document_sample.json` und Hinweis im HTML. Resume/Manifest
+  fragt nicht erneut und lässt keinen neuen Count/Seed zu. Auch Änderungen an
+  ausgeschlossenen Dateien im eingefrorenen Pool sperren Resume. `--pruefen`
+  bleibt ohne Auswahlfrage. Leere stdin wird nicht als Enter interpretiert.
+- Evaluation bleibt auf bestehender Kursreferenz: nicht ausgewählte Kurse fallen
+  nicht in den PDF-Umfang; bei mehreren PDFs derselben Schulung bleibt deren
+  vollständige Kursreferenz bestehen. Zufallsauswahl ist ein schneller Testumfang,
+  keine geprüfte unabhängige/stratifizierte Studienstichprobe.
+- Getestet: 20 neue lokale und drei neue API-Starterregressionen; 1.073 lokale
+  Tests (125,51 s), 51 API-Tests (12,24 s), 95 gezielte Tests (15,14 s), Ruff und
+  Diff-Check erfolgreich. Echter CMD-Fünferstarter mit `--help` geprüft; echte
+  PowerShell-Parameterbindung ohne API-/Credential-Aufruf geprüft. Am vorhandenen
+  Bestand Auswahl/Rendering von drei aus zehn PDFs mit sechs Seiten und Seed 42
+  nachgewiesen, alle Originalhashes gleich; keine neue Modellinferenz.
+- Dateien: neue `software/verarbeitung/src/participant_bench/document_sampling.py`,
+  `software/tests/test_document_sampling.py` und
+  `software/api_firmen_pc/tests/test_document_sampling_start.py`; angepasst:
+  `pdf.py`, `runner.py`, `roster_benchmark/{runner,cli,evaluation,scientific}.py`,
+  lokaler Basis-CMD-Starter, API-CMD/PowerShell-Starter und beide Framework-READMEs.
+  Private Vorschau unter `software/data/document-sampling-20261117/`.
+  Bestehende Änderungen, historische Berichte/GT und PDF-Löschungen erhalten.
+  Offen: kein vollständiger Modelllauf mit Teilmenge gestartet; nächster Schritt
+  ist ein normaler CMD-Start und Eingabe der gewünschten Anzahl.
+
+### Wissenschaftliche Validität und Bachelorarbeit (17.11., abgeschlossen)
+
+- Auftrag: vorhandene Evaluation kritisch mit geeigneten Document-AI-Benchmarks
+  abgleichen, Lücken schlank ergänzen, HTML und LaTeX synchronisieren. Vorhandene
+  uncommittete Änderungen und sieben PDF-Löschungen erhalten; keine Extraktions-
+  logik, Referenzwerte oder historischen Versuchsergebnisse verändert.
+- Bereits vorhanden: gemeinsame Snapshots/Normalisierung, fünf Matchingansichten,
+  fünf Feldstatus, Legacy-Soft-F1, bedingtes Ähnlichkeitsmittel, h/m/g-Gruppen,
+  dokumentbasierte Teilmenge, Signaturausschlüsse und zahlreiche Effizienzmessungen.
+- Neu implementiert: `roster_benchmark/scientific_validity.py` mit optionaler
+  ANLS-Feldadaption (Distanz <0,5, Gleichheit 0, fehlend/ungültig 0, Nenner R),
+  Dreifeld-Zeilenkonsistenz aus vorhandenem strikten Identitätskriterium und
+  Originalrollen, festen Seitenstrata und mehreren Ursachenachsen je Fehler.
+  Bestehende `scores`, `sum_counts`, `aggregate_participants`, Feldgutschriften
+  und Matchingentscheidungen wiederverwendet; keine neue Levenshteinimplementierung.
+- Seitenprotokoll: unabhängige Originalrollen first/continuation, Headerpräsenz,
+  optionale Qualität und Referenzlokalisierung; Bindung an Snapshot/PDFs,
+  Originalhash, Autor/Datum/Beleg. Fehlende Referenzpersonen bleiben ihrer Gruppe
+  zugeordnet, unlokalisierte bleiben unknown. Extras behalten globale FP-/P-
+  Beiträge; gruppenspezifisches F1 ausdrücklich auf GT-Paare bedingt.
+- `scientific_validity_report.py` erzeugt `validity.html`, Feld-/Zeilen-/Ursachen-
+  CSVs und JSON, verlinkt bestehende Reports und erhält die sortierbare Haupttabelle
+  als erste Tabelle. Filter nach Verfahren, Dokument, Seite, Feld und Ursache.
+  OCR-Rohtext nur separate Textauffindbarkeit unabhängig lesbarer Originalwerte
+  mit Wortgrenzen; ohne vollständiges Seitentranskript keine CER/WER.
+- Effizienz: `scientific_efficiency.py` ergänzt strikte JSON-Syntax, gespeicherte
+  Schemaentscheidungen, Dokumentseitenzeiten und wiederholte Seitenversuche;
+  keine erfundenen Modell-Retries/Cold-/Warm-Starts. Native Struktur-JSONs zählen
+  nicht als generative Antworten, doppelte Assignment-Ablage einmal. Bestehende
+  Load-/Warm-up-/Cache-/GPU-Messungen bleiben Quelllaufbeobachtungen.
+- Aktiv: Analyseversion aktuell v9 (Schriftartanalyse oben), Metrikversion v9 unverändert. Zeilen-/Ursachen-/
+  Stabilitätsdiagnostik automatisch in neuen Analysen, ANLS nur `analyze --anls`,
+  Seitenlabels nur `--page-annotations`. Keine neuen globalen Profilflags.
+- Referenznachweis: `software/testframework/ergebnisse/wissenschaftliche-validitaet-20261117-v3/`
+  auf identischen zehn PDFs/20 Seiten/155 Personen/620 Feldern je Verfahren.
+  Alle bisherigen Qualitätswerte aller Matchingansichten exakt unverändert;
+  4.492 geschützte Dateien hashgleich, 57 Extraktionsmodule sowie Matching/
+  Metrikmodule unverändert. Keine neue Inferenz. 34 Personen auf vier unabhängig
+  gesichteten Originalseiten lokalisiert: 18 first, 16 headerlose continuation;
+  121 unknown. Einzelne assistierte Prüfung, keine repräsentative Doppelannotation.
+  Scanqualität unbekannt, frühere Dokumentverfügbarkeitslabels unverändert.
+- Wissenschaftliche Abgrenzung: kein TEDS ohne Tabellenbäume, kein Beziehungs-F1
+  ohne Kanten-GT, kein OCR-CER/WER aus Kursstammdaten, keine Gleichsetzung von
+  Zusatzwerten mit bewiesenen Halluzinationen oder technischer Verluststufe mit
+  sicherer Dokumentlesbarkeit. ANLS-Feldadaption kein VQA-Benchmarkscore und kein F1.
+- Bachelorarbeit: Kapitel 02–06, Abkürzungsverzeichnis, verifizierte BibTeX-Datei,
+  README und BUILDSTATUS ergänzt. Fünf neue geprüfte Primärquellen DUE, DocVQA,
+  ST-VQA, OCRBench, PubTabNet; Donut/Docling/FUNSD weiterverwendet, Zotero-Export
+  unverändert. Falschen Bootstrap-Beleg am Matching entfernt, unbelegte Garantien
+  und Überlegenheitsbehauptungen eingeschränkt. Nur gemessene Diagnosen berichtet.
+- Getestet: 1.053 lokale Tests (122,20 s), 48 API-Tests (11,84 s), 27 neue
+  Regressionen (zuletzt 1,76 s), 45 gezielte Score-/HTML-Regressionen (3,25 s).
+  58 HTML-Dateien, 16.367 lokale Links, 55 JS-/CSP-Prüfungen, 1 UI-JSON-Block,
+  Originalhashes und Zähler erfolgreich. Fünf kombinierte Filter in Node geprüft.
+  Hauptansicht der Zusatzseite in Edge headless gerendert und visuell geprüft.
+- LaTeX: 81 Seiten, 41 zitierte Einträge, keine doppelten BibTeX-Schlüssel,
+  keine unaufgelösten Zitate/Referenzen, keine Overfull-/Underfull-Boxen. Bekannter
+  epstopdf-Hinweis zu deaktiviertem Shell-Escape. Neue relevante Seiten und
+  Gesamtübersicht gerendert/gesichtet; Build-PDF auch nach `bachelorarbeit/thesis.pdf`
+  kopiert. TinyTeX und Edge benötigen für Windows-Unterprozesse/Pfadauflösung
+  erweiterten Zugriff; automatischer Review hat beide lokalen Prüfungen zugelassen.
+- Dokumentation: `software/docs/scientific-validity.md`, wissenschaftlicher
+  Einstieg, Framework-README und diese Übergabe. Private Prüfartefakte unter
+  `software/data/scientific-validity-20261117/`. Offen: weitere unabhängige
+  Lokalisierung/Dokumentprüfung, h/m/g-Annotation, Zweitannotation, unberührte
+  Testdaten, vollständige OCR-Transkripte und kontrollierte Zeit-/VRAM-Studien.
+
+### Dokumentbezogene Ursachen fehlender Felder (17.11., abgeschlossen)
+
+- Auftrag: Referenzfehler/fehlenden Dokumentinhalt von Extraktions- und
+  Zuordnungsverlusten unterscheiden; neue HTML-Seite, unabhängige Originalprüfung,
+  manuelle Annotation und separat bedingte Qualitätswerte, ohne alte Scores zu
+  verändern. Ausgangsvergleich `20261117T083640Z-316aced8`.
+- Implementiert: `roster_benchmark/document_availability.py` validiert methoden-
+  unabhängige Feldannotation mit Referenzsnapshot-/PDF-Bindung, unabhängiger
+  Personenprüfung, Originaltranskript, ISO-Datum/Autor/Prüfmethode und Seiten-
+  protokoll. Abwesenheit benötigt alle Originalseiten des Kurses. Fehlende
+  Modell-/OCR-Werte setzen keine Verfügbarkeit. Geprüfte PDF-Pfade dürfen lokal
+  verlagert sein, aber nur bei identischer SHA-256. Netzwerkpfade gesperrt.
+- Bestehende `field_counts`, `scores`, Matching, Feld-Audit, `diagnose_field` und
+  `field_trace` verwendet. Zusatzqualität projiziert ausschließlich unabhängig
+  lesbare und referenzgleiche Felder auf unveränderte Paarungen. Ungeprüfte Fälle,
+  Extras und False Positives bleiben in den bisherigen globalen Metriken.
+  Teilmengen-Precision/F1 ausdrücklich auf GT-Paare bedingt; keine neue Gesamtnote.
+- Neue `missing_fields_report.py`: filterbare Seite „Ursachen fehlender Felder“,
+  GT-/Original-/Modellwerte, Beleglage, Stage-/OCR-Belege, GT-Schriftart,
+  verifizierte Original-PDFs/-Seiten/-Ausschnitte und lokale Entwürfe mit JSON-
+  Import/-Export. Entwürfe ändern keine eingefrorenen Werte. Python übernimmt sie
+  über `analyze --document-annotations DATEI --report ALT --output NEU`.
+  Automatisch in neuen wissenschaftlichen Berichten; Analyseversion v7,
+  Metrikversion v9 unverändert. Direktes VLM hat ausdrücklich kein vorgeschaltetes
+  OCR. Positions-OCR ist getrennt und kein Beweis einer VLM-Eingabeauslassung.
+- Wissenschaftliche Grenzen: Niedrige Matchingähnlichkeit allein ist keine
+  kausale Matchingdiagnose; häufige gleiche Organisationswerte beweisen keine
+  Verwechslung. Technische Mapping-/Validierungsereignisse bleiben von einer
+  tatsächlich im Dokument vorhandenen korrekten Feldinformation getrennt.
+  Einzelne assistierte Sichtprüfung ist kein doppelt annotiertes Goldset und
+  keine repräsentative Leistungsschätzung.
+- Reale Teilprüfung: 10 PDFs / 20 Seiten, 155 Referenzpersonen, 620 erwartete
+  Felder pro Methode. Zwei PDFs unabhängig von Feldvorhersagen visuell geprüft:
+  99 lesbare Werte, davon 13 anders als die Referenz; 9 leere Personalnummern-
+  felder, 1 unklarer Zeichenabschluss, 511 ungeprüfte Felder. 108 belastbar
+  klassifizierte Sichtbefunde; bedingte lesbare Referenzteilmenge R_doc=86.
+  Diese Auswahl betrifft gedruckte Stammdaten; daraus keine Handschrift-
+  Gesamtqualität/Rangfolge ableiten. Unleserlichkeit bislang nicht eigenständig
+  mit einem verlässlichen Feldlabel nachgewiesen.
+- VLM: von 208 fehlenden Feldbeiträgen 9 Abwesenheit im Original, 32 belegte
+  Mapping-/Validierungsübergänge (keine automatische Dokumentlesbarkeitsbehauptung),
+  1 Zuordnungshinweis und 166 unbekannt. Weitere Verfahren im neuen Report mit
+  derselben Referenzgrundlage und je Ursache aggregiert.
+- Docling: ältere Auswertung nur ein PDF / 72 Referenzfelder. Namenssuche auf
+  Nutzerhinweis fand die bytegenau passende Archivkopie unter
+  `software/data/structure-real-20261102/pdfs/140829.pdf`. Die Datei am damals
+  gespeicherten Pfad ist inzwischen anders. Beide Archivseiten separat geprüft;
+  16/18 alte Referenzzeilen anders sortiert. Sichtbefunde nach eindeutigem
+  Vollname+ID-Anker an alte Zeilen/PDF-Prüfsumme neu gebunden. Kein Matching der
+  Modellausgaben geändert. Dort 44 geprüfte, 30 lesbare referenzgleiche Felder;
+  5 lesbare Referenzabweichungen und 9 leere IDs. Von 17 fehlenden Docling-Feldern
+  8 dokumentbedingt, 8 unbekannt, 1 Referenz-/Matchinghinweis. Alte fehlende
+  Schriftartlabels bleiben nicht klassifiziert; separate Datenbasis, kein Pooling.
+- Ausgabe: `software/testframework/ergebnisse/ursachen-fehlender-felder-20261117-v4/`
+  und `software/testframework/ergebnisse/ursachen-fehlender-felder-docling-20261117-v3/`.
+  Alle bisherigen Qualitätswerte im Hauptvergleich exakt gleich; alle gemeinsam
+  vorhandenen Werte des älteren v5-Docling-Berichts gleich. Bestehende v9-Diagnose-
+  zähler kommen separat hinzu. Kein neuer Modell-/OCR-Aufruf. 2.932 historische,
+  Quell-, Referenz- und Originaldateien hashgleich; keine GT-Datei verändert.
+- Tests: **1.026 lokale Tests (122,11 s)** und **48 API-Tests (12,37 s)** bestanden.
+  30 neue Regressionen: unabhängige Labels, fehlende Originale, Normalisierung,
+  feste Nenner/Extras, Ursachen, Replay, Originalversion/-pfad und Browserfilter/
+  JSON-Entwürfe mit Import/Export ohne Neuberechnung. 68 HTML-Dateien, 18.280 lokale
+  Links, 62 Skripte/CSP-Hashes, 2 UI-JSON-Blöcke, PDF-Hashes und Zähler geprüft.
+  Ruff und Diff-Check bestanden. Früherer Manifest-Einstieg ohne document_id
+  rückwärtskompatibel über source_sha256/Originalseiten erkannt. Browser-
+  Sichtabnahme offen; Originalseiten und ausgewählte Originalausschnitte visuell
+  geprüft. Private Protokolle unter `software/data/document-causes-20261117/`.
+- Dokumentation: `software/docs/document-availability.md`, wissenschaftlicher
+  Einstieg, Framework-README und Übergabe. Vorgefundene Änderungen und PDF-
+  Löschungen erhalten. Nächster Schritt: übrige 512 ungeprüfte/unklare Felder im
+  Original prüfen und exportierte Annotation in neuem Report übernehmen;
+  idealerweise unabhängige Zweitprüfung der assistierten Sichtbefunde.
+
+### Vorausgesetzte Signaturspalte und bildbasierte Zellprüfung (16.11., abgeschlossen)
+
+- Auftrag: Unterschriftenspalte voraussetzen, Position anhand Überschrift/
+  Tabellengeometrie bestimmen und nur auf kompatible Folgeseiten derselben PDF
+  übertragen; reine Präsenz statt Transkription, sichere Leerzellen außerhalb
+  der Referenz ausschließen und unsichere Fälle manuell prüfen.
+- Implementiert: `rules.signature_columns` verwendet vorhandene
+  `column_context`-Diagnosen und `with_table_columns`. Textpräfix-Kompatibilität
+  beweist keine hintere Signaturspalte. Andere PDFs, falsche Seitenfolge,
+  fehlende/geänderte Geometrie und Kollisionen mit Textspalten sperren Übernahme.
+- Gemeinsame `inspect_signature_cells` nach strukturierter Extraktion/Zuweisung
+  für alle Verfahren. Präsenzbefund nur aus Zellpixeln; vorhandene OpenCV-
+  Parameter unverändert. Negative Befunde erfordern gemessene Zeilengrenzen oder
+  explizite ganze Zeilenboxen und alle Signaturzellen leer. Tinte, geschätzte/
+  interpolierte/überlappende Zeilen und widersprüchliche Befunde bleiben unsicher.
+  Teilnehmertexte und Teilnehmerboxen bleiben unverändert; Matching unverändert.
+  Horizontale Grenzlinien müssen Text- und Signaturspalten durchlaufen; ein langer
+  Signaturstrich allein darf den Zellbereich nicht verkürzen oder gelöscht werden.
+- Optionaler VLM-Präsenzaufruf erhält nur bekannte Signaturzellen mit Kontext;
+  keine separate Existenzfrage und keine zusätzliche Zeilenlokalisierung im
+  neuen Zellmodus. Ohne verlässliche Zellen kein Präsenzaufruf. Legacy-
+  Antwortschema bleibt kompatibel; `field_located`/`no_field` meint Lokalisierung.
+  Prompt-/Cache-Version `signature-detail-v4-assumed-column-presence`.
+- Aktiv: automatische Zellprüfung in neuen strukturierten Läufen, auch bei
+  Backend opencv. Vorhandener Ausschluss weiterhin nach Matching; Referenzpersonen
+  immer regulär bewertet. Alte Vergleiche/Extraktionen werden weder verändert
+  noch bei `compare` stillschweigend anhand neuer Pixelbefunde neu interpretiert.
+- Rohbelege: `signature_column_mapping`, `signature_column_context` und
+  `signature_cell_checks` mit Zeilenbasis, einzelnen Boxen, Bildbefunden und
+  Widersprüchen. Gemeinsames `evaluation_evidence`/`page_predictions` übernimmt
+  diese in die bestehende Ausschlussentscheidung. Keine parallelen Metriken.
+- HTML: bestehende Ausschluss-/Prüflisten zeigen vorausgesetzte Spalte,
+  Zeilenbeleg und geprüfte Zellanzahl; Originalzellen direkt verlinkt. Signaturen
+  bleiben ausschließlich Präsenzbefunde, kein fünftes Textfeld und keine
+  Zeichenbewertung. Bestehende vier Textfelder und Exact-/Levenshtein-Regeln
+  unverändert; zusätzliche Signatur-Konfusionsmatrix weiterhin getrennt.
+- Getestet: **996 lokale Tests (122,78 s)**, 99 gezielte Tests (9,23 s),
+  **48 API-Tests (12,89 s)** bestanden. 23 neue Regressionen in
+  `software/tests/test_signature_columns.py`; vorhandene Signatur-/API-Fixtures
+  mit tatsächlich lokalisierten synthetischen Zellen statt unbelegter Leerbilder
+  aktualisiert. Ruff und abschließender Diff-Check bestanden. Zusätzliche
+  69 gezielte Signaturtests (4,95 s) bestätigen den Strich-Grenzfall.
+- Synthetischer Nachweis unter
+  `software/data/signature-column-20261116/synthetischer-nachweis-v2/comparison/`:
+  Standardvergleich schließt 2 Zusatzzeilen aus, 0 zusätzliche Teilnehmer/P-
+  Beiträge; 1 fehlende Referenzperson mit 4 erwarteten Feldern bleibt vollständig
+  negativ. Wissenschaftliche Best-Fit-Ansicht behält ihre eigenen unveränderten
+  Paarungsregeln; Audit stimmt mit deren Zählern überein. 6 HTML-Dateien,
+  117 lokale Links, 4 Skripte/CSP-Hashes und Zähler geprüft. Ausschließlich
+  synthetisch; kein empirischer Nachweis realer Ausschlussgüte.
+- Dokumentiert: `software/docs/signatur-referenzbewertung.md`, Framework-README
+  und Übergabe. Keine Ground-Truth-Daten oder historischen Ergebnisse geändert.
+  Vorgefundene Bachelorarbeitsänderungen und PDF-Löschungen erhalten.
+- Offen: reale Fehlerraten nur mit unabhängig annotierten Entwicklungszellen
+  nachweisbar; keine kalibrierte Wahrscheinlichkeit erfunden. Visuelle
+  Browserabnahme mangels Anbindung weiterhin offen.
 
 ### Referenzbasierte Teilnehmerbewertung mit Signaturbelegen (16.11., abgeschlossen)
 
@@ -3079,3 +3472,366 @@ auf die dort datierten Stände.
   unabhängig annotieren und Ausschlussfehler prüfen. Fremde Bachelorarbeits-
   Änderungen und vorgefundene PDF-Löschungen erhalten; keine historischen
   Ergebnisse oder Ground-Truth-Werte überschrieben.
+
+### 2026-11-16 – Signaturspalte vorausgesetzt und Zellprüfung vereinheitlicht
+
+- Auftrag: die grundsätzlich vorhandene Signaturspalte nur lokalisieren;
+  kompatible PDF-Folgeseiten übernehmen ihre Position. Unterschriften nur als
+  sichtbare Markierungen behandeln, Referenzpersonen immer bewerten und nur
+  belastbar leere Zusatzzeilen ausschließen.
+- Geänderte Funktionen/Dateien: `software/verarbeitung/src/participant_bench/`
+  `rules.py` (Spalten-/Zellprüfung), `signatures.py` (Beleginterpretation,
+  Zellausschnitte, Prompt v4), `runner.py` (gemeinsame Präsenzstufe und optionale
+  Detailaufrufe), `signature_review.py` (neue Zellbelege/Seitenkontext im neuen
+  Prüflauf); `roster_benchmark/matching.py` und `error_report.py` übernehmen/
+  erklären diese Belege über vorhandene Funktionen. Keine neue Metrikformel.
+- Negative Zellbefunde nur mit nachvollziehbarer Zeilenbasis; mehrere
+  Signaturspalten müssen sämtlich leer sein. Geschätzte/überlappende Zeilen,
+  fehlende Geometrie, Spaltenkonflikte, Tinte und widersprüchliche Präsenz bleiben
+  prüfpflichtig. Ein späterer negativer VLM-Befund löscht einen Widerspruch nicht.
+  OCR-Pseudotext/Confidence beweist keine Signatur. Textwerte und Teilnehmerboxen
+  werden nicht für die Signaturprüfung verändert; Referenznenner bleiben bestehen.
+- Tests: neue `software/tests/test_signature_columns.py` (23 Regressionen),
+  `software/tests/test_signature_details.py` und
+  `software/api_firmen_pc/tests/test_api_models.py` mit geeigneter synthetischer
+  Zellposition/Bildmarkierung erweitert. 996 lokale Tests (122,78 s),
+  99 gezielte Tests (9,23 s), 48 API-Tests (12,89 s) erfolgreich; Ruff erfolgreich.
+  Erste API-Fixture ohne belegte Zellposition wurde korrekt als partial/unklar
+  behandelt und für den positiven Integrationsfall durch reale Fixture-Geometrie
+  ersetzt. Keine externen Dienste/echten Modelle aufgerufen.
+- Darstellung/Nachweis: bestehende Fehleranalyse zeigt Zellanzahl, Zeilenbasis,
+  Unterschriftenspalte vorausgesetzt und verlinkte Originalzellen neben
+  Ausschluss-/Prüfgründen. Synthetischer Report in
+  `software/data/signature-column-20261116/synthetischer-nachweis-v2/comparison/`;
+  6 HTML-Dateien, 117 lokale Links, 4 JS-/CSP-Prüfungen und Zählerabgleich
+  erfolgreich. Im Standardvergleich 2 Ausschlüsse, 0 Extras/P-Beiträge;
+  fehlende Referenzperson behält 4 Sollfelder. Keine Änderung historischer
+  Vergleiche oder Ground Truth. Reale Ausschlussgüte damit nicht nachgewiesen.
+- Konfiguration/Dokumentation: keine neuen Abhängigkeiten, Schwellen oder
+  Konfigurationsschalter; bisherige Standardprofile und Ausschlussflag bleiben.
+  `software/docs/signatur-referenzbewertung.md`, Framework-README und diese
+  Übergabe aktualisiert. Aktiv automatisch in neuen strukturierten Läufen,
+  Legacy-Belege und Antwortschema rückwärtskompatibel. Offen bleiben unabhängige
+  Entwicklungsannotation und visuelle Browserabnahme. Fremde Änderungen erhalten.
+- Zusätzlicher Grenzfall: reproduzierbarer zunächst fehlgeschlagener Test zeigte,
+  dass ein langer Signaturstrich als horizontale Tabellenlinie interpretiert
+  werden konnte. Die Grenze muss jetzt nachweisbar Text- und Signaturspalten
+  durchlaufen; der Strich bleibt im vollständigen Zellbereich sichtbar. Der
+  Regressionstest und 69 gezielte Signaturtests (4,95 s) bestehen. Abschließender
+  Gesamtlauf mit 996 Tests, API-Suite und synthetischer Report inklusive
+  Link-/JS-/CSP-/Zählerprüfung erfolgreich. Diff-Check erfolgreich.
+
+### 2026-11-17 – Ursachen fehlender Felder mit unabhängiger Dokumentprüfung
+
+- Auftrag: neue Seite „Ursachen fehlender Felder“ für den geöffneten Vergleich,
+  Originalverfügbarkeit unabhängig von Modell-/OCR-Ausgaben, manuelle Annotation,
+  zusätzliche lesbare Referenzteilmenge und unveränderte globale Qualitätswerte.
+- Neue Dateien: `software/verarbeitung/src/participant_bench/roster_benchmark/`
+  `document_availability.py` und `missing_fields_report.py` sowie
+  `software/tests/test_document_availability.py` und
+  `software/docs/document-availability.md`. Geändert: `scientific.py` (Version v7,
+  Reportintegration), `cli.py` (`--document-annotations`), Framework-README,
+  wissenschaftlicher Einstieg und diese Übergabe. Keine neue Abhängigkeit und
+  keine parallele Metrik-/Matchingimplementierung; gespeicherte Zähler projiziert.
+- Quellen: neuer Hauptbericht aus `20261117T083640Z-316aced8` ohne Inferenz,
+  620 Felder/155 Personen je Verfahren. Teilprüfung zweier Original-PDFs:
+  99 lesbare Felder, davon 13 Referenzabweichungen, 9 leere ID-Felder; 1 unklar
+  und 511 ungeprüft. R_doc=86; assistierte Sichturteile ausdrücklich kein Goldset.
+  Ursachen für VLM-Missing: 9 dokumentbedingt, 32 technische Übergänge,
+  1 Zuordnungshypothese, 166 unbekannt. Keine OCR-Eingabeschuld beim direkten VLM.
+- Docling-Archiv: auf Nutzerhinweis per Dateiname gesucht; exakte Quellprüfsumme
+  unter `software/data/structure-real-20261102/pdfs/140829.pdf` wiedergefunden.
+  Alte/neue Referenzreihenfolge unterscheidet sich in 16/18 Zeilen. Unabhängige
+  Personenanker statt gleicher Zeilennummer zur Annotation verwendet; beide
+  Archivseiten zusätzlich gesichtet. Separater Ein-Dokument-Bericht (72 Felder),
+  44 geprüft / 30 für Zusatzmetrik geeignet. Von 17 fehlenden Docling-Feldern
+  8 tatsächlich leere Dokumentfelder, 8 unbekannt, 1 Zuordnungshinweis.
+- Berichte: `software/testframework/ergebnisse/ursachen-fehlender-felder-20261117-v4/`
+  und `.../ursachen-fehlender-felder-docling-20261117-v3/`. Alle bisherigen globalen
+  Scores und Teilnehmerwerte unverändert; v5-Docling behält alle gemeinsam
+  vorhandenen Metrikwerte. 2.932 geschützte Dateien hashgleich, einschließlich
+  aktueller Referenz/Originale und der Archivkopie. Keine historischen Reports,
+  Ground Truth oder Quellausgaben überschrieben. Private aggregierte Nachweise
+  unter `software/data/document-causes-20261117/`.
+- Geprüft: 1.026 lokale Tests (122,11 s), 48 API-Tests (12,37 s), 30 neue
+  Regressionen (zuletzt 3,55 s), 68 HTML-Dateien, 18.280 lokale Links, 62 JS-/
+  CSP-Prüfungen, 2 UI-JSON-Blöcke, Original-PDF-Hashes und Zählerabgleiche
+  erfolgreich. Ruff/Diff-Check erfolgreich. Ein im Gesamtlauf gefundener älterer
+  Manifesttyp ohne document_id wird unterstützt; Originalseitenzahl maßgeblich.
+- Aktiv/offen: Seite automatisch in neuen wissenschaftlichen Reports; manuelle
+  Entwürfe bleiben ohne verbindliche Python-Übernahme wirkungslos für Scores.
+  Ungeprüfte Fälle bleiben vollständig im Ausgangsnenner. Noch 512 Felder
+  ungeprüft/unklar; weitere Originalprüfung und unabhängige Zweitannotation
+  erforderlich. Visuelle Browserabnahme weiterhin offen. Vorgefundene fremde
+  Änderungen und PDF-Löschungen erhalten; keine personenbezogenen Inhalte hier.
+
+### 2026-11-17 – Wissenschaftliche Validität, Zusatzdiagnostik und Bachelorarbeit
+
+- Auftrag: bestehende Komponenten an geeigneten Document-AI-Primärquellen prüfen,
+  notwendige Evaluations-/Reportlücken ergänzen und LaTeX mit tatsächlicher
+  Implementierung synchronisieren; keine Änderungen der Extraktionsverfahren,
+  Ground Truth oder historischen Versuche.
+- Neue Dateien: `software/verarbeitung/src/participant_bench/roster_benchmark/`
+  `scientific_validity.py`, `scientific_validity_report.py`,
+  `software/tests/test_scientific_validity.py`, `software/docs/scientific-validity.md`.
+  Geändert: `scientific.py` (Analyse v8, technische Ergänzungen/Integration),
+  `scientific_efficiency.py`, `cli.py` (`--anls`, `--page-annotations`),
+  wissenschaftlicher Einstieg, Framework-README und diese Übergabe.
+- Ergänzt: optionale ANLS-Feldadaption auf unveränderten Feldgutschriften mit
+  R-Nenner und Distanzschwelle <0,5; Originalrollen-Dreifeldkonsistenz auf dem
+  vorhandenen Identitätskriterium; unabhängige Seiten-/Personenannotation und
+  Strata mit vollständigen FN-Nennern; mehrere Ursachenbefunde je Feld;
+  Rohtextauffindbarkeit ohne CER/WER- oder Identitätsbehauptung; JSON-Syntax,
+  gespeicherte Schemaquoten und wiederholte Seitenversuche. Fehlende Messwerte
+  nicht geschätzt, Extras global erhalten, Signaturen weiterhin reine Präsenz.
+- Methodische Auswahl: bestehende Feldstatus, h/m/g, Dokumentverfügbarkeit,
+  Matchinggegenproben und Effizienzmessungen wiederverwendet. Kein TEDS ohne
+  Tabellenbaum, kein Beziehungs-F1 ohne Kanten, kein Gesamtmittel inkompatibler
+  Qualitätsdimensionen. Zusatzwerte nicht automatisch Halluzinationen. Referenz-
+  und technische Stufenbelege getrennt; direkte VLMs ohne vorgeschaltete OCR.
+- HTML/Export: `validity.html` mit allen Zusatzdimensionen, Originalwertpaaren,
+  ANLS-Beiträgen, Zeilenzählern, fünf kombinierbaren Ursachenfiltern und CSV/JSON.
+  Zusatzübersicht hinter der bestehenden Haupttabelle. Erster Gesamtlauf fand
+  zwei Regressionen wegen deren Verschiebung; Darstellung korrigiert, bestehende
+  Sortier-/Nennerprüfungen danach unverändert erfolgreich. Alte Manifestseiten
+  können für technische Erwartungszähler `source_sha256` statt document_id nutzen.
+- Reale Neuanalyse: `wissenschaftliche-validitaet-20261117-v3` auf zehn PDFs,
+  20 Seiten, 155 Referenzpersonen und 620 Feldern je Verfahren. Alle bisherigen
+  Qualitätswerte aller fünf Matchingansichten exakt erhalten; 4.492 geschützte
+  Dateien hashgleich. 57 Extraktionsmodule und vorhandene Matching-/Metrik-
+  Quellen unverändert; keine neue Inferenz. 34 unabhängige Seitenlokalisierungen
+  aus vier gesichteten Originalseiten; 121 unknown, Qualität unklassifiziert.
+  ANLS und Zeilenkonsistenz nur zusätzliche Diagnosen, kein Qualitätsgewinn.
+- Bachelorarbeit: `chapters/02_grundlagen.tex`, `03_methodik.tex`,
+  `04_umsetzung.tex`, `05_ergebnisse.tex`, `06_diskussion.tex`,
+  `frontmatter/abkuerzungsverzeichnis.tex`, `verified_sources.bib`, README,
+  BUILDSTATUS. Fünf neue verifizierte Primärquellen; bestehende Donut-/Docling-/
+  FUNSD-Einträge erhalten. Bootstrap-Falschzitat am Zuordnungsalgorithmus entfernt,
+  Garantie-/Überlegenheitsbehauptungen eingeschränkt, Methodik und Limitationen
+  erläutert. Ausschließlich nachgewiesene Entwicklungsdiagnosen ergänzt.
+- Prüfungen: 1.053 lokale Tests (122,20 s), 48 API-Tests (11,84 s), 27 neue
+  Regressionen (zuletzt 1,76 s), 45 gezielte Tests (3,25 s), Ruff und Diff-Check
+  bestanden. 58 HTML-Dateien, 16.367 Dateilinks, 55 Skript-/CSP-Prüfungen,
+  1 UI-JSON-Block, Originalhashes/Zähler erfolgreich; fünf kombinierte Filter
+  in Node. Edge-Headless-Screenshot der Zusatzübersicht visuell geprüft.
+- LaTeX: lokaler Build erfolgreich, 81 Seiten, 41 zitierte Einträge,
+  keine doppelten Schlüssel, fehlenden Zitate/Verweise oder Overfull-/Underfull-
+  Boxen. Neue relevante Seiten und Kontaktübersichten visuell geprüft;
+  PDF im Buildordner und als `bachelorarbeit/thesis.pdf`. Keine neuen Pakete.
+  Der bekannte epstopdf-Hinweis bleibt. Windows-Pfadauflösung/GPU-Unterprozess
+  in Sandbox blockiert; lokale Build-/Headless-Prüfungen vom automatischen Review
+  mit erweitertem Zugriff zugelassen, danach erfolgreich.
+- Aktiv/offen: Zusatzdiagnostik automatisch bei neuen Analysen, ANLS opt-in;
+  Seiten-/Qualitätslabels ohne Eingabe unknown. Private Nachweise unter
+  `software/data/scientific-validity-20261117/`. Weitere unabhängige Annotation,
+  Zweitprüfung, vollständige Seitentranskripte, kontrollierte Effizienzstudien und
+  unberührte Testdaten bleiben offen. Vorgefundene Änderungen/Löschungen erhalten;
+  keine personenbezogenen Einzelinhalte oder Modellantworten in dieser Übergabe.
+
+### 2026-11-17 – Einfacher PDF-Umfang und Zufallsauswahl in CMD-Startern
+
+- Auftrag: vor einem Testframework-Lauf bequem z.B. drei zufällige Dokumente
+  auswählen. Lokaler Basisstarter ergänzt die Frage; Vierer-/Fünferstarter erben
+  sie. API-Starter reicht Anzahl/Seed ebenfalls an die gemeinsame CLI durch.
+- Implementiert in neuer `document_sampling.py`: einmalige Auswahl eindeutiger
+  PDF-SHA256-IDs, frischer oder expliziter Seed, prüfbare Population/ausgewählte
+  IDs, sichere Wiederverwendung und HTML-/JSON-Nachweis. Aliasdateien bleiben
+  für bestehende Mehrdeutigkeitsprüfungen erhalten. `pdf.prepare` rendert nur
+  ausgewählte PDFs mit sämtlichen Seiten, `validate_manifest` prüft den ganzen
+  gespeicherten Eingabepool. Globaler/Framework-Runner und CLI reichen die
+  Auswahl durch, ohne Referenzdaten an die Extraktion zu geben.
+- Optionen: `--documents N`, `--sample-seed S`, `--all-documents`, für CMD intern
+  `--prompt-documents`. Enter/alle = Gesamtbestand, ungültige Zahl erneut fragen,
+  EOF = Abbruch mit Erklärung. Resume/Manifest verwendet gespeicherte Auswahl
+  ohne Rückfrage und ohne neue Anzahl/Seed. `--pruefen` bleibt nicht interaktiv.
+  API-CMD alternativ mit PowerShell-Parametern `-Documents`, `-SampleSeed`,
+  `-AllDocuments`. Private API-Umgebung/Schutzregeln beibehalten.
+- Dateien: neue `software/verarbeitung/src/participant_bench/document_sampling.py`,
+  `software/tests/test_document_sampling.py`,
+  `software/api_firmen_pc/tests/test_document_sampling_start.py`; geändert:
+  `pdf.py`, `runner.py`, `roster_benchmark/{runner,cli,evaluation,scientific}.py`,
+  `software/start_testframework.cmd`, API-CMD/`run-private-api.ps1`, beide
+  Framework-READMEs und diese Übergabe. Keine Konfigurations-/Metrikänderung.
+- Geprüft: 1.073 lokale Tests (125,51 s), 51 API-Tests (12,24 s), 95 gezielte
+  Tests (15,14 s), 20 neue lokale Regressionen zuletzt 2,17 s, drei neue
+  PowerShell-Parameterregressionen 0,93 s; Ruff/Diff-Check bestanden. Echter
+  Fünfer-CMD mit `--help`, Legacy-Weitergabe, Anzahl/Seed, Gruppenmehrdeutigkeit,
+  alle Seiten, unveränderte Originale und Resume-/Manifestgrenzen getestet.
+- Reale Vorschau: zehn vorhandene PDFs, drei ausgewählt mit Seed 42, sechs
+  Seiten gerendert, Originalhashes gleich, kein Modellaufruf. Nachweise unter
+  `software/data/document-sampling-20261117/`. Bestehende Daten/Ergebnisse/GT,
+  fremde Änderungen und PDF-Löschungen erhalten. Aktiv in neuen CMD-Starts;
+  normale Python-Aufrufe ohne Promptflag bleiben wie bisher nicht interaktiv.
+- Grenze/nächster Schritt: PDF-Auswahl ist ein verkürzter Funktionstest, kein
+  Ersatz für einen geprüften Studienplan. Kursreferenzen bleiben vollständig
+  für ausgewählte Schulungen, auch bei mehreren PDFs desselben Kurses. Für
+  einen echten Modelllauf CMD starten und gewünschte Anzahl eingeben.
+
+### 2026-11-18 – Detaillierte Erkennungsqualität nach Teilnehmer-Schriftart
+
+- Auftrag: h/m/g-Verteilung und Qualität der vier Textfelder transparent nach
+  Verfahren, Dokument und Feldtyp auswerten, ohne GT/Extraktion/alte Ergebnisse
+  zu ändern. Zunächst Repository-/Übergabestand und vorhandene Funktionen geprüft.
+  GT-Schriftart ist teilnehmerbezogen; keine feldgenaue Annotation vorhanden.
+- Geändert: `software/verarbeitung/src/participant_bench/roster_benchmark/`
+  `schriftart_report.py` (neue Projektion `analyse_fields`), `scientific.py`
+  (Einbindung und Analyseversion v9); neu: `schriftart_analysis_report.py` und
+  `software/tests/test_schriftart_analysis.py`. Dokumentation aktualisiert:
+  `software/docs/schriftart.md`, `scientific-evaluation.md`, beide Framework-
+  READMEs und diese Übergabe. Keine neuen Abhängigkeiten oder Konfigurationen.
+- Berechnung: bestehende Feld-Auditvektoren, `project`, `scores`, `sum_counts`
+  und Statusaggregation wiederverwendet. GT-Population einmal pro Filterumfang;
+  Gleichheit der Referenzwerte/-labels zwischen Verfahren und konsistente Labels
+  innerhalb einer Person geprüft. Global P/FP einschließlich unpaariger Ausgaben
+  nachgewiesen erhalten; keine Schriftart aus Modellergebnissen abgeleitet.
+- Darstellung: separate `handschrift_maschinenschrift.html`, CSV und JSON;
+  Tabellen, drei SVG-Diagramme, fünf kombinierbare Filter, GT/Originalwert/Status/
+  Ähnlichkeit/PDF-Links pro Feld. R-Verteilung und Feldtypen, E/W/M, fehlende
+  Original-Endwerte vs. vorhandene, nicht nutzbare Endwerte, Exact Recall,
+  Coverage, bedingte Ähnlichkeit mit D/Σs und unklare Zuordnungen. Fehlerzahlen,
+  W/R, M/R und Anteile an allen Gruppenfehlern getrennt, auch g und unbekannt
+  im Anteilsnenner; Schriftartfilter verändert diesen Nenner nicht. R/D=0 führt
+  zu nicht definierter Qualität. Breite Tabellen horizontal scrollbar, damit
+  mehrstellige Zähler nicht innerhalb der Zahl umbrechen.
+- Dokumentbasis: unabhängige lesbare/referenzgleiche Teilmenge separat; unbekannte
+  Originale bleiben in der Referenzbasis. Unabhängige Personenseitenzuordnung
+  aus bestehendem Protokoll, einzelne Kurs-PDFs als Kursumfang, sonst ungeprüfte
+  Kursgruppe. Fehlende Referenzpersonen bleiben enthalten. Unterschriften sind
+  ausgeschlossen, g wird nicht in h/m aufgeteilt; keine neue Dokumentannotation.
+- Referenznachweis: neue Ausgaben `handschrift-maschinenschrift-20261118-aktuell`
+  (3 PDFs/47 Personen/188 Felder, h16/m31), `-zehn-pdfs` (10 PDFs/155 Personen/
+  620 Felder, h44/m111), `-docling` (1 PDF/18 Personen/72 Felder, alle unbekannt).
+  Vollständige `metrics.json` und Übersichten aller fünf Matchingansichten
+  identisch mit Quellen; 4.077 historische Dateien hashgleich. Gesicherte
+  Metrik-/Matching-/Feldbewertungs-/Dokumentverfügbarkeitsdateien unverändert.
+  Keine Inferenz. Nachweise in `software/data/handwriting-analysis-20261118/`.
+- Tests: 13 neue Regressionen für h/m/g/unknown, ungleiche Gruppengrößen,
+  Teil-/Leer-/maskierte GT, ungültige IDs, Zusatzpersonen, fehlende Personen,
+  unbekannte Dokumentverfügbarkeit, unabhängige Lokalisierung, inkompatible
+  Referenz-/Labelstände, Signaturausschluss, Reportintegration und echte
+  JS-Filterlogik über Node. 1.086 lokale Tests erfolgreich (223,64 s), 51 API-
+  Tests (21,28 s), nach reinem Tabellenbreitenfix 13 neue Tests erneut (2,63 s).
+  Ruff und Diff-Check bestanden. Finale Offline-QA: 96 HTML-Dateien, 27.455 lokale
+  Dateilinks, 87 Skript-/CSP-Prüfungen, sechs JSON-Blöcke und 170 vorberechnete
+  Ansichten geprüft; Feldpartitionen und Auditabgleich konsistent. Aktueller
+  Bericht und Docling-Unknown-Verteilung in Edge-Headless visuell geprüft.
+  Sandbox blockierte Edge-Grafikprozess; automatisches Review genehmigte die
+  lokale Sichtprüfung mit isoliertem Projektprofil und erweitertem Zugriff.
+- Grenzen/nächster Schritt: deutliche Referenzscore-Unterschiede zwischen den
+  Teilnehmergruppen, aber kein kausaler HTR-Nachweis. Zehn-PDF-R_doc=86 nur m,
+  13 lesbare Referenzkonflikte; Docling R_doc=30 unklassifiziert. Dreidokumentlauf
+  ohne Originalfeldprüfung; keine g-Beispiele. Docling nicht in vergleichbaren
+  h/m-Ranglisten, spätere Labels nicht in alte Snapshots übertragen. Für belastbare
+  Gruppenvergleiche feldgenaue unabhängige Originalprüfung und Zweitannotation
+  ergänzen. Historische Daten, vorgefundene Änderungen und sieben PDF-Löschungen
+  erhalten. Keine personenbezogenen Einzelwerte oder Rohantworten hier gespeichert.
+
+### 2026-11-18 – Lokales VLM von 4B auf 8B erweitern
+
+- Auftrag: eine Modellgröße größeres VLM für neue reguläre Testframework-Läufe
+  einbauen. Tatsächliche Konfiguration, vorhandene Ladefunktionen und Hardware
+  geprüft: Qwen3-VL-4B, RTX 4090 Laptop mit 16 GiB. Offizielle Modellkarte,
+  aktuelle Revision und Quantisierungsdokumentation geprüft.
+- Neue Profile: `software/configs/benchmark-vlm8b.yaml`,
+  `benchmark-four-vlm8b.yaml`, `benchmark-five-vlm8b.yaml`. Beide Bildverfahren
+  verwenden Qwen/Qwen3-VL-8B-Instruct bei fester Revision
+  `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` in `models/qwen3-vl-8b`.
+  Neue Variante ausdrücklich `main_comparison: false`; festes 4B-Hauptprofil
+  und bisherige Vierer-/Fünferprofile bleiben gleich. Textmodell, Prompts,
+  Bild-/Tokenbudgets und Matching-/Metrikregeln nicht geändert.
+- Geändert: `software/verarbeitung/src/participant_bench/models.py` erweitert
+  vorhandenes int8-Laden auf VLM-Sprachschichten. Bildencoder/Merger und
+  Ausgabekopf bleiben BF16; keine CPU-Auslagerung, keine stillen Fallbacks.
+  11-GiB-Startbudget plus bisherige Reserve. `software/testframework/config.yaml`
+  sowie `software/start_testframework_4.cmd` und `_5.cmd` wählen neue Profile;
+  Basisstarter übernimmt das geänderte Frameworkprofil. Nutzer kann mit
+  `--extraction-config configs/benchmark-five.yaml` weiter explizit 4B wählen.
+- Dokumentation: `software/README.md`, `software/testframework/README.md`,
+  `software/docs/gpu-inference.md` und diese Übergabe aktualisiert. Parameter-
+  und Quantisierungswechsel getrennt dokumentiert: 4B-BF16 gegen 8B-int8 ist
+  kein isolierter Parameterzahlversuch. Keine neue Inferenzabhängigkeit oder
+  Paketbindungsänderung; hf-xet 1.8.0 nur temporär isoliert im Diagnoseordner.
+- Installation: vier Gewichtsdateien mit insgesamt 17.534.339.512 Bytes sowie
+  Processor/Tokenizer vollständig aus offizieller Quelle heruntergeladen und
+  per SHA-256 verifiziert. Langsamer Netztransport durch offiziellen Hub/Xet
+  mit Dateisperren ergänzt; Download-/Monitoring-/GPU-Helfer beendet. Automatisches
+  Review erlaubte ausschließlich öffentliche Modell-/Downloadwerkzeugabrufe,
+  keine Projektdokumente übertragen. Bestehende Modelle nicht überschrieben.
+- Tests: `software/tests/test_gpu_loading.py` ergänzt um beide VLM-Quantisierungs-
+  pfade, BF16-Ausnahmen, unveränderten Default und drei neue Profile mit gleichem
+  Textmodell und identischen VLM-Einstellungen. 25 gezielte Tests (5,07 s),
+  1.091 lokale Tests (150,45 s), 51 API-Tests (12,68 s), Ruff/Diff-Check bestanden.
+  API-Aufruf anfangs mit falschem Interpreter/Repo-Basetemp korrigiert; deren
+  Schutz verlangt externe temporäre Credential-Fixtures. Keine Änderung dieses
+  Schutzes, keine echten API-/Credential-Aufrufe durch die Tests.
+- Hardware-Funktionsnachweis: echter 8B-Smoke mit zwei synthetischen Bildern
+  erfolgreich, Ladezeit 9,61 s plus 12,79 s Gewichtsprüfung, Warm-up 1,97 s.
+  Alle 8.767.123.696 Parameter auf CUDA, 252 int8-Sprachschichten, Bildencoder
+  und Ausgabekopf BF16. Gewichte 9,86 GiB; maximale PyTorch-Allokation 10,66 GiB,
+  reserviert 11,04 GiB (ohne Treiber/fremde Prozesse). Beide Bildanfragen gültig
+  und nicht abgeschnitten, ein exakter Texttreffer von zwei; keine Qualitäts-
+  oder Handschrift-Überlegenheit aus diesem Funktionstest ableiten. Modell
+  anschließend geschlossen, Speichergrenze wiederhergestellt.
+- Nachweise: `software/data/vlm8b-20261118/`, insbesondere `smoke-proof.json`,
+  synthetische Bilder/Antworten und Schutzinventar. 7.567 geschützte historische
+  Dateien, feste Profile, Paketbindungen und Metrik-/Matchingquellen hashgleich.
+  Keine Änderungen an GT, historischen Berichten, Bachelorarbeit oder API-Profilen.
+  Vorhandene fremde Änderungen und sieben PDF-Löschungen erhalten.
+- Aktiv/offen: normale lokale CMD-Läufe verwenden jetzt 8B. Nächster sinnvoller
+  Schritt ist `start_testframework_5.cmd --documents 3` als neuer Referenzlauf;
+  für kontrollierte Modellvergleiche identische Dokumentauswahl/Seed verwenden.
+  Kein vollständiger Referenzlauf gestartet und kein Qualitätsgewinn behauptet.
+
+### 2026-11-18 – Fertigstellung und Absicherung der dokumentweiten Spaltenzuordnung auf PDF-Folgeseiten (inkl. Audit vorangegangener Teiländerungen)
+
+- Auftrag: Behebung fehlender oder verschobener Spaltenzuordnungen auf der zweiten
+  und weiteren PDF-Seiten ohne eigene Spaltenüberschriften in `ocr_llm`, `paddle_llm`,
+  `docling`, `vlm` und `ocr_vlm`; kritisches Audit der durch ein Nutzungslimit
+  unterbrochenen Vorarbeiten der vorherigen Agentensitzung; Ergänzung seitenweiser
+  Diagnosen im HTML-Bericht sowie reproduzierbarer Vorher-Nachher-Vergleich
+  getrennt nach ersten Teilnehmerseiten und Folgeseiten.
+- Geänderte Dateien:
+  - `software/verarbeitung/src/participant_bench/column_context.py`
+  - `software/verarbeitung/src/participant_bench/column_headers.py`
+  - `software/verarbeitung/src/participant_bench/ocr_layout.py`
+  - `software/verarbeitung/src/participant_bench/structure.py`
+  - `software/verarbeitung/src/participant_bench/structured_mapping.py`
+  - `software/verarbeitung/src/participant_bench/table_mapping.py`
+  - `software/verarbeitung/src/participant_bench/structure_assignment.py`
+  - `software/verarbeitung/src/participant_bench/unlimited_assignment.py`
+  - `software/verarbeitung/src/participant_bench/extraction_prompts.py`
+  - `software/verarbeitung/src/participant_bench/vlm_cells.py`
+  - `software/verarbeitung/src/participant_bench/models.py`
+  - `software/verarbeitung/src/participant_bench/report.py`
+  - `software/verarbeitung/src/participant_bench/roster_benchmark/detail_report.py`
+  - `software/verarbeitung/src/participant_bench/roster_benchmark/error_report.py`
+  - `software/tests/test_column_continuation_audit.py`
+  - `software/tests/test_field_pipeline_trace.py`
+  - `software/docs/document-columns.md`
+- Zweck der Änderungen:
+  - Dokumentweiter Spaltenkontext (`document-column-context-v4-ruled-rows`) speichert
+    pro PDF-Dokument die zuletzt verlässlich erkannte Tabellenstruktur (Spaltenrollen,
+    Spaltenreihenfolge, normalisierte X-Intervalle, Quellseitennummer), unterstützt
+    vorgeschaltete Deck-/Leerseiten und isoliert unterschiedliche PDFs strikt.
+  - Schutz vor Spaltenverschiebung bei leeren Zellen (`personnel_number`) auf
+    handschriftlichen Folgeseiten, Schutz vor Zeilenverschmelzung in Docling Stage 2b
+    (`x_conflict`), Beibehaltung der linken Bandtoleranz `-0,012` und proportionaler
+    Teilspannenprüfung in `structure_assignment.py` sowie kompakte Übergabe von
+    `DOCUMENT_COLUMN_CONTEXT` an `vlm` / `ocr_vlm` ohne Auslösung leerer
+    `participants`-Listen.
+  - Seitenweise Spaltenzuordnungsdiagnose (`assigned_fields`, `failed_assignments`,
+    Quellseite, Geometrievergleich und Ablehnungsgründe) in `report.html`,
+    `document_column_mappings.csv`, `details.html` und `extraction_errors.html`.
+- Ausgeführte Prüfungen und Ergebnisse:
+  - `.\software\.venv\Scripts\python.exe -m pytest -q software/tests` -> **1.100 passed in 141,81 s**.
+  - `Set-Location software/api_firmen_pc; $env:NO_PROXY='127.0.0.1,localhost'; .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp C:\Users\TechLAB_NB_2\AppData\Local\Temp\agy_api_pytest` -> **51 passed in 14,49 s**.
+  - `.\software\.venv\Scripts\ruff.exe check software/verarbeitung/src/participant_bench/ software/tests/` -> **All checks passed**.
+  - Reproduzierbarer Vorher-Nachher-Benchmark auf `140829.pdf` (`software/runs/20261118T121320Z-ed8f9224`
+    und `software/runs/20261118T122048Z-a161ca63`; Evaluation in
+    `software/testframework/ergebnisse/20261118T121755Z-57a0a3fb` und
+    `software/testframework/ergebnisse/20261118T122249Z-09ff6d57`) sowie
+    seitengetrennte 10-Dokumente-Auswertung ($R=620$) durchgeführt und nachgewiesen.
+- Offene Punkte / nächster sinnvoller Schritt:
+  - Einen vollständigen 10-Dokumente-GPU-Neuextraktionslauf über `start_testframework_5.cmd`
+    (wahlweise mit 4B- oder 8B-VLM-Profil) starten, damit sämtliche Folgeseiten
+    auch in den gespeicherten Rohantworten den neuen VLM-Fortsetzungsprompt nutzen.

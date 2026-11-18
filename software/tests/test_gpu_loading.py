@@ -69,9 +69,36 @@ def test_missing_int8_runtime_has_setup_instruction_and_no_fallback(monkeypatch)
         model_load_kwargs(spec(device="cuda", quantization="int8"), torch_double(), "ocr_llm")
 
 
-def test_int8_does_not_change_vlm_precision():
-    with pytest.raises(Unavailable, match="VLM bleibt in BF16"):
-        model_load_kwargs(spec(device="cuda", quantization="int8"), torch_double(), "vlm")
+@pytest.mark.parametrize("method", ["vlm", "ocr_vlm"])
+def test_explicit_vlm_int8_preserves_vision_dtype_and_gpu_placement(monkeypatch, method):
+    monkeypatch.setitem(sys.modules, "bitsandbytes", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(BitsAndBytesConfig=lambda **kw: kw))
+    options = model_load_kwargs(spec(device="cuda", quantization="int8"), torch_double(), method)
+    assert options["device_map"] == {"": 0} and options["dtype"] == "bf16"
+    assert options["quantization_config"] == {
+        "load_in_8bit": True, "llm_int8_threshold": 6.0, "llm_int8_enable_fp32_cpu_offload": False,
+        "llm_int8_skip_modules": ["visual", "lm_head"],
+    }
+
+
+def test_default_vlm_precision_is_unchanged():
+    options = model_load_kwargs(spec(device="cuda"), torch_double(), "vlm")
+    assert options["dtype"] == "bf16" and "quantization_config" not in options
+
+
+@pytest.mark.parametrize("filename", ["benchmark-vlm8b.yaml", "benchmark-four-vlm8b.yaml", "benchmark-five-vlm8b.yaml"])
+def test_larger_vlm_profiles_keep_text_settings_and_share_one_pinned_vlm(filename):
+    base = load_config(Path("configs/benchmark.yaml"))
+    config = load_config(Path("configs") / filename)
+    assert config.models["ocr_llm"] == base.models["ocr_llm"]
+    assert not config.main_comparison
+    vlm = config.models["vlm"]
+    assert vlm == config.models["ocr_vlm"]
+    assert vlm.repo == "Qwen/Qwen3-VL-8B-Instruct" and vlm.path == "models/qwen3-vl-8b"
+    assert vlm.revision == "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+    assert vlm.quantization == "int8" and vlm.device == "cuda" and vlm.gpu_memory_gib == 11
+    for key in ("max_input_tokens", "max_new_tokens", "max_pixels", "min_pixels", "attention", "do_sample"):
+        assert getattr(vlm, key) == getattr(base.models["vlm"], key)
 
 
 @pytest.mark.parametrize("filename", [

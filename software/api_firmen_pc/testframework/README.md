@@ -1,5 +1,30 @@
 # Teilnehmerlisten über die API testen und mit Excel/CSV vergleichen
 
+Die gemeinsame Analyseseite [Handschrift vs. Maschinenschrift](../../docs/schriftart.md#analyseseite-handschrift-vs-maschinenschrift)
+steht auch in neuen API-Berichten zur Verfügung. Sie verwendet ausschließlich
+GT-Teilnehmerlabels und bestehende Feldentscheidungen; fehlende Labels bleiben
+unklassifiziert. Dokumentbasierte und referenzbasierte Qualität sind getrennt.
+
+## PDF-Anzahl beim CMD-Start
+
+`start_api_testframework.cmd` fragt vor einem neuen Testlauf nach der Anzahl:
+**`3` eingeben** testet drei zufällige vollständige PDFs, **Enter** testet alle.
+Originaldateien bleiben erhalten. Seed und Auswahl werden im Manifest und
+HTML-Bericht dokumentiert; beim Resume erfolgt keine neue Ziehung.
+
+Ohne Auswahlfrage lassen sich die Parameter des PowerShell-Starters durchreichen:
+
+```bat
+start_api_testframework.cmd -Documents 3
+start_api_testframework.cmd -Documents 3 -SampleSeed 42
+start_api_testframework.cmd -AllDocuments
+```
+
+Die Python-CLI verwendet dafür `benchmark run --documents 3 --sample-seed 42`
+beziehungsweise `--all-documents`. Der reine Startcheck `--pruefen` fragt nicht.
+Weitere Auswahl- und Nennerregeln stehen im
+[gemeinsamen Framework-README](../../testframework/README.md#anzahl-der-test-pdfs-beim-cmd-start).
+
 Dieses Testframework verwendet dieselbe Bewertung wie `software/testframework/`.
 Auf dem Firmen-PC werden die Teilnehmer über die konfigurierte API ausgelesen;
 Schulungszuordnung, Personenabgleich und Kennzahlen werden anschließend lokal

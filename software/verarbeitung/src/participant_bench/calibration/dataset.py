@@ -8,7 +8,7 @@ from pathlib import Path
 import pymupdf
 
 from ..io import digest, file_hash, read_json, write_csv, write_json
-from ..schema import TEXT_FIELDS, Box, GroundTruthPage, Participant, TextField
+from ..schema import TEXT_FIELDS, Box, GroundTruthPage, GroundTruthParticipant, TextField
 
 SPLITS = ("development", "validation", "test")
 
@@ -88,7 +88,7 @@ def initialize(folder: Path, output: Path, sample_documents: int | None = None, 
     write_csv(output / "pages.csv", pages)
     columns = ["document_id", "page_number", "row_ref", "bbox"]
     columns += [key for field in TEXT_FIELDS for key in (field, field + "_state")]
-    write_csv(output / "participants.csv", [], fields=columns + ["signature_present"])
+    write_csv(output / "participants.csv", [], fields=columns + ["signature_present", "schriftart"])
     return output
 
 
@@ -194,7 +194,8 @@ def load_dataset(folder: Path) -> dict:
             raise ValueError("Signaturreferenz muss true/false/unknown sein")
         present = None if signature in ("", "unknown") else signature == "true"
         annotations[key].append(
-            Participant(
+            GroundTruthParticipant(
+                schriftart=record.get("schriftart"),
                 row_ref=record["row_ref"] or None,
                 bbox=Box(**dict(zip(("x0", "y0", "x1", "y1"), map(float, box.split(","))))) if box else None,
                 **fields,

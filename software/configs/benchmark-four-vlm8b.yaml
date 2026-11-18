@@ -1,0 +1,6 @@
+extends: benchmark-vlm8b.yaml
+methods:
+- ocr_rules
+- paddle_llm
+- vlm
+- ocr_vlm

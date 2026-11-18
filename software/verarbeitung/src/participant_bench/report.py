@@ -69,10 +69,27 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
             if "ocr" in raw or "structure" in raw:
                 observation_views.append(observation_export(output, method, page, raw))
             for trace in mapping_diagnostics(raw):
+                assigned_summary = ", ".join(
+                    f"{f}: {sum(bool(getattr(p, f).value and getattr(p, f).value.strip()) for p in page.participants)}/{len(page.participants)}"
+                    for f in TEXT_FIELDS
+                ) if page.participants else "0 Zeilen"
+                raw_warnings = [
+                    w.get("reason", "") for r in raw.get("responses", []) for w in r.get("field_warnings", []) if w.get("reason")
+                ] + [
+                    w.get("reason", "") for w in raw.get("assignment", {}).get("field_warnings", []) if w.get("reason")
+                ] + [
+                    w for d in raw.get("structure", {}).get("row_decisions", []) for w in d.get("field_warnings", [])
+                ]
+                failed_summary = " | ".join(dict.fromkeys(raw_warnings)) or (
+                    trace.get("reason") if trace.get("status") not in (
+                        "detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page"
+                    ) else "—"
+                )
                 column_mappings.append(dict(method=method, document_id=page.document_id, page_number=page.page_number,
                     table=trace.get("table_index"), source_page=trace.get("source_page"), status=trace.get("status", "not_recorded"),
                     reason=trace.get("reason"), explanation=mapping_reason(trace),
                     column_mapping=trace.get("column_mapping", trace.get("columns")),
+                    assigned_fields=assigned_summary, failed_assignments=failed_summary,
                     headings=trace.get("headings"), geometry=trace.get("geometry"), geometry_check=trace.get("geometry_check")))
             has_assignment = has_assignment or "assignment" in raw
             responses = raw.get("responses", [])
@@ -263,7 +280,7 @@ def report(output, summary, results, metrics, manifest, costs, *, columns=None):
     write_csv(output / "extractions.csv", rows)
     write_csv(output / "document_column_mappings.csv", column_mappings,
               fields=["method", "document_id", "page_number", "table", "source_page", "status", "reason", "explanation",
-                      "column_mapping", "headings", "geometry", "geometry_check"])
+                      "column_mapping", "assigned_fields", "failed_assignments", "headings", "geometry", "geometry_check"])
     write_csv(output / "document_name_orders.csv", name_orders, fields=["method", "source_file", "document_id",
         "page_number", "origin_page", "name_order", "evidence", "decision_source", "split_rows", "swapped_rows", "review_rows", "conflict"])
     write_csv(output / "excluded_instructors.csv", excluded_instructors, fields=[
@@ -441,7 +458,8 @@ Aktuelle eindeutige Überschriften haben Vorrang. Fehlende historische Angaben b
 <p><a href="document_column_mappings.csv">Herkunft und Kompatibilitätsprüfung als CSV</a>.</p>
 {table(column_mappings, {'method': 'Verfahren', 'document_id': 'PDF-ID', 'page_number': 'Seite',
     'source_page': 'Überschriften von Seite', 'status': 'Entscheidung', 'explanation': 'Begründung',
-    'column_mapping': 'Feld → Spaltenindex', 'headings': 'Überschriftenbelege',
+    'column_mapping': 'Feld → Spaltenindex', 'assigned_fields': 'Zugeordnete Felder',
+    'failed_assignments': 'Fehlgeschlagene Zuordnungen / Gründe', 'headings': 'Überschriftenbelege',
     'geometry': 'Aktuelle Geometrie', 'geometry_check': 'Vergleich mit Quellseite'})}
 <h2>OCR-Beobachtungen und nicht zugeordnete Texte</h2>
 <p>Alle nichtleeren gespeicherten Engine-Beobachtungen bleiben unabhängig vom Score erhalten.

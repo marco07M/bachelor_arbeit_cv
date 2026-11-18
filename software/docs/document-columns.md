@@ -1,11 +1,64 @@
 # Spaltenüberschriften auf Fortsetzungsseiten
 
-Aktueller Nachtrag vom 12.11.: [Ursachen, abgesicherte VLM-/Hybridreparatur und
+Aktueller Nachtrag vom 18.11.2026: Dokumentkontext **v4** (`document-column-context-v4-ruled-rows`)
+vervollständigt die dokumentweite Spaltenzuordnung auf headerlosen PDF-Folgeseiten über alle fünf
+strukturierten Hauptverfahren (`ocr_llm`, `paddle_llm`, `docling`, `vlm`, `ocr_vlm`), bereinigt die
+durch ein Nutzungslimit unterbrochenen Vorarbeiten der vorherigen Sitzung und ergänzt seitenweise
+Spaltenzuordnungsdiagnosen in `report.html`, `details.html` und `extraction_errors.html`.
+
+Früherer Nachtrag vom 12.11.: [Ursachen, abgesicherte VLM-/Hybridreparatur und
 begrenzter Gegencheck](headerless-columns-20261112.md). Kontext v3 trennt
 Seitenränder von physischen Tabellen und übergibt geprüfte Struktur vor dem
 Modellaufruf. Fehlerhafte Datenheader benötigen zusätzlich aktuelle räumliche Belege.
 
-Stand: 11.11.2026. Der aktuelle Ergänzungsstand steht unmittelbar unten;
+## Aktueller Ergänzungsstand vom 18.11.2026
+
+### 1. Audit und Bereinigung der unterbrochenen Vorarbeiten
+1. **Übernommene Bausteine:**
+   - `column_context.native_table_geometry`: Verankert lückenhafte native TableFormer-Spaltenindizes
+     eindeutig im gemessenen Bildraster (`image_column_boundaries`), wenn auf einer Folgeseite eine
+     gesamte Spalte (z. B. `personnel_number`) leer bleibt.
+   - `column_context.ruled_row_boxes` & `structured_mapping.ruled_ocr_rows`: Erkennt geschlossene
+     linierte Tabellenzeilen per Hough-Deskew und Morphologie, falls TableFormer auf einer Folgeseite
+     keine native Tabelle liefert (`tables=[]`), und gruppiert ausschließlich aktuelle OCR-Beobachtungen
+     innerhalb der geschlossenen Rasterzellen.
+   - `column_context.project_bands`: Begrenzt projizierte Bänder bei entfallenen hinteren Nicht-Text-Spalten.
+   - `vlm_cells.py`: Speichert `full_geometry` und `nontext_columns` (`signature`, `date`) bei vollständigem
+     physischem Raster und weist verkürzte `identity_headers` (`< profile["width"]`) zurück.
+   - `unlimited_assignment.py`: Behält auf Seiten mit `status == "inherited_from_previous_page"` alle
+     aktuellen Zeilen (`selected = rows`), damit dünn besetzte handschriftliche Zeilen nicht vorab durch
+     `select_person_rows` entfallen.
+2. **Behobene Fehler aus der abgebrochenen Sitzung:**
+   - `ocr_layout.table_line_groups`: Die wortweise Zuweisung riss zusammengehörige Tesseract-Zeilen auseinander,
+     sobald einzelne Wörter mit Ober-/Unterlängen eine horizontale Tabellenlinie berührten. Die Gruppierung
+     ordnet nun vollständige Tesseract-Zeilengruppen mit `0,004` Linientoleranz zu.
+   - `structure_assignment.document_bands` & `box_in_band`: Exakte `column_intervals` ohne die linke
+     Toleranz `-0,012` verwarfen auf `140829.pdf` Seite 2 fünf von neun handschriftlichen Teilnehmerzeilen,
+     deren Namensboxen die linke Spaltenlinie berührten. Geerbte Bänder nutzen nun `[max(0.0, left - 0.012), right]`,
+     aktuelle Bänder werden rechts an der physischen Spaltengrenze gekappt, und `box_in_band` unterstützt
+     proportionale Teilspannen in spaltenübergreifend verschmolzenen `row_transcript`-Boxen.
+   - `models.LocalModel.extract`: Das Übergeben von `current_row_boxes_xyxy`, `headerless_identity_headers` und
+     `geometry_check` im VLM-Prompt führte bei Qwen3-VL auf headerlosen Folgeseiten zu `participants: []`
+     (0 Teilnehmer). Der Prompt übergibt stattdessen eine kompakte Darstellung (`source_page`,
+     `physical_columns`, `physical_column_count`, `instruction`), während der vollständige Kontext im
+     Audit-Record erhalten bleibt.
+   - `models.complete_ocr_mapped_columns` & `column_headers.field_roles`: Verhindert Spaltenverschiebungen
+     in `ocr_llm` bei leeren `personnel_number`-Spalten auf Folgeseiten durch deterministische Trennung
+     kombinierter Namensspalten und Ergänzung eindeutiger `department`-Zellen der zugeordneten Spalte;
+     erkennt unscharfe Überschriften wie `"‚Kuszzeichen"` und `"User Name J"`.
+   - `structured_mapping._apply_stage2_geometry_fallback`: Verhindert durch Prüfung auf horizontalen
+     Spaltenkonflikt (`x_conflict`), dass vertikal eng benachbarte handschriftliche Zeilen auf Folgeseiten
+     zu einer einzigen Zeile verschmolzen werden.
+   - `vlm_cells.parse_visual_response`: Verhindert, dass bei kombinierter Namensspalte ein in die
+     Organisationsspalte verschobener Nachname als `department` übernommen wird, und ergänzt auf
+     geerbten `ocr_vlm`-Folgeseiten fehlende Skalarfelder (`None`) aus eindeutig verankerten aktuellen
+     nativen OCR-Zellen.
+   - `report.py`, `detail_report.py`, `error_report.py`: Ergänzt pro PDF-Seite `assigned_fields` und
+     `failed_assignments` in `report.html` / `document_column_mappings.csv`, eine Spalte `Spaltenzuordnung`
+     in `details.html` sowie die Auswertung zeilenbezogener Feldwarnungen (`field == "row"`) in
+     `extraction_errors.html`.
+
+Stand: 11.11.2026. Der frühere Ergänzungsstand steht unmittelbar unten;
 die anschließende Untersuchung vom 03.11. bleibt als historischer Nachweis erhalten.
 
 ## Aktueller Ergänzungsstand vom 11.11.2026

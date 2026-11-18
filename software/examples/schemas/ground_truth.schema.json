@@ -37,8 +37,9 @@
       "title": "Box",
       "type": "object"
     },
-    "Participant": {
+    "GroundTruthParticipant": {
       "additionalProperties": false,
+      "description": "Reference-only metadata; Participant and all model schemas stay unchanged.",
       "properties": {
         "person_role": {
           "default": "unknown",
@@ -153,6 +154,23 @@
           },
           "title": "Review Notes",
           "type": "array"
+        },
+        "schriftart": {
+          "anyOf": [
+            {
+              "enum": [
+                "h",
+                "m",
+                "g"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schriftart"
         }
       },
       "required": [
@@ -161,7 +179,7 @@
         "personnel_number",
         "department"
       ],
-      "title": "Participant",
+      "title": "GroundTruthParticipant",
       "type": "object"
     },
     "TextField": {
@@ -247,7 +265,7 @@
     },
     "participants": {
       "items": {
-        "$ref": "#/$defs/Participant"
+        "$ref": "#/$defs/GroundTruthParticipant"
       },
       "title": "Participants",
       "type": "array"

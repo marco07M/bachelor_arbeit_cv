@@ -1,0 +1,8 @@
+# Five-method starter with the same 8B VLM for direct and OCR-assisted extraction.
+extends: benchmark-vlm8b.yaml
+methods:
+- ocr_rules
+- ocr_llm
+- paddle_llm
+- vlm
+- ocr_vlm

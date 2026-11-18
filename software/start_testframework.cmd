@@ -12,7 +12,7 @@ if not exist ".venv\Scripts\python.exe" (
 if /I "%~1"=="--pruefen" (
     ".venv\Scripts\python.exe" "testframework\main.py" check
 ) else (
-    ".venv\Scripts\python.exe" "testframework\main.py" run %*
+    ".venv\Scripts\python.exe" "testframework\main.py" run --prompt-documents %*
 )
 set "BENCHMARK_EXIT_CODE=%ERRORLEVEL%"
 :finish

@@ -388,6 +388,77 @@ def check_ocr_evidence(participants, data):
             raise ValueError("Row reference not present in OCR words")
 
 
+def complete_ocr_mapped_columns(people, proofs, source_rows, data):
+    """Recover combined-name splits and unique mapped department cells when column shift occurred."""
+    from .column_headers import field_roles
+    from .name_parts import infer_column_tiebreaker, split_combined_name
+    from .schema import TextField
+
+    def literal(value, text):
+        pattern = re.escape(value).replace(r"\.\.\.", r"(?:\.\.\.|…)").replace("…", r"(?:\.\.\.|…)")
+        return re.search(r"(?<![^\W_])(?<!['/’–-])" + pattern + r"(?![^\W_])(?!['/’–-])", text)
+
+    trace = data.get("mapping_provenance") or {}
+    if trace.get("status") not in ("detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page"):
+        return
+    mapping = data.get("column_mapping") or {}
+    by_id = {row["id"]: row for row in source_rows}
+    name_cols = set(mapping.get("first_name", ())) | set(mapping.get("last_name", ()))
+    tiebreaker = "family_given"
+    if len(name_cols) == 1:
+        nc = next(iter(name_cols))
+        col_texts = [c["text"] for r in source_rows for c in r.get("cells", [])
+                     if c.get("column_start") == nc and c.get("text", "").strip() and not field_roles(c["text"])]
+        tiebreaker = infer_column_tiebreaker(col_texts)
+    dept_cols = mapping.get("department", ())
+    for person, proof in zip(people, proofs, strict=True):
+        row = by_id.get(proof.get("source_row"), {})
+        if len(name_cols) == 1 and (person.first_name.value is None or person.last_name.value is None):
+            nc = next(iter(name_cols))
+            nc_cells = [c for c in row.get("cells", [])
+                        if c.get("column_start") == nc and c.get("text", "").strip() and not field_roles(c["text"])]
+            if len(nc_cells) == 1:
+                nc_cell = nc_cells[0]
+                cleaned = " ".join(re.sub(r"[^\w\s,.'-]", " ", nc_cell["text"]).split())
+                split = split_combined_name(cleaned, default_order=tiebreaker)
+                if split is not None:
+                    fn, ln, rule = split
+                    m_fn = literal(fn, nc_cell["text"])
+                    m_ln = literal(ln, nc_cell["text"])
+                    if m_fn and m_ln:
+                        for field, m in (("first_name", m_fn), ("last_name", m_ln)):
+                            val = m.group(0)
+                            setattr(person, field, TextField(
+                                value=val, state="read",
+                                bbox=Box.model_validate(nc_cell["bbox"]) if nc_cell.get("bbox") else None))
+                            proof["fields"][field] = dict(
+                                cell_index=nc_cell["index"], column_start=nc_cell["column_start"],
+                                text=val, cell_text=nc_cell["text"], offset=m.span(),
+                                bbox=nc_cell.get("bbox"), assignment_rule=rule)
+                        proof["warnings"] = [w for w in proof.get("warnings", [])
+                                             if not w.startswith(("first_name:", "last_name:"))]
+        if (len(dept_cols) == 1 and person.department.value is None and person.department.state != "empty"
+                and any(getattr(person, f).value for f in ("first_name", "last_name", "personnel_number"))):
+            dc = dept_cols[0]
+            dc_cells = [c for c in row.get("cells", [])
+                        if c.get("column_start") == dc and c.get("text", "").strip()
+                        and not field_roles(c["text"]) and any(ch.isalnum() for ch in c["text"])]
+            if len(dc_cells) == 1:
+                dc_cell = dc_cells[0]
+                val = dc_cell["text"].strip()
+                person.department = TextField(
+                    value=val, state="uncertain",
+                    bbox=Box.model_validate(dc_cell["bbox"]) if dc_cell.get("bbox") else None)
+                proof["fields"]["department"] = dict(
+                    cell_index=dc_cell["index"], column_start=dc_cell["column_start"],
+                    text=val, cell_text=dc_cell["text"], offset=(0, len(dc_cell["text"])),
+                    bbox=dc_cell.get("bbox"), assignment_rule="unique_observed_cell_in_mapped_column",
+                    observation_state="uncertain", mapping_provenance=trace)
+                proof["warnings"] = [w for w in proof.get("warnings", []) if not w.startswith("department:")]
+                person.review_notes.append(
+                    "department: eindeutige OCR-Zelle in zugeordneter Spalte ergänzt; manuell prüfen")
+
+
 def parse_ocr_response(raw: str, data: dict, rejected_rows: list | None = None,
                        preserve_partial_fields: bool = False, field_warnings: list | None = None,
                        field_evidence: list | None = None):
@@ -419,6 +490,7 @@ def parse_ocr_response(raw: str, data: dict, rejected_rows: list | None = None,
                 rejected.append(dict(output_index=index, stage="evidence", error=match[2],
                     source_row=response.participants[index].source_row))
         ground_positions(people, proofs, source_rows, {})
+        complete_ocr_mapped_columns(people, proofs, source_rows, data)
         attach_record_observations(people, proofs, data)
         if field_evidence is not None:
             field_evidence.extend(proofs)
@@ -505,8 +577,8 @@ def model_load_kwargs(spec, torch, method):
     if cuda and spec.device == "auto":
         kwargs["max_memory"] = {0: f"{spec.gpu_memory_gib}GiB", "cpu": f"{spec.cpu_memory_gib}GiB"}
     if spec.quantization == "int8":
-        if method != "ocr_llm":
-            raise Unavailable("int8 ist nur für das OCR-Sprachmodell vorgesehen; VLM bleibt in BF16")
+        if method != "ocr_llm" and method not in VISION_METHODS:
+            raise Unavailable("int8 ist nur für lokale Text- und VLM-Modelle vorgesehen")
         try:
             import bitsandbytes  # noqa: F401
             from transformers import BitsAndBytesConfig
@@ -514,9 +586,11 @@ def model_load_kwargs(spec, torch, method):
             raise Unavailable("8-Bit-Laden benötigt bitsandbytes: uv sync --locked --extra models") from exc
         if torch.cuda.get_device_capability(0) < (7, 5):
             raise Unavailable("LLM.int8 benötigt eine CUDA-GPU mit Compute Capability >= 7.5")
-        kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_8bit=True, llm_int8_threshold=6.0, llm_int8_enable_fp32_cpu_offload=False,
-        )
+        quantization = dict(load_in_8bit=True, llm_int8_threshold=6.0, llm_int8_enable_fp32_cpu_offload=False)
+        if method in VISION_METHODS:
+            # Keep the visual encoder/mergers and output head in the configured floating dtype.
+            quantization["llm_int8_skip_modules"] = ["visual", "lm_head"]
+        kwargs["quantization_config"] = BitsAndBytesConfig(**quantization)
     return kwargs
 
 
@@ -734,14 +808,29 @@ class LocalModel:
                 from .column_context import geometry, image_boundaries
                 from .vlm_cells import continuation_context
 
-                meta = getattr(self, "document_page_context", {}) if tile_height is None else {}
+                meta = getattr(self, "document_page_context", {})
                 contexts = getattr(self, "visual_column_context", {})
-                edges = image_boundaries(image, include_page_margins=False) if meta else []
+                edges = image_boundaries(tile, include_page_margins=False) if meta else []
                 profile = geometry(len(edges) - 1, boundaries=edges) if edges else None
                 column_hint = continuation_context(contexts.get(meta.get("document_id")), profile,
                     document_id=meta.get("document_id"), page_number=meta.get("page_number"))
                 if column_hint:
-                    text += "\nDOCUMENT_COLUMN_CONTEXT:\n" + json.dumps(column_hint, ensure_ascii=False)
+                    prompt_hint = dict(
+                        source_page=column_hint["source_page"],
+                        physical_columns=[
+                            dict(column=col["column"], fields=col["fields"])
+                            for col in column_hint["physical_columns"]
+                        ],
+                        physical_column_count=column_hint["physical_column_count"],
+                        instruction=(
+                            "Continuation page of the same PDF without printed column headings. "
+                            "Extract every visible attendee row (printed or handwritten) into participants. "
+                            "If this page has no printed header row, return null in identity_headers and "
+                            "align each row's identity_cells to physical_columns (keep a combined name in one cell; "
+                            "use \"\" for a visibly empty cell). Never copy values from previous pages."
+                        ),
+                    )
+                    text += "\nDOCUMENT_COLUMN_CONTEXT:\n" + json.dumps(prompt_hint, ensure_ascii=False)
             if self.method == "ocr_llm":
                 text = model_input(ocr_data)
             if self.method == "ocr_vlm":
@@ -800,9 +889,10 @@ class LocalModel:
                         document_context=contexts.get(meta.get("document_id")),
                         document_id=meta.get("document_id"), page_number=meta.get("page_number"),
                         column_geometry=profile,
-                        cell_observations=ocr_data.get("hints") if self.method == "ocr_vlm" else None)
+                        cell_observations=ocr_data.get("hints") if self.method == "ocr_vlm" and tile_height is None else None)
                     if meta:
-                        contexts[meta["document_id"]] = column_audit.get("column_context", {})
+                        if "column_context" in column_audit:
+                            contexts[meta["document_id"]] = column_audit["column_context"]
                         self.visual_column_context = contexts
                     record["page_text"] = page_text
                     record["text_fallback"] = not parsed

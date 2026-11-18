@@ -368,7 +368,7 @@ def test_visual_prompt_and_schema_agree_on_roster_only_and_headerless_columns():
     assert "participant-row table" in text and "PARTICIPANT-ROW TABLE ONLY" in description
     assert "course-metadata tables" in text and "course metadata tables" in description
     assert "one null heading per physical" in text and "headerless columns use null" in description
-    assert extraction_prompt_snapshot()["version"] == VERSION == "participant-json-v26-roster-header-scope"
+    assert extraction_prompt_snapshot()["version"] == VERSION == "participant-json-v27-ruled-continuation"
 
 
 def test_local_visual_extractor_threads_only_verified_column_context_between_pages(monkeypatch):

@@ -34,7 +34,7 @@ from .pdf import prepare, run_identity, validate_manifest
 from .person_roles import filter_page_people
 from .progress import Progress
 from .report import cost_scenario, report
-from .rules import attach_signatures, extract_rules
+from .rules import extract_rules, inspect_signature_cells
 from .schema import (
     GroundTruthPage,
     PageResult,
@@ -82,12 +82,16 @@ def aggregate_status(pages):
     return "partial"
 
 
-def signature_details(result, raw, image, model, config, method_dir):
+def signature_details(result, raw, image, model, config, method_dir, previous=None):
     started, previous_calls = time.perf_counter(), model.calls
     try:
-        records, elapsed, calls = inspect_signatures(
+        if "signature_cell_checks" not in raw:
+            inspect_signature_cells(result.participants, image, raw, config, previous,
+                                    document_id=result.document_id, page_number=result.page_number)
+        records, _, calls = inspect_signatures(
             result.participants, image, model, config, method_dir, result.page_id,
             ocr_data=raw.get("ocr") or raw.get("signature_ocr"),
+            cell_records=raw["signature_cell_checks"],
         )
     except Exception as exc:
         raw["signature_stage_error"] = f"{type(exc).__name__}: {exc}"
@@ -99,7 +103,7 @@ def signature_details(result, raw, image, model, config, method_dir):
         return
     raw["signature_checks"] = records
     result.calls += calls
-    result.timings["signature_seconds"] = result.timings.get("signature_seconds", 0.0) + elapsed
+    result.timings["signature_seconds"] = result.timings.get("signature_seconds", 0.0) + time.perf_counter() - started
     if result.status == "success" and (
         any(record.get("error") for record in records)
         or any(record.get("observation", {}).get("signature_present") is None
@@ -144,7 +148,9 @@ def load_truth(path, manifest, split, scope):
     ]
 
 
-def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None, *, offline=False):
+def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end", split="all", resume=None, *, offline=False, document_sample=None):
+    if document_sample is not None and (resume or manifest_path):
+        raise ValueError("Neue PDF-Zufallsauswahl nicht mit Resume oder einem bestehenden Manifest kombinieren")
     if config.main_comparison:
         from .config import Config
 
@@ -177,7 +183,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         with progress.activity("Vorhandenes Seitenmanifest, Eingaben und Bilder prüfen"):
             manifest = validate_manifest(manifest_path, folder, config, progress=progress)
     else:
-        manifest = prepare(folder, config, output / "prepared", ocr, progress=progress)
+        options = dict(document_sample=document_sample) if document_sample is not None else {}
+        manifest = prepare(folder, config, output / "prepared", ocr, progress=progress, **options)
         manifest_path = output / "prepared/manifest.json"
     progress.log(f"Eingabeseiten: {len(manifest['pages'])}; "
                  f"{sum(p['include'] for p in manifest['pages'])} zur Extraktion enthalten")
@@ -325,6 +332,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
         page_results, raw_records = [], []
         name_orders = DocumentNameOrders()
         text_layouts = {}
+        signature_layouts = {}
         unavailable = ocr_error if method in ("ocr_raw", "ocr_rules", "ocr_llm") else None
         model, resource = None, {"load_failed": False}
         prior_resource = (
@@ -379,6 +387,8 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                         layout = previous_raw.get("ocr_layout_analysis", {})
                         if layout:
                             text_layouts[page["document_id"]] = layout
+                        if previous_raw.get("signature_column_context"):
+                            signature_layouts[page["document_id"]] = previous_raw["signature_column_context"]
                         progress.log(label + "; erfolgreiches Ergebnis aus vorherigem Lauf übernommen")
                         continue
                     result = PageResult(
@@ -524,12 +534,7 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                                      f"festgelegt auf PDF-Seite {name_audit['origin_page']}")
                                     filter_page_people(result, raw)
                                     participants = result.participants
-                                    if method == "ocr_llm":
-                                        progress.log("Unterschriftsfelder anhand des Seitenbildes prüfen")
-                                        result.timings["signature_seconds"] = attach_signatures(
-                                            participants, image, data, config
-                                        )
-                                    elif method in VISION_METHODS:
+                                    if method in VISION_METHODS:
                                         result.review_notes.append(
                                             "Signaturpräsenz im Gesamtbild durch VLM beurteilt; "
                                             "zusätzliche Detailprüfung und Laufzeit separat protokolliert"
@@ -544,7 +549,9 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                                                 lookup_elapsed = time.perf_counter() - position_start
                                                 result.timings["signature_ocr_lookup_wall_seconds"] = lookup_elapsed
                                                 result.timings["signature_seconds"] = raw.get("signature_ocr", {}).get("elapsed_seconds", lookup_elapsed)
-                                            signature_details(result, raw, image, model, config, method_dir)
+                                            signature_details(result, raw, image, model, config, method_dir,
+                                                              signature_layouts.get(result.document_id))
+                                            signature_layouts[result.document_id] = raw.get("signature_column_context", {})
                             finally:
                                 image.close()
                     except Unavailable as exc:
@@ -664,9 +671,46 @@ def run(config, folder, manifest_path=None, truth_path=None, scope="end-to-end",
                     for page in page_results
                     if page.error
                 )
+            # All structured methods use their OWN rows and saved table evidence.
+            # This inexpensive image check never transcribes signature marks or reruns OCR.
+            cell_contexts = {}
+            for result in page_results:
+                raw_path = method_dir / f"raw-{result.page_id}.json"
+                raw = read_json(raw_path)
+                if "signature_cell_checks" in raw:
+                    cell_contexts[result.document_id] = raw.get("signature_column_context", {})
+                    continue
+                if result.output_kind != "structured":
+                    continue
+                prepared = next(p for p in selected_pages if p["page_id"] == result.page_id)
+                if not prepared.get("run_image") or not Path(prepared["run_image"]).is_file():
+                    continue
+                cell_start = time.perf_counter()
+                try:
+                    with Image.open(prepared["run_image"]) as image:
+                        cell_contexts[result.document_id] = inspect_signature_cells(
+                            result.participants, image, raw, config, cell_contexts.get(result.document_id),
+                            document_id=result.document_id, page_number=result.page_number)
+                except Exception as exc:
+                    raw["signature_stage_error"] = f"{type(exc).__name__}: {exc}"
+                    for person in result.participants:
+                        person.signature_present, person.signature_state = None, "uncertain"
+                        person.signature_method = "opencv_cells"
+                    result.review_notes.append("Signaturzellenprüfung fehlgeschlagen; Status unbekannt, manuell prüfen")
+                elapsed = time.perf_counter() - cell_start
+                result.timings["signature_seconds"] = result.timings.get("signature_seconds", 0) + elapsed
+                result.timings["page_wall_seconds"] += elapsed
+                write_json(raw_path, raw)
+                matching = [i for i, attempt in enumerate(history) if attempt.page_id == result.page_id]
+                if matching:
+                    history[matching[-1]] = result
+            write_jsonl(history_path, [row.model_dump() for row in history])
+            write_jsonl(checkpoint_path, [row.model_dump() for row in page_results])
             if method not in VISION_METHODS and config.signature.backend in ("local_vlm", "vlm"):
                 pending = [page for page in page_results if page.participants and not
-                           read_json(method_dir / f"raw-{page.page_id}.json").get("signature_checks")]
+                           read_json(method_dir / f"raw-{page.page_id}.json").get("signature_checks") and any(
+                               r.get("cells") and r.get("row_basis") in ("measured_grid_lines", "explicit_row_box")
+                               for r in read_json(method_dir / f"raw-{page.page_id}.json").get("signature_cell_checks", []))]
                 signature_model = None
                 signature_load_start = time.perf_counter()
                 try:

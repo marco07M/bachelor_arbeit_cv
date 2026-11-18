@@ -147,6 +147,8 @@ def test_reference_comparisons_copy_actual_headers_and_keep_source_files(tmp_pat
     book = load_workbook(output / "participants.xlsx", read_only=True)
     try:
         assert list(next(book["vlm"].values)) == ["LAST NAME", "Class ID", "USER ID", "First Name", "Organization"]
-        assert list(book["Referenz"].values)[1] == ("Weber", "123456", "000007", "Anna", "MUC")
+        assert list(book["Referenz"].values)[1][:5] == ("Weber", "123456", "000007", "Anna", "MUC")
+        assert list(next(book["Referenz"].values))[-1] == "schriftart"
+        assert book["Referenz"].cell(2, 6).value is None
     finally:
         book.close()

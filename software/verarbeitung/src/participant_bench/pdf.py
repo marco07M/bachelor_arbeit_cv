@@ -1,4 +1,4 @@
-"""Render every input PDF page; optional orientation and explicit manual curation only."""
+"""Render every page of supplied PDFs; optional explicit document sample, orientation and manual curation."""
 
 import time
 from pathlib import Path
@@ -29,7 +29,7 @@ def inventory(folder: Path, recursive: bool, progress: Progress | None = None, i
     return entries
 
 
-def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | None = None):
+def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | None = None, *, document_sample=None):
     start = time.perf_counter()
     output.mkdir(parents=True, exist_ok=False)
     images = output / "pages"
@@ -37,6 +37,11 @@ def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | N
     progress = progress or Progress(enabled=False)
     progress.log("PDF-Vorbereitung starten")
     inputs = inventory(folder, config.pdf.recursive, progress, include_images=config.pdf.include_images)
+    if document_sample is not None:
+        from .document_sampling import selected_inputs
+
+        inputs = selected_inputs(inputs, document_sample)
+        progress.log(f"Zufallsauswahl: {document_sample['count']} von {document_sample['available_documents']} PDFs; Seed {document_sample['seed']}")
     pdf_count = sum(item["kind"] in ("pdf", "image") for item in inputs)
     pdf_index = 0
     pages, errors, seen = [], [], set()
@@ -186,6 +191,8 @@ def prepare(folder: Path, config, output: Path, ocr=None, progress: Progress | N
         "preparation_seconds": time.perf_counter() - start,
         "curated": False,
     }
+    if document_sample is not None:
+        manifest["document_sample"] = document_sample
     write_json(output / "manifest.json", manifest)
     progress.log(f"PDF-Vorbereitung fertig: {len(pages)} Seiten, "
                  f"alle für die Extraktion enthalten; {len(errors)} protokollierte Hinweise/Fehler")
@@ -199,6 +206,10 @@ def validate_manifest(path: Path, folder: Path, config, progress: Progress | Non
     if manifest["preprocessing_config"]["pdf"] != config.pdf.model_dump():
         raise ValueError("PDF preprocessing configuration changed; prepare a new manifest")
     current = inventory(folder, config.pdf.recursive, progress, include_images=config.pdf.include_images)
+    if manifest.get("document_sample") is not None:
+        from .document_sampling import selected_inputs
+
+        current = selected_inputs(current, manifest["document_sample"])
     if current != manifest["inputs"]:
         raise ValueError("Input paths/hashes changed; prepare a new manifest")
     seen = set()

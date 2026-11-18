@@ -2,7 +2,9 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .writing_style import Schriftart, validate_schriftart
 
 TEXT_FIELDS = ("first_name", "last_name", "personnel_number", "department")
 State = Literal["read", "empty", "illegible", "uncertain", "failed"]
@@ -273,6 +275,19 @@ class PageResult(StrictModel):
     review_notes: list[str] = Field(default_factory=list)
 
 
+class GroundTruthParticipant(Participant):
+    """Reference-only metadata; Participant and all model schemas stay unchanged."""
+
+    schriftart: Schriftart | None = None
+
+    _schriftart = field_validator("schriftart", mode="before")(validate_schriftart)
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_participant(cls, value):
+        return value.model_dump() if isinstance(value, Participant) and not isinstance(value, cls) else value
+
+
 class GroundTruthPage(StrictModel):
     document_id: str
     page_number: int = Field(ge=1)
@@ -280,4 +295,4 @@ class GroundTruthPage(StrictModel):
     dependency_group: str
     content_type: Literal["typed", "handwritten", "mixed", "other"]
     relevant: bool
-    participants: list[Participant]
+    participants: list[GroundTruthParticipant]

@@ -3,7 +3,9 @@
 import json
 from urllib.parse import urlencode
 
+from ..writing_style import STYLES
 from .detail_report import esc, table
+from .error_report import signature_label
 from .field_assessment import LABELS as FIELD_LABELS
 from .field_assessment import percent as similarity_percent
 from .matching import FIELDS
@@ -27,7 +29,7 @@ for(const kind of ['fields','participants']){
 PARTICIPANTS = {"complete": "Alle Pflichtfelder korrekt", "identity_only": "Identität exakt, Pflichtfelder fehlerhaft",
                 "identity_error": "Identitätskriterium nicht erfüllt", "missing": "Referenzperson ungepaart",
                 "unclear": "Zuordnung unklar; Identifikation nicht bestätigt",
-                "extra": "Zusätzliche Ausgabeperson"}
+                "extra": "Zusätzliche Ausgabeperson – manuelle Prüfung", "excluded": "Automatisch ausgeschlossen – wahrscheinlich ohne Unterschrift"}
 
 
 def value(text):
@@ -56,7 +58,8 @@ def ledger(kind, rows, columns, filters):
     for row in rows:
         attrs = dict(method=row['candidate'], document=row['document_label'], page=str(row.get('page_number') or 'unknown'),
                      field=row.get('field', ''), category=row.get('category', row.get('participant_result', '')),
-                     assessment=row.get('evaluation_status', ''))
+                     assessment=row.get('evaluation_status', ''),
+                     schriftart=(row.get('schriftart') or 'unclassified') if row.get('reference_row') is not None else 'unassigned')
         content += '<tr ' + ' '.join(f'data-{k}="{esc(v)}"' for k, v in attrs.items()) + '>'
         content += ''.join('<td>' + fn(row) + '</td>' for _, fn in columns) + '</tr>'
     return content + '</tbody></table></div></section>'
@@ -68,11 +71,12 @@ def render(payload):
         return ''
     text = '<p>Einzelbewertungen derselben Originalrollenansicht wie A/B. Anführungszeichen machen Leerzeichen und leere Zeichenfolgen sichtbar; null bedeutet unbekannt. Die Rohwerte werden nicht verändert.</p>'
     text += table(['Verfahren', 'Erwartet R', 'Vorhanden bei Referenz', 'Ausgegeben P inkl. Extras', 'Exakt E', 'Falsch', 'Fehlend', 'Zusätzlich',
-                   'Ausgabedatensätze', 'Gepaart', 'Identität exakt', 'Alle Pflichtfelder korrekt'],
+                   'Ausgabedatensätze', 'Davon ausgeschlossen', 'Gepaart', 'Identität exakt', 'Alle Pflichtfelder korrekt'],
                   [[r[k] for k in ('candidate', 'reference_fields', 'available_reference_fields', 'predicted_fields', 'exact_fields',
-                                  'incorrect_fields', 'missing_fields', 'extra_fields', 'predicted_participants', 'assigned_participants',
+                                  'incorrect_fields', 'missing_fields', 'extra_fields', 'predicted_participants', 'excluded_probably_unsigned_participants', 'assigned_participants',
                                   'identity_exact_participants', 'fully_correct_complete_participants')] for r in data['summaries']])
     text += '<p class="note">R = exakt + falsch + fehlend. Ein falscher Wert zählt als FP und FN; dies ist die Definition von Precision/Recall. Teilnehmerfehler und technische Seitenfehler werden nicht zusätzlich auf Feldfehler addiert. Zusatzwerte ohne Referenzpaar sind keine bewiesenen Halluzinationen. Feld-/Zeilenverwechslungen werden als eigene Hinweise ausgewiesen, ohne Werte umzupaaren oder Punkte zu korrigieren.</p>'
+    text += '<p>Ausgabedatensätze enthalten auch ausgeschlossene Personen. Wahrscheinlich nicht unterschriebene Zusatzpersonen sind separat dokumentiert und liefern keine P-/FP-Beiträge. Referenzpersonen bleiben immer vollständig bewertet. <a href="extraction_errors.html">Automatische Ausschlüsse und Liste „Manuelle Prüfung erforderlich“ mit Signaturbelegen</a>.</p>'
     text += table(['Verfahren', *FIELD_LABELS.values()], [
         [r['candidate'], *r['evaluation_status_counts'].values()] for r in data['summaries']])
     text += '<p>Die Anzeigestatus zählen jeden Feldfall genau einmal, auch ungepaarte Ausgaben und unbekannte Referenzen. Sie sind keine zusätzliche R/P/E-Fehlersumme. Vorhandene abweichende Werte zählen zur Abdeckung. Unklare Zuordnung bestätigt keine Identität; eine niedrige Textähnlichkeit allein macht einen zugeordneten Wert nicht fehlend. Die Prozentzahl ist Textähnlichkeit, keine Konfidenz oder Richtigkeitswahrscheinlichkeit.</p>'
@@ -93,6 +97,7 @@ def render(payload):
     documents = [(d, d) for d in sorted({r['document_label'] for r in data['fields']})]
     pages = [('unknown', 'Seite unbekannt')] + [(str(p), str(p)) for p in sorted({r['page_number'] for r in data['fields'] if r.get('page_number')})]
     common = [('method', 'Verfahren', choices), ('document', 'Dokument(e)', documents), ('page', 'PDF-Seite', pages)]
+    common += [('schriftart', 'GT-Schriftart', [*STYLES.items(), ('unassigned', 'Keine Referenzzuordnung')])]
     text += '<h3>Teilnehmer: Zuordnung, Identität und Vollständigkeit</h3>'
     text += ledger('participants', data['participants'], [
         ('Verfahren', lambda r: esc(r['candidate'])), ('Dokument / Seite', lambda r: esc(r['document_label']) + '<br>' + esc(r.get('page_number') or 'Seite unbekannt')),
@@ -100,6 +105,7 @@ def render(payload):
         ('Bewertung', lambda r: esc(PARTICIPANTS[r['participant_result']])),
         ('Referenzanker / Prüfhinweise', lambda r: esc(r.get('identity_basis')) + '<br>' + esc(r.get('matching_review_reasons'))),
         ('Begründung', lambda r: esc(r['reason'])), ('Original / Belege', links),
+        ('Signatur / Unsicherheit', lambda r: esc(signature_label(r.get('signature_assessment')))),
     ], common + [('category', 'Bewertung', list(PARTICIPANTS.items()))])
     text += '<h3>Felder: vollständiges Soll-/Ist-Protokoll</h3>'
     text += ledger('fields', data['fields'], [

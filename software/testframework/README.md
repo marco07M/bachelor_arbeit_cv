@@ -1,5 +1,67 @@
 # Separates Testframework für PDF-Teilnehmerlisten
 
+Seit 18.11.2026 verwenden neue lokale Starts **Qwen3-VL-8B-Instruct in LLM.int8**
+für `vlm` und `ocr_vlm` (gleicher Checkpoint, keine CPU-Auslagerung; Bildencoder
+weiterhin BF16). Basis: `configs/benchmark-vlm8b.yaml`; die Vierer-/Fünferstarter
+wählen `benchmark-four-vlm8b.yaml` beziehungsweise `benchmark-five-vlm8b.yaml`.
+Textmodell, Bildauflösung, Prompts und Metriken bleiben unverändert. Die bisherigen
+4B-Profile bleiben für ausdrückliche Vergleichsläufe erhalten. Einzelheiten zu
+Speicher, Download und wissenschaftlicher Vergleichbarkeit:
+[größeres VLM](../docs/gpu-inference.md#größeres-vlm-im-testframework-18112026).
+
+Beispiel: `start_testframework_5.cmd --documents 3` startet den nächsten Test mit
+dem größeren VLM. Für einen 4B-Vergleich explizit
+`start_testframework_5.cmd --extraction-config configs/benchmark-five.yaml --documents 3`
+angeben. Alte HTML-Dateien bleiben Ergebnisse ihrer damaligen Modelle; zur
+8B-Bewertung ist ein neuer Extraktionslauf erforderlich.
+
+Neue Berichte verlinken [Handschrift vs. Maschinenschrift](../docs/schriftart.md#analyseseite-handschrift-vs-maschinenschrift):
+Feldverteilung, Qualität und Fehleranteile nach GT-Teilnehmer-Schriftart, mit
+Diagrammen und Filtern für Verfahren, Feld, Dokument und h/m/g/unklassifiziert.
+Unabhängig geprüfter Dokumentinhalt bleibt eine separate Bewertungsgrundlage.
+
+## Anzahl der Test-PDFs beim CMD-Start
+
+Die Starter `start_testframework.cmd`, `start_testframework_4.cmd` und
+`start_testframework_5.cmd` fragen vor einem neuen Lauf:
+
+```text
+Wie viele PDFs testen? [1–10, Enter = alle]:
+```
+
+Die Obergrenze richtet sich nach deinem Eingabeordner. **`3` eingeben** wählt
+zufällig drei vollständige PDFs; **Enter** verwendet alle. Die Originaldateien
+werden nicht verschoben oder gelöscht. Alle Verfahren erhalten dieselbe Auswahl
+mit sämtlichen Seiten. Identische Dateikopien zählen als ein PDF-Inhalt.
+
+Ohne Rückfrage starten oder eine Auswahl wiederholen:
+
+```bat
+start_testframework_5.cmd --documents 3
+start_testframework_5.cmd --documents 3 --sample-seed 42
+start_testframework_5.cmd --all-documents
+```
+
+Ohne angegebenen Seed wird für jeden neuen begrenzten Lauf ein Seed erzeugt.
+Mit gleichem PDF-Bestand und gleichem Seed erhältst du dieselbe Auswahl.
+Anzahl, Seed, ausgewählte PDFs und Prüfsummen stehen im Laufmanifest, im
+Vergleichsordner unter `document_sample.json` und im HTML-Bericht.
+`--pruefen` stellt keine Auswahlfrage. `--resume` und `--manifest` verwenden
+ihre gespeicherte Auswahl; eine neue Anzahl oder ein neuer Seed ist dabei
+ausgeschlossen. Änderungen am eingefrorenen Eingabepool werden beim Resume
+weiterhin abgewiesen.
+
+Die Python-CLI fragt nur mit `--prompt-documents` interaktiv; vorhandene
+automatisierte Aufrufe ohne Auswahloptionen verwenden weiterhin alle PDFs.
+Das schnelle Zufallssample ersetzt keinen geprüften Studienplan. Bestehen für
+eine Schulung mehrere PDFs, bleibt auch bei einer PDF-Teilmenge die vollständige
+Kursreferenz dieser Schulung im Bewertungsnenner. Die Metrikregeln bleiben gleich.
+
+[Wissenschaftliche Zusatzdiagnostik](../docs/scientific-validity.md): optionale
+ANLS-Feldähnlichkeit (`analyze --anls`), Zeilenkonsistenz, unabhängig annotierte
+Seitenstrata (`--page-annotations`) und technische Stabilität in `validity.html`.
+Bestehende Metriken, Extraktionen und historische Ergebnisse bleiben erhalten.
+
 Hier legst du Test-PDFs und eine gemeinsame Excel-/CSV-Referenz ab. Das Framework
 verwendet die vorhandenen lokalen Extraktionsverfahren und vergleicht anschließend
 die erkannten Teilnehmer mit den Referenzzeilen derselben Schulung. Die Referenz
@@ -10,6 +72,13 @@ separaten [API-Einstieg](../api_firmen_pc/testframework/README.md) samt
 `start_api_testframework.cmd`, eigenen Eingabeordnern und identischer Bewertung.
 Dieser lokale Einstieg bleibt ausschließlich offline.
 
+Die Seite **„Ursachen fehlender Felder“** trennt gespeicherte Pipelinebelege von
+einer unabhängigen Originalprüfung. Sie bietet filterbare Feldvergleiche,
+manuelle Dokumentannotation mit JSON-Import/-Export und eine zusätzliche
+Auswertung ausschließlich belegter lesbarer Referenzfelder. Ungeprüfte Fälle
+bleiben in den bisherigen Nennern. Details und `analyze --document-annotations`
+stehen in [Dokumentverfügbarkeit](../docs/document-availability.md).
+
 Für die wissenschaftliche Kandidatenauswahl ergänzt `participant-bench selection`
 das bestehende Framework um eine Evidenzmatrix, einen eingefrorenen gruppierten
 Stichprobenplan und einen Pilotvergleich. Originale Namensrollen auf festen
@@ -18,7 +87,7 @@ getrennt ausgewiesen. Finale Testdaten sind im Auswahlpfad gesperrt.
 Anleitung: [Verfahrensauswahl](../docs/method-selection.md). Das vorhandene
 Hauptprofil und historische Ergebnisse bleiben erhalten.
 
-Neue Vergleiche zeigen im selben Hauptbericht sieben Analysebereiche mit sortierbarer
+Neue Vergleiche zeigen im selben Hauptbericht acht Analysebereiche mit sortierbarer
 Vergleichstabelle, striktem Teilnehmer-Recall, vollständigen beziehungsweise partiellen
 Referenzen, Feldheatmap, filterbaren Fehlerursachen, Dokumenttypen, Effizienz/Kosten
 und Cluster-Bootstrap. Bereich G enthält filterbare Feld-/Teilnehmerbewertungen
@@ -32,6 +101,11 @@ Die sortierbare Gesamtübersicht zeigt jetzt die
 mit Σs/D und D/R neben Coverage und Exact-Metriken. Fehlende Felder senken die
 Ähnlichkeit nicht; ohne vergleichbare Werte bleibt sie nicht definiert.
 Der frühere Levenshtein-Feld-F1 wird in der aktuellen Anzeige ersetzt.
+Bereich H gruppiert nach der optionalen GT-Spalte `schriftart` (h/m/g), mit
+Schriftartfilter, sechs Qualitätsdimensionen, Feldtypen und expliziter Gruppe
+„Nicht klassifiziert“. Fehlende Annotation wird nicht als Maschinenschrift
+interpretiert. `reference-template` erzeugt eine bearbeitbare GT-Kopie mit
+Excel-Auswahlliste. [Annotation, Gruppen-F1 und Beispiele](../docs/schriftart.md).
 Ausgabezeilen, exakte Identitäten und vollständig korrekte Teilnehmer werden
 getrennt gezählt. [Audit des Dreidokumentreports](../docs/evaluation-audit-20261116.md)
 erklärt Abdeckung, Namensrollen, Nullbaseline, VLM-Abbrüche und Cachezeiten.
@@ -68,8 +142,10 @@ Kompatibilitätsprüfung, auch für VLM/Hybrid.
 ```
 
 Die bereits eingerichtete Hauptumgebung wird weiterverwendet. Es ist kein neues
-Python-Projekt und keine weitere Installation nötig. Neue Rechner benötigen
-zuerst die [sechs lokalen Modelle](../docs/local-methods.md).
+Python-Projekt nötig. Die 8B-Gewichte müssen einmalig wie unter
+[GPU-Ausführung](../docs/gpu-inference.md#größeres-vlm-im-testframework-18112026)
+eingerichtet werden. Neue Rechner benötigen außerdem die
+[sechs lokalen Verfahren](../docs/local-methods.md).
 
 Die Schulungs-ID steht im PDF-Dateinamen: **`123456.pdf` gehört zu `Class ID = 123456`**.
 Auch die bisherigen Rohdatei-Namensformen und `123456__2.pdf` werden unterstützt.
@@ -202,7 +278,7 @@ reference:
 ## Startvarianten
 
 Alle folgenden Befehle aus `software/` ausführen. Ohne Optionen verwendet `run`
-die sechs Verfahren aus `configs/benchmark.yaml`:
+die sechs Verfahren aus `configs/benchmark-vlm8b.yaml`:
 
 ```powershell
 .\.venv\Scripts\python.exe testframework/main.py run
@@ -230,8 +306,24 @@ Die üblichen Einzelmetriken bestrafen zusätzliche Ausgaben weiterhin separat.
 Die neuen Textgewichte Qwen3-4B-Instruct-2507 müssen vorab eingerichtet sein;
 fehlende Modelle werden als `unavailable` ausgewiesen.
 
-Die Referenz hat keine Unterschriftenlabels. Daher deaktiviert dieses Framework
+Die Referenz enthält ausschließlich Unterzeichner, aber keine einzelnen Signaturlabels. Daher deaktiviert dieses Framework
 standardmäßig die zusätzlichen VLM-Signaturdetailaufrufe (`signature_detail_checks: false`).
+
+Die Evaluation kann ungepaarte Zusatzpersonen bei einem gespeicherten,
+zeilenbezogenen Leerfeldbefund automatisch ausschließen. Ähnliche Referenznamen,
+Signaturunsicherheit und Widersprüche verhindern diesen Ausschluss; alle
+Referenzpersonen bleiben im Nenner. In den Standardprofilen ist
+`matching.exclude_probably_unsigned_extras: true` aktiv. Historische Profile ohne
+diesen Schlüssel behalten ihre bisherigen Beiträge. Details, Beleggrenzen,
+Zählerdefinitionen und die manuelle Prüfliste im HTML-Report sind in
+[Signatur und Referenzbewertung](../docs/signatur-referenzbewertung.md) dokumentiert.
+
+Die Unterschriftenspalte wird als vorhanden vorausgesetzt. Neue strukturierte
+Läufe prüfen ihre Zellen bildbasiert und übernehmen die aus Überschriften
+bestimmte Position nur auf kompatible Folgeseiten derselben PDF. Fehlende
+Zell-/Zeilenpositionen bleiben unklar; Signaturen sind keine Textfelder und
+gehen nicht als Transkriptionen in die Textmetriken ein. Zusätzliche VLM-
+Prüfungen benötigen lokalisierte Zellen, keine separate Spaltenexistenzprüfung.
 Die bisherigen Startdateien und Standardprofile außerhalb dieses Frameworks behalten
 ihre Signaturprüfung. Mit `true` bleibt die im gewählten Extraktionsprofil konfigurierte
 Prüfung aktiv; Signaturqualität wird gegen diese fünf Referenzspalten trotzdem nicht bewertet.

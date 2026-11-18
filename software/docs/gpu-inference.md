@@ -1,5 +1,55 @@
 ﻿# GPU-Ausführung des Hauptvergleichs
 
+## Größeres VLM im Testframework (18.11.2026)
+
+Die lokalen Testframework-Starter verwenden jetzt ein ausdrücklich separates
+8B-Profil. `benchmark-vlm8b.yaml` enthält die bisherigen sechs Verfahren;
+`benchmark-five-vlm8b.yaml` die Nutzerwahl aus Regeln/Tesseract+LLM/Paddle+LLM/
+VLM/OCR+VLM, `benchmark-four-vlm8b.yaml` dieselbe Viererauswahl ohne Tesseract+LLM.
+Das feste 4B-Hauptvergleichsprofil `benchmark.yaml` wird nicht umdefiniert.
+API-Modelle und andere ausdrücklich gewählte Profile bleiben unverändert.
+
+| Einstellung | Größeres VLM |
+|---|---|
+| Checkpoint | [Qwen/Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct/tree/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b) |
+| Revision | `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` |
+| Lokaler Ordner | `models/qwen3-vl-8b` |
+| Gewichte herunterladen | 17.534.339.512 Bytes, vier Safetensors-Dateien, zusätzlich Processor/Tokenizer |
+| Speicherformat bei Inferenz | LLM.int8 im Sprachdecoder; `visual` und `lm_head` ausgenommen, sonst BF16 |
+| Geräte | explizit vollständig `cuda:0`, kein CPU-Offload |
+| GPU-Startbudget | 11 GiB plus vorhandene 2-GiB-Reserve |
+| Attention/Budgets | unverändert SDPA repeated KV, 1.048.576 Pixel, 12.000 Eingabe-/8.192 Ausgabetoken |
+
+BF16-Gewichte allein überschreiten den für Aktivierungen verfügbaren Speicher
+dieser 16-GiB-Laptop-GPU. Deshalb wird die bereits installierte bitsandbytes-
+Integration ausdrücklich auch für die VLM-Sprachschichten verwendet. Der
+Bildencoder einschließlich Mergern und der Ausgabekopf werden nicht quantisiert.
+Details zur [Transformers-/bitsandbytes-Integration](https://huggingface.co/docs/transformers/v4.57.1/en/quantization/bitsandbytes).
+Es gibt keinen automatischen Wechsel von Quantisierung, Modell oder Auflösung.
+
+Die Originalgewichte bleiben im Downloadordner, LLM.int8 wird beim Laden
+angewendet. Einrichtung aus `software/`:
+
+```powershell
+.\.venv\Scripts\participant-bench.exe download-models --config configs/benchmark-vlm8b.yaml --method vlm --transport range
+start_testframework_5.cmd --documents 3
+```
+
+Nur öffentliche Modellgewichte werden heruntergeladen; Dokumentinferenz bleibt
+lokal. Die bestehende Prüfsummenprüfung und Modellidentität unterscheiden 4B und
+8B. Neue Modellparameter erzeugen neue Cachebindungen und müssen in einem neuen
+Lauf ausgewertet werden; alte Berichte werden nicht umgeschrieben. Beide
+Bildverfahren erhalten dieselbe vollständig identische Konfiguration.
+
+Die Textmodelle, Extraktionsprompts, Bild-/Tokenbudgets, Ground Truth und Metriken
+bleiben gleich. Ein Vergleich 4B-BF16 gegen 8B-int8 ändert trotzdem sowohl
+Parameterzahl als auch numerisches Gewichtsformat; Verbesserungen sind nicht
+allein der Parameterzahl zuzuschreiben und erst durch neue Extraktion belegt.
+Speicherreserven sind keine Garantie gegen OOM bei jeder Seite. Ein kleiner
+synthetischer Funktionstest ersetzt keinen vollständigen Referenzvergleich.
+
+## Festes 4B-Hauptprofil
+
 Das aktuelle Hauptprofil ist configs/benchmark.yaml. Es nutzt genau
 Qwen3-4B-Instruct-2507 für Text und Qwen3-VL-4B-Instruct für Bilder.
 Verbindliche Revisionen und Installationsbefehle:
@@ -58,6 +108,6 @@ unter dokumentierten, vergleichbaren Betriebsbedingungen ausführen.
 ## Frühere Modelle
 
 Gespeicherte Läufe und ältere Gewichte werden nicht verändert.
-1.7B-/8B-Konfigurationen gehören zu früheren Experimenten und sind keine
+1.7B- und frühere Text-8B-Konfigurationen gehören zu früheren Experimenten und sind keine
 Bestandteile des aktuellen Hauptvergleichs. Nach Code-/Modelländerungen einen
 neuen Lauf starten; --resume setzt nur identische Konfigurationen fort.

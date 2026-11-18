@@ -11,7 +11,7 @@ from statistics import median
 from .schema import TEXT_FIELDS, Box, TextField
 from .unlimited_assignment import header_fields, source_rows
 
-VERSION = "structure-spatial-assignment-v10-multiline-column-context"
+VERSION = "structure-spatial-assignment-v11-physical-continuation-bands"
 
 
 def heading_rows(rows):
@@ -66,13 +66,22 @@ def document_bands(recognized, rows, bands, previous, *, document_id, page_numbe
         document_id=document_id, page_number=page_number, has_header=bool(bands) or bool(ambiguous), ambiguous=bool(ambiguous))
     inherited = {}
     if trace["status"] in ("detected_on_current_page", "updated_on_current_page"):
-        context["field_bands"] = bands
+        intervals = trace.get("column_intervals") or {}
+        for field, band in list(bands.items()):
+            if field in intervals:
+                bands[field] = (band[0], min(band[1], intervals[field][1]))
+        context["field_bands"] = dict(bands)
         # Completion needs a physical cell, not the broad text bands used for validation.
         # In particular the last text band can extend through signature columns.
         context["observed_cell_bands"] = observed_cell_bands(rows, profile)
         trace["observed_cell_bands"] = context["observed_cell_bands"]
     elif trace["status"] == "inherited_from_previous_page":
-        inherited = project_bands(context.get("field_bands", {}), context["geometry"], profile)
+        intervals = trace.get("column_intervals") or {}
+        if intervals:
+            inherited = {field: (max(0.0, interval[0] - 0.012), interval[1])
+                         for field, interval in intervals.items() if field in context.get("field_bands", {})}
+        else:
+            inherited = project_bands(context.get("field_bands", {}), context["geometry"], profile)
         trace["observed_cell_bands"] = project_bands(context.get("observed_cell_bands", {}), context["geometry"], profile)
     return inherited, context, trace
 
@@ -127,7 +136,7 @@ def complete_observed_cells(people, proofs, rows, mapping_trace):
             if len(candidates) != 1:
                 continue
             cell = candidates[0]
-            if cell["bbox"]["x0"] < left or cell["bbox"]["x1"] > right:
+            if cell["bbox"]["x0"] < left - .006 or cell["bbox"]["x1"] > right + .006:
                 continue
             # A masked identifier is not a readable identifier; its OCR observation stays in the ledger.
             if field == "personnel_number" and re.search(r"[*█■]{2,}|[xX]{3,}", cell["text"]):
@@ -408,7 +417,7 @@ def ground_positions(people, evidence, rows, bands):
             observed = [c for c in row.get("native_cells", []) if c.get("bbox") in boxes]
             item["ocr_observations"] = [dict(text=c.get("raw_text", c["text"]), bbox=c["bbox"],
                 ocr_confidence=c.get("ocr_confidence"), native_ref=c.get("native_ref")) for c in observed]
-            if field in bands and any(not bands[field][0] <= box["x0"] < bands[field][1] for box in boxes):
+            if field in bands and any(not box_in_band(cell, item["offset"], box, bands[field]) for box in boxes):
                 setattr(person, field, TextField(state="failed"))
                 item["rejected"] = "outside_header_column"
                 person.review_notes.append(f"{field}: Text liegt außerhalb der zugeordneten Spalte; Wert unbekannt")
@@ -432,9 +441,26 @@ def source_boxes(cell, offset):
     return [cell["bbox"]] if cell.get("bbox") else []
 
 
+def box_in_band(cell, offset, box, band):
+    if band[0] <= box["x0"] < band[1]:
+        return True
+    if cell.get("kind") == "row_transcript" and offset:
+        start, stop = offset
+        for c in cell["components"]:
+            if c["bbox"] == box and start > c["start"] and c["stop"] > c["start"]:
+                width = box["x1"] - box["x0"]
+                length = c["stop"] - c["start"]
+                span_x0 = box["x0"] + (start - c["start"]) / length * width
+                span_x1 = box["x0"] + (min(stop, c["stop"]) - c["start"]) / length * width
+                if band[0] <= span_x0 < band[1] or band[0] < span_x1 <= band[1]:
+                    return True
+    return False
+
+
 def position_matches(field, cell, match, bands):
-    boxes = source_boxes(cell, match.span() if match else None)
-    return field not in bands or all(bands[field][0] <= box["x0"] < bands[field][1] for box in boxes)
+    offset = match.span() if match else None
+    boxes = source_boxes(cell, offset)
+    return field not in bands or all(box_in_band(cell, offset, box, bands[field]) for box in boxes)
 
 
 def comma_names(response, rows, bands):

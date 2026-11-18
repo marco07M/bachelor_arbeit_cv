@@ -175,7 +175,7 @@ Wie Tabelle~\ref{tab:prompt-regelmatrix} zusammenfasst, setzen alle Pfade diesel
 \subsection{Feldbezogene Qualitätsmetriken und bedingte Levenshtein-Ähnlichkeit}
 \label{subsec:feldmetriken}
 
-Die primäre Qualitätsbewertung (\texttt{roster\_benchmark/metrics.py}, Metrikversion~v7) betrachtet die vier strukturierten Textfelder $\mathcal{F} = \{\text{\texttt{first\_name}}, \text{\texttt{last\_name}}, \text{\texttt{personnel\_number}}, \text{\texttt{department}}\}$. Vor dem Vergleich werden Textfelder Unicode-\ac{nfc}-normalisiert, mehrfach aufeinanderfolgende Leerzeichen vereinheitlicht und Groß-/Kleinschreibung angeglichen; bei Personalnummern werden äußere Leerzeichen entfernt und -- sofern im Referenzvergleich konfiguriert (\texttt{ignore\_leading\_user\_id\_zeros: true}) -- führende Nullen rein numerischer Kennungen normiert, während die unveränderten Originalwerte (\texttt{raw\_exact\_fields}) separat gezählt werden.
+Die primäre Qualitätsbewertung (\texttt{roster\_benchmark/metrics.py}, Metrikversion~v9) betrachtet die vier strukturierten Textfelder $\mathcal{F} = \{\text{\texttt{first\_name}}, \text{\texttt{last\_name}}, \text{\texttt{personnel\_number}}, \text{\texttt{department}}\}$. Vor dem Vergleich werden Textfelder Unicode-\ac{nfc}-normalisiert, mehrfach aufeinanderfolgende Leerzeichen vereinheitlicht und Groß-/Kleinschreibung angeglichen; bei Personalnummern werden äußere Leerzeichen entfernt und -- sofern im Referenzvergleich konfiguriert (\texttt{ignore\_leading\_user\_id\_zeros: true}) -- führende Nullen rein numerischer Kennungen normiert, während die unveränderten Originalwerte (\texttt{raw\_exact\_fields}) separat gezählt werden.
 
 Für jedes Verfahren werden über alle ausgewählten Kurse hinweg die folgenden fundamentalen Feldzähler gepoolt~\cite{Sokolova2009Measures}:
 \begin{itemize}
@@ -213,13 +213,26 @@ Um die Zeichenähnlichkeit tatsächlich gelesener Felder sauber von der Vollstä
   \end{cases}
   \label{eq:detected-similarity}
 \end{equation}
-Fehlende Ausgaben ($M$), ungepaarte Zusatzvorhersagen sowie leere oder unbekannte Referenzzellen gehören nicht zu $D$. Da $S_{\mathrm{detected}}$ ein bedingtes Mittel auf den ausgefüllten Paaren $|D|$ ist, muss die Kennzahl stets gemeinsam mit $|D|/R$, $\mathrm{Coverage}$ und $R_{\mathrm{exact}}$ interpretiert werden. Zur Wahrung der Abwärtskompatibilität mit älteren Läufen wird der unbedingte \textbf{Levenshtein-Feld-$F_1$} ($F_{1,\mathrm{soft}}$) mit der unbedingten Ähnlichkeitssumme $C = \sum_{i} s(g_i, p_i)$ weiterhin als dokumentiertes Legacy-Feld (\texttt{soft\_f1}) exportiert:
+Leere oder fehlende Ausgaben, ungepaarte Zusatzvorhersagen sowie leere oder unbekannte Referenzzellen gehören nicht zu $D$. Nichtleere ung\"ultige ID-Platzhalter bleiben dagegen in $D$, obwohl sie in der strengen Nutzbarkeitsbewertung zu $M$ z\"ahlen. Da $S_{\mathrm{detected}}$ ein bedingtes Mittel auf den ausgefüllten Paaren $|D|$ ist, muss die Kennzahl stets gemeinsam mit $|D|/R$, $\mathrm{Coverage}$ und $R_{\mathrm{exact}}$ interpretiert werden. Zur Wahrung der Abwärtskompatibilität mit älteren Läufen wird der unbedingte \textbf{Levenshtein-Feld-$F_1$} ($F_{1,\mathrm{soft}}$) mit der unbedingten Ähnlichkeitssumme $C = \sum_{i} s(g_i, p_i)$ weiterhin als dokumentiertes Legacy-Feld (\texttt{soft\_f1}) exportiert:
 \begin{equation}
   R_{\mathrm{soft}} = \frac{C}{R}, \qquad
   P_{\mathrm{soft}} = \frac{C}{P}, \qquad
   F_{1,\mathrm{soft}} = \frac{2C}{R + P}.
   \label{eq:soft-f1-legacy}
 \end{equation}
+
+\subsection{Optionale ANLS-Feldähnlichkeit und Zeilenkonsistenz}
+\label{subsec:anls-zeilenkonsistenz}
+
+Ergänzend zur unveränderten Primärbewertung wird mit \texttt{analyze --anls} eine an ST-VQA und DocVQA angelehnte Feldmetrik aktiviert~\cite{Biten2019STVQA,Mathew2021DocVQA}. Auf den festen Paarungen der Originalrollenansicht gilt mit $s_i$ als bestehender Feldgutschrift:
+\begin{equation}
+ A_{\mathrm{field}}=\frac{1}{R}\sum_{i\in\mathcal{R}}
+ \begin{cases}s_i,&1-s_i<0{,}5,\\0,&1-s_i\geq0{,}5.\end{cases}
+ \label{eq:anls-field}
+\end{equation}
+Die Menge $\mathcal{R}$ umfasst alle bewertbaren nichtleeren Referenzfelder. Fehlende oder ungültige Ausgaben liefern null Gutschrift; $R=0$ ist nicht definiert. Die Grenzregel bei exakt $0{,}5$ Ähnlichkeit ist explizit auf null festgelegt und getestet. Anders als $S_{\mathrm{detected}}$ berücksichtigt diese Metrik fehlende Werte. Normalisierung und Paarungen bleiben gleich; zusätzliche Teilnehmer verbessern den Wert nicht, ihre Fehlerbeiträge verbleiben im globalen exakten und weichen $F_1$. Die Kennzahl ist eine Feldadaption, kein $F_1$ und kein alleiniger Gesamtscore.
+
+Die zusätzliche \textbf{Dreifeld-Zeilenkonsistenz} $Q_3=C_3/N_3$ verlangt gemeinsam korrekten Vornamen, Nachnamen und Personalnummer in ihren ursprünglichen Rollen auf demselben zuverlässigen Personenpaar. $N_3$ enthält alle Referenzpersonen mit drei lesbaren Identitätsfeldern, auch vollständig fehlende Personen. $C_3$ erfordert zusätzlich das bestehende strikte Identitätskriterium; unsichere Paarungen zählen nicht als Treffer. Bei $N_3=0$ bleibt der Quotient undefiniert. Organisation und Vierfeldkorrektheit werden separat beurteilt. Damit kann ein referenzgestützter Namensswap die Originalrollen-Zeilenkonsistenz nicht künstlich verbessern.
 
 \subsection{Fünfstufiges Feldstatus-Modell und Teilnehmer-Qualitätsquotienten}
 \label{subsec:feldstatus-teilnehmer}
@@ -247,7 +260,7 @@ Hierbei bezeichnet $N_c$ die Anzahl der Referenzpersonen mit vier bestimmbaren P
 
 Da Modelle Teilnehmerzeilen ohne feste Zeilen-IDs oder in veränderter Reihenfolge ausgeben können, erfolgt die Eins-zu-eins-Zuordnung zwischen Referenzpersonen und ausgegebenen Datensätzen innerhalb derselben Schulung (\emph{Class~\ac{id}}) über zwei Matching-Algorithmen (\texttt{roster\_benchmark/matching.py}):
 \begin{itemize}
-  \item \textbf{Best-Fit-Matching:} Löst ein globales lineares Zuordnungsproblem~\cite{SciPyBootstrapDocumentation}, das lexikografisch zuerst die Anzahl gültiger Personenpaare und danach die Summe der Feldähnlichkeiten maximiert.
+  \item \textbf{Best-Fit-Matching:} Die implementierte Zielfunktion des globalen linearen Zuordnungsproblems maximiert lexikografisch zuerst die Anzahl zulässiger Personenpaare und danach die Summe ihrer Ähnlichkeiten. Dies ist eine referenzgestützte Evaluationsentscheidung, keine unabhängige Identifikation.
   \item \textbf{Konservatives Matching:} Verknüpft zuerst eindeutige exakte Personalnummern und akzeptiert weitere Paare nur oberhalb fester Namens- und Kurzzeichen-Ähnlichkeitsschwellen bei Abwesenheit konkurrierender Alternativen.
 \end{itemize}
 Um den Einfluss von Vor- und Nachname-Vertauschungen (\emph{Name Swaps}) präzise zu isolieren, berechnet die wissenschaftliche Evaluation fünf definierte Ansichten:
@@ -259,16 +272,34 @@ Um den Einfluss von Vor- und Nachname-Vertauschungen (\emph{Name Swaps}) präzis
 
 Zur Quantifizierung der Stichprobenunsicherheit auf unabhängigen Studiendaten ist ein \textbf{95-\%-Cluster-Perzentilbootstrap} implementiert~\cite{Field2007Cluster,SciPyBootstrapDocumentation}. In $B = 2\,000$ Wiederholungen (\texttt{seed: 42}) werden jeweils $G$ geprüfte Abhängigkeitsgruppen mit Zurücklegen gezogen, deren additive Zähler ($R, P, E, \Sigma_s, |D|$) gepoolt und daraus die Punkt- und Intervallschätzer für $R_{\mathrm{exact}}$, $F_{1,\mathrm{exact}}$ und $S_{\mathrm{detected}}$ sowie für gepaarte Verfahrensdifferenzen $\Delta = M_{\text{Vergleich}} - M_{\text{Basis}}$ (mit identischen gezogenen Gruppenindizes) bestimmt. Liegen weniger als $G_{\min} = 10$ unabhängige geprüfte Gruppen derselben Evaluationsphase vor, gibt das System ausdrücklich \texttt{insufficient\_groups} statt scheinbar präziser Konfidenzintervalle aus.
 
+\subsection{Unabhängige Dokumentverfügbarkeit und Seitenstrata}
+\label{subsec:dokumentverfuegbarkeit}
+
+Eine fehlende Extraktion und ein fehlendes \ac{ocr}-Wort sind keine Beweise einer leeren Originalzelle. Die zusätzliche Originalprüfung annotiert daher methodenunabhängig \emph{lesbar}, \emph{unleserlich}, \emph{nachweislich leer/nicht enthalten}, \emph{unklar} oder \emph{ungeprüft}. Das Prüfprotokoll ist an die Prüfsummen von Referenzsnapshot und Original-\acp{pdf} gebunden; bestätigte Befunde benötigen Personenanker, Originalseite, Prüfmethode, Autor und Datum. Ein lesbarer Originalwert wird unabhängig transkribiert und mit der Kursreferenz verglichen. Abweichungen werden als Referenzkonflikte sichtbar, ohne die Referenz umzuschreiben.
+
+Die dokumentbasierte Zusatzbewertung projiziert vorhandene Feldzähler ausschließlich auf nachweislich lesbare und nach der bestehenden Normalisierung referenzgleiche Originalwerte. Ihr Nenner $R_{\mathrm{doc}}$ und ihr Prüfanteil werden getrennt angegeben. Ungeprüfte Fälle bleiben vollständig in der bisherigen Referenzauswertung. Die bedingte Teilmengen-Precision und ihr $F_1$ erlauben keine Aussage über ungepaarte Zusätze; diese behalten ihre globale Strafe. Eine selektive Sichtprüfung einfacher Druckfelder ergibt keinen korrigierten Gesamtscore.
+
+Die disjunkten Teilnehmer-Schriftarten \texttt{h}, \texttt{m}, \texttt{g} stammen ausschließlich aus der Ground Truth; fehlende Angaben bleiben unklassifiziert. \texttt{g} unterscheidet keine einzelnen Felder. Seitenrollen \emph{erste Teilnehmerseite} und \emph{Folgeseite} sowie die Präsenz der Überschrift und optionale Scanqualität werden separat unabhängig annotiert. Eine erste Teilnehmerseite ist nicht automatisch PDF-Seite~1. Für gruppenspezifische Nenner muss jede Referenzperson unabhängig lokalisiert sein: Fehlende Personen bleiben ihrer Gruppe zugeordnet, nicht lokalisierte Personen verbleiben in einer unbekannten Gruppe. Ausgabekoordinaten dürfen diesen Referenznenner nicht erzeugen. Pixelgröße und gespeicherte Rotation sind technische Beobachtungen, keine Lesbarkeitslabels oder verlässliche ursprüngliche Scanauflösung.
+
+Die Kursreferenz umfasst unterschriebene Teilnehmer. Jede Referenzperson bleibt unabhängig vom erkannten Signaturstatus im Bewertungsumfang. Nur ungepaarte Zusatzpersonen ohne hinreichend ähnliche Referenzanker dürfen bei zuverlässig lokalisierter, wahrscheinlich leerer Signaturzelle nach gespeicherter Konfiguration ausgeschlossen werden. Unklare oder widersprüchliche Befunde bleiben prüfpflichtig. Unterschriften werden ausschließlich auf Präsenz geprüft und gehen in keine der vier Textfeldmetriken ein. Die reale Ausschlussgüte benötigt weiterhin unabhängig annotierte Entwicklungszellen.
+
 \section{Methodik der kausalen Fehleranalyse}
 \label{sec:methodik-fehleranalyse}
 
-Um über reine Trefferquoten hinaus zu erklären, an welcher Stelle der Verarbeitungskette ein Feldwert verloren geht oder verfälscht wird, klassifiziert die Fehleranalyse (\texttt{roster\_benchmark/error\_report.py}) jeden Feldfehler entlang einer sechsstufigen kausalen Pipeline-Taxonomie und weist jedem Befund einen expliziten Evidenzgrad (\texttt{proven}, \texttt{plausible}, \texttt{unknown}) zu:
+Die Fehleranalyse unterscheidet Ergebnisstatus, Dokumentverfügbarkeit und gespeicherte Verarbeitungsschritte. Für jeden fehlenden, abweichenden oder zusätzlichen Feldfall können mehrere Befundachsen vorliegen:
 \begin{enumerate}
-  \item \textbf{Vorverarbeitung \& Seitenorientierung (\texttt{page\_preparation}):} Die Seite wurde seitlich gedreht verarbeitet (\ac{osd}-Fehler vor Einführung des Vierlagen-Fallbacks) oder durch Bildvorverarbeitung beeinträchtigt.
-  \item \textbf{Erkennungs- vs.\ Zeilenauswahlstufe (\texttt{ocr\_or\_selection}):} Ein Wort fehlt bereits in den \ac{ocr}-Rohbeobachtungen, oder es ist im Beobachtungsregister vorhanden, wurde aber durch die Zeilenauswahl (\texttt{select\_person\_rows}) nicht in den Modell-Input übernommen (\texttt{proven}).
-  \item \textbf{Eingabe- und Ausgabetoken-Budgets (\texttt{input\_budget} / \texttt{model\_response}):} Die Seite scheitert vor der Generierung am Eingabelimit (\mbox{12\,000} Tokens) oder bricht während der Generierung am Ausgabelimit (\mbox{8\,192} Tokens) mit unvollständigem \ac{json} ab (\texttt{proven}).
-  \item \textbf{Spaltenkontext \& Strukturzuordnung (\texttt{column\_mapping} / \texttt{name\_role\_assignment}):} Das Modell oder die Strukturstufe erkennt Zellen, kann sie aber wegen fehlender Überschriften auf Folgeseiten, ungleicher Header-/Zellanzahl, Datenzeilen im Header-Array (\emph{Header-Echo}) oder Vor-/Nachname-Vertauschung (\texttt{name\_swap}) nicht der richtigen Zielspalte zuordnen (\texttt{proven}).
-  \item \textbf{Literal- \& Positionsvalidierung (\texttt{evidence\_validation}):} Das Modell schlägt einen Wert vor, der jedoch nicht wörtlich in der referenzierten Quellzeile vorkommt oder außerhalb des gemessenen physischen Spaltenbandes liegt und daher vom Validator abgewiesen wird (\texttt{proven}).
-  \item \textbf{Referenz- \& Formularabweichung (\texttt{reference\_scope}):} Die externe Kursreferenz führt ein Feld (z.\,B.\ Personalnummer oder Abteilung), für das das vorliegende Papierformular nachweislich keine Spalte besitzt oder die Person nicht gepaart werden konnte.
+  \item \textbf{Dokumentinhalt:} Unabhängige Originalprüfung belegt leere oder vorhandene, aber unleserliche Information.
+  \item \textbf{Wahrnehmung:} Ein unabhängig lesbarer Referenzwert fehlt im Endergebnis. Ohne vollständig lokalisierte Übergangsbelege bleibt offen, ob Wahrnehmung oder spätere Zuordnung scheiterte. Fehlende OCR-Beobachtung allein genügt nicht.
+  \item \textbf{Struktur und Zuordnung:} Gespeicherte Spalten-/Namensrollenentscheidungen oder lokalisierte Übergänge belegen einen technischen Strukturverlust. Ein gleicher Wert in einer anderen Zeile ist lediglich eine Zuordnungshypothese, keine bewiesene Verwechslung.
+  \item \textbf{Validierung, Filter oder Übergabe:} Vorher-/Nachher-Artefakte dokumentieren einen verworfenen Vorschlag oder einen Übergabeverlust. Das beweist weder die Lesbarkeit noch die inhaltliche Richtigkeit des Vorschlags.
+  \item \textbf{Zusätzliche unbelegte Extraktion:} Ein nichtleerer Zusatzwert erhöht $P$. Ohne unabhängigen Dokumentbeleg wird er nicht als bewiesene Halluzination bezeichnet.
+  \item \textbf{Referenz oder Matching:} Ein unabhängig gelesener Originalwert widerspricht der Referenz, oder die vorhandene Paarung ist mehrdeutig. Dokumentkonflikt und bloßer Zuordnungshinweis bleiben getrennt.
+  \item \textbf{Unbekannt:} Die Belege reichen nicht zur Ursachenfeststellung.
 \end{enumerate}
-Seitenweite technische Ereignisse (wie leere Antworten oder abgelehnte Zusatzzeilen) werden getrennt gezählt und niemals künstlich zu den Referenz-Feldfehlern addiert.
+Dokumentbefunde, nachgewiesene technische Übergänge, Hypothesen und unbekannte Ursachen werden ausdrücklich unterschieden. Überlappende Befundzahlen dürfen nicht als unabhängige Feldfehler addiert werden. Der Bericht nennt zusätzlich die Zahl eindeutiger Fehlerfälle und aggregiert nach Verfahren, Dokument, Seite und Feldtyp. Fehlende Teilnehmer ohne unabhängige Seitenlokalisierung behalten Seite \texttt{unknown}. Seitenweite technische Ereignisse werden getrennt geführt. Direktes VLM erhält keine vorgeschaltete OCR-Ursache aus Hilfsbeobachtungen.
+
+\subsection{Rohtext-OCR und technische Messgrenzen}
+
+\texttt{ocr\_raw} bleibt außerhalb des strukturierten Feld-$F_1$. Eine separate Textauffindbarkeitsdiagnose sucht unabhängig transkribierte lesbare Originalfeldwerte auf ihrer Originalseite als vollständige normalisierte Zeichenfolge an Wortgrenzen. Sie misst weder die richtige Personenzuordnung noch zusätzliche falsche Texte. Ohne vollständige unabhängige Seitentranskripte wird keine CER/WER angegeben.
+
+Ladezeit, Warm-up, Seitenzeiten, Cachehinweise und GPU-Allocator-Spitzenwerte werden aus vorhandenen Messartefakten übernommen. Dokumentzeiten summieren gespeicherte Seitenzeiten ohne anteiliges Laden. Quelllauf-Peaks sind keine Messung eines nachträglich ausgewählten Dokumentteilumfangs. JSON-Syntax wird am gespeicherten Antwortliteral geprüft; Schemaquoten verwenden ausdrücklich gespeichertes \texttt{parse\_status} und sind keine unabhängige Revalidierung historischer Schemas. Native Struktur-JSONs gelten nicht als generative Antworten. Doppelt abgelegte Assignment-Antworten zählen einmal. Diese Analyse der letzten gespeicherten Antworten ersetzt keine vollständige Inferenzhistorie. Wiederholte Seitenversuche aus \texttt{attempts.jsonl} sind keine Modell-Retries; Cold-/Warm-Start und nicht belegte Retryzahlen bleiben unbekannt.

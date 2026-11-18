@@ -1,12 +1,14 @@
 """Observed effort and explicit cost assumptions; no inference or invented measurements."""
 
+import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from types import SimpleNamespace
 
 import numpy as np
 
 from ..config import CostsConfig
+from ..io import read_jsonl
 from ..report import cost_scenario
 
 
@@ -78,6 +80,67 @@ def enrich_effort(values, rows, pages, summary, method, extraction_config):
             sum(r[name] for r in rows) if rows and all(r[name] is not None for r in rows) else None
         )
     return values
+
+
+def technical_observations(source, method, pages, raw_pages, expected_pages):
+    """Only recorded final-response records; retries/history are a separate unit."""
+    generative = method in {"ocr_llm", "paddle_llm", "vlm", "ocr_vlm", "docling_vlm"} or any(
+        raw.get("docling_vlm_assist", {}).get("vlm_called") is True for raw in raw_pages)
+    responses, seen = [], set()
+    for page, raw in zip(pages, raw_pages, strict=True):
+        records = list(raw.get("responses", []))
+        assignment = raw.get("assignment", {})
+        if assignment.get("raw_response") is not None:
+            # Structure pipelines also store the same answer in responses: count it once.
+            records = [r for r in records if r.get("raw_response") != assignment["raw_response"]]
+            records.append(assignment)
+        for index, r in enumerate(records):
+            key = (page.page_id, index)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not generative or not (r.get("prompt_version") or r.get("generation_schema_sha256")
+                                      or r is assignment):
+                continue  # A native table converted to JSON is not a generative response.
+            literal = r.get("raw_response")
+            syntax = None
+            if isinstance(literal, str):
+                try:
+                    json.loads(literal)
+                    syntax = True
+                except ValueError:
+                    syntax = False
+            status = r.get("parse_status")
+            responses.append(dict(page_id=page.page_id, json_valid=syntax,
+                                  schema_valid=True if status == "valid" else False if status == "invalid" else None,
+                                  output_budget_reached=r.get("output_budget_reached")))
+    def validity(key):
+        observed = [r[key] for r in responses if r[key] is not None]
+        return dict(valid=sum(observed), evaluated=len(observed), unavailable=len(responses) - len(observed),
+                    rate=sum(observed) / len(observed) if observed else None)
+    history_path = source / method / "attempts.jsonl"
+    history = read_jsonl(history_path) if history_path.is_file() else None
+    selected = {p.page_id for p in pages}
+    histories = Counter(r["page_id"] for r in history if r.get("page_id") in selected) if history is not None else None
+    documents = defaultdict(list)
+    for p in pages:
+        documents[p.document_id].append(p.timings.get("page_wall_seconds"))
+    return dict(
+        expected_pages=expected_pages, observed_pages=len(pages),
+        page_parse_valid=sum(p.parse_status == "valid" for p in pages) if generative else None,
+        page_parse_rate=sum(p.parse_status == "valid" for p in pages) / expected_pages if generative and expected_pages else None,
+        failed_pages=sum(p.status in ("failed", "unavailable") for p in pages),
+        invalid_pages=sum(p.parse_status == "invalid" for p in pages),
+        json_syntax=validity("json_valid"), saved_schema_validation=validity("schema_valid"),
+        response_records=responses,
+        repeated_page_attempts=sum(max(0, v - 1) for v in histories.values()) if histories is not None else None,
+        model_retries=None,  # Tile, helper and resumed page calls are not necessarily retries.
+        document_times=[dict(document_id=d, observed_pages=len(v),
+                             page_wall_sum=sum(v) if all(x is not None for x in v) else None)
+                        for d, v in documents.items()],
+        start_regime="not_recorded",  # Loading and warm-up alone do not establish a controlled warm start.
+        note="Letzte gespeicherte Antworten, keine vollständige Inferenzhistorie. JSON-Syntax strikt; Schema gemäß gespeichertem parse_status, keine unabhängige Revalidierung. Seitenwiederholungen sind keine Modell-Retries.",
+    )
 
 
 def costs_per_1000(extraction_config, *, documents, pages):

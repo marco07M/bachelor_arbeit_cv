@@ -15,6 +15,7 @@ from ..excel_reference import ReferencePerson
 from ..identifiers import user_id_rule
 from ..io import digest, file_hash, read_json, read_jsonl, write_json
 from ..schema import PageResult
+from ..writing_style import STYLES
 from .config import BenchmarkConfig, ReferenceConfig
 from .field_assessment import LABELS as FIELD_LABELS
 from .field_assessment import assess
@@ -25,6 +26,7 @@ from .metrics import DETECTED_LABEL, detected_value, scores
 from .report import detected_percent
 
 STATUS = {"matched": "Zugeordnet", "missing": "Referenzperson ohne Zuordnung", "extra": "Ausgabe ohne Zuordnung",
+          "excluded_probably_unsigned": "Automatisch ausgeschlossen – wahrscheinlich ohne Unterschrift",
           "ambiguous": "Mehrdeutige Zuordnung", "identity_conflict": "Widerspruch zwischen ID und Namen",
           "duplicate_prediction": "Doppelte Modellausgabe", "empty_prediction": "Keine lesbaren Ausgabefelder"}
 REASONS = {"reference_missing_or_masked": "Referenzwert fehlt oder ist maskiert: aus der Bewertung ausgeschlossen",
@@ -223,6 +225,9 @@ def case_html(case, fields, references, config, labels, raw_people, source, dest
     content += f"<p>Datei: {esc(case.get('source_file'))} · Zuordnungsquelle: {esc(case.get('matching_source') or 'keine')} · "
     content += f"Zuordnungsähnlichkeit: {esc(case.get('identity_similarity') or '—')} · "
     content += f"Abstand zur globalen Alternative: {esc(case.get('alternative_gap') or '—')}</p>"
+    style_label = (STYLES.get(case.get('schriftart') or 'unclassified') if case.get('reference_row') not in (None, '')
+                   else 'Keine Referenzzuordnung')
+    content += '<p>GT-Schriftart: ' + esc(style_label) + '</p>'
     if case.get("matching_review_reasons"):
         content += '<p class="bad">Zuordnungsprüfung: ' + esc("; ".join(
             REASONS.get(reason, reason) for reason in case["matching_review_reasons"].split(" | "))) + "</p>"
@@ -296,9 +301,20 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
                 raise ValueError("Quellvorhersagen wurden seit dem gespeicherten Vergleich verändert")
             for record in read_jsonl(path):
                 page = PageResult.model_validate(record)
+                raw_path = source / method / f"raw-{page.page_id}.json"
+                col_diag = "—"
+                if raw_path.is_file():
+                    from ..report import mapping_diagnostics, mapping_reason
+
+                    traces = mapping_diagnostics(read_json(raw_path))
+                    if traces:
+                        t0 = traces[0]
+                        cmap = t0.get("column_mapping") or t0.get("columns") or {}
+                        src_p = t0.get("source_page")
+                        col_diag = f"{t0.get('status', 'not_recorded')} (Quellseite {src_p if src_p is not None else '—'}): {cmap} · {mapping_reason(t0)}"
                 source_pages[method].append(dict(source_file=source_names.get(page.document_id, ""),
                                                  page_number=page.page_number, rows=len(page.participants), status=page.status,
-                                                 parse_status=page.parse_status, error=page.error))
+                                                 parse_status=page.parse_status, column_diagnosis=col_diag, error=page.error))
                 for index, person in enumerate(page.participants):
                     raw_people[method, page.document_id, str(page.page_number), str(index)] = person
     from ..output_order import ordered_rows
@@ -374,9 +390,9 @@ def render_details(output: Path, *, source_run: Path | None = None) -> Path:
         overview.append(table(["Bewertungsstatus (alle Feldfälle)", "Anzahl"], [
             [FIELD_LABELS[k], v] for k, v in assessment_counts(method_fields).items()]))
         if source_pages[method]:
-            overview.append(table(["Datei", "PDF-Seite", "Ausgegebene Personen", "Verarbeitungsstatus", "Antwortformat", "Verarbeitungshinweis"],
+            overview.append(table(["Datei", "PDF-Seite", "Ausgegebene Personen", "Verarbeitungsstatus", "Antwortformat", "Spaltenzuordnung", "Verarbeitungshinweis"],
                                   [[row["source_file"], row["page_number"], row["rows"], row["status"], row["parse_status"],
-                                    row["error"] or "—"] for row in source_pages[method]]))
+                                    row.get("column_diagnosis", "—"), row["error"] or "—"] for row in source_pages[method]]))
         for (selected, course), records in grouped_cases.items():
             if selected != method:
                 continue

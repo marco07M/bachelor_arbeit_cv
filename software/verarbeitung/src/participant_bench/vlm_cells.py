@@ -50,8 +50,12 @@ def continuation_context(previous, profile, *, document_id, page_number):
         document_id=document_id, page_number=page_number)
     if trace["status"] != "inherited_from_previous_page":
         return None
+    from .column_context import compatible
+
+    if compatible(previous.get("full_geometry"), profile)[0]:
+        mapping.update(previous.get("nontext_columns", {}))
     columns = [dict(column=i, fields=sorted(k for k, cols in mapping.items() if i in cols),
-                    x_interval=prefix["edges"][i:i+2])
+                    x_interval=profile["edges"][i:i+2])
                for i in sorted({c for cols in mapping.values() for c in cols})]
     return dict(source_page=trace["source_page"], physical_columns=columns,
                 physical_column_count=profile["width"],
@@ -103,7 +107,8 @@ def echoed_row_observation(row, mapping, profile, hints):
         def text(field):
             left, right = bands.get(field, [0, 0])
             return " ".join(c["text"] for c in sorted(native, key=lambda c: c["bbox"]["x0"])
-                            if left <= c["bbox"]["x0"] < c["bbox"]["x1"] <= right)
+                            if left - .006 <= c["bbox"]["x0"] < c["bbox"]["x1"] <= right + .006
+                            and left <= (c["bbox"]["x0"] + c["bbox"]["x1"]) / 2 < right)
         name = normalize(text("first_name") + (" " + text("last_name")
                          if bands.get("first_name") != bands.get("last_name") else ""))
         if name in names or identifier and normalize(identifier) == normalize(text("personnel_number")):
@@ -147,6 +152,8 @@ def parse_visual_response(raw: str, *, document_context=None, document_id=None,
     profile = text_column_geometry(column_geometry,
         current or (document_context or {}).get("mapping", {}),
         () if echoed or not any(response.identity_headers) else response.identity_headers)
+    if profile and len(response.identity_headers) < profile["width"]:
+        profile = None  # Even the text prefix is truncated. Slot indices are unsafe.
     grid_conflict = bool(column_geometry and column_geometry["width"] != len(response.identity_headers)
                          and profile is None)
     headings = {field: [dict(text=response.identity_headers[i], column=i) for i in sorted(cols)]
@@ -155,6 +162,16 @@ def parse_visual_response(raw: str, *, document_context=None, document_id=None,
         document_context, document_id=document_id, page_number=page_number,
         has_header=not echoed and any(title is not None and title.strip() for title in response.identity_headers),
         column_count=len(response.identity_headers))
+    if (trace["status"] in ("detected_on_current_page", "updated_on_current_page")
+            and profile and column_geometry["width"] == len(roles)):
+        snapshot["full_geometry"] = column_geometry
+        snapshot["nontext_columns"] = {field: [i for i, found in enumerate(roles) if found == {field}]
+                                       for field in ("signature", "date")}
+    if snapshot.get("nontext_columns") and column_geometry:
+        from .column_context import compatible
+
+        if compatible(snapshot.get("full_geometry"), column_geometry)[0] and trace["column_mapping"]:
+            trace["column_mapping"].update({k: v for k, v in snapshot["nontext_columns"].items() if v})
     interpretation = ("current_participant_row_echo" if echoed else
                       "reported_headings" if any(response.identity_headers) else "absent")
     trace["header_interpretation"] = interpretation
@@ -193,32 +210,44 @@ def parse_visual_response(raw: str, *, document_context=None, document_id=None,
                 value = row.identity_cells[choices[0]]
                 if isinstance(value, str) and not value.strip():
                     value = ""
-                setattr(person, field, TextField(value=value, state=(
-                    "uncertain" if value is None else "empty" if value == "" else "read")))
+                if (field == "department" and isinstance(value, str) and value
+                        and mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name")
+                        and value.strip().casefold() in {
+                            (row.first_name or "").strip().casefold(),
+                            (row.last_name or "").strip().casefold(),
+                        } - {""}):
+                    reason = "Namensbestandteil bei kombinierter Namensspalte in Organisationsspalte verschoben; nicht als Abteilung übernommen"
+                    setattr(person, field, TextField(value=None, state="uncertain"))
+                else:
+                    setattr(person, field, TextField(value=value, state=(
+                        "uncertain" if value is None else "empty" if value == "" else "read")))
             if reason:
                 person.review_notes.append(f"{field}: {reason}")
                 warnings.append(dict(output_index=index, field=field, reason=reason))
-        if echoed and trace["status"] == "inherited_from_previous_page" and aligned:
+        if trace["status"] == "inherited_from_previous_page" and aligned and (
+                echoed or (cell_observations and any(getattr(person, f).value is None for f in FIELDS))):
             # A contract-violating header echo does not establish each cell's
             # position. Require independent, already available native positions.
             from .column_context import column_intervals
             from .structure_assignment import complete_observed_cells
 
             observed = echoed_row_observation(row, mapping, profile, cell_observations)
-            for field in FIELDS:
-                if getattr(person, field).value != "":
-                    setattr(person, field, TextField())
+            if echoed:
+                for field in FIELDS:
+                    if getattr(person, field).value != "":
+                        setattr(person, field, TextField())
             proof = dict(source_row=observed["id"] if observed else "", fields={})
             changes = complete_observed_cells([person], [proof], [observed] if observed else [],
                 dict(trace, observed_cell_bands={f: b for f, b in column_intervals(mapping, profile).items() if f in FIELDS}))
             corroboration.append(dict(output_index=index, source_row=proof["source_row"], fields=proof["fields"]))
-            for field in FIELDS:
-                reason = ("Aktuelle native OCR-Zelle in geprüfter Folgeseitenspalte übernommen; manuell prüfen"
-                          if any(c["field"] == field for c in changes) else
-                          "Fehlerhafte Modellüberschriften ohne eindeutige aktuelle räumliche Feldbestätigung; Wert unbekannt")
-                if getattr(person, field).value != "":
-                    person.review_notes.append(f"{field}: {reason}")
-                    warnings.append(dict(output_index=index, field=field, reason=reason))
+            if echoed:
+                for field in FIELDS:
+                    reason = ("Aktuelle native OCR-Zelle in geprüfter Folgeseitenspalte übernommen; manuell prüfen"
+                              if any(c["field"] == field for c in changes) else
+                              "Fehlerhafte Modellüberschriften ohne eindeutige aktuelle räumliche Feldbestätigung; Wert unbekannt")
+                    if getattr(person, field).value != "":
+                        person.review_notes.append(f"{field}: {reason}")
+                        warnings.append(dict(output_index=index, field=field, reason=reason))
         participants.append(person)
     audit = dict(kind="physical_identity_cells", identity_headers=response.identity_headers,
                  header_interpretation=interpretation,

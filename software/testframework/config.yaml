@@ -2,7 +2,7 @@
 input_dir: eingabe_pdfs
 reference_dir: referenz
 reference_file: null  # null: use the only CSV/XLSX in reference_dir
-extraction_config: ../configs/benchmark.yaml
+extraction_config: ../configs/benchmark-vlm8b.yaml
 output_dir: ergebnisse
 # The roster has no signature ground truth; avoid extra visual detail calls by default.
 signature_detail_checks: false
@@ -19,6 +19,7 @@ reference:
   delimiter: null  # detect comma, semicolon or tab; alternatively ';'
   merge_identical_duplicates: false
 matching:
+  exclude_probably_unsigned_extras: true  # post-matching, requires row-local signature evidence
   compare_name_orientations: true  # compare whole name groups, audit swaps; never rewrite extraction
   ignore_leading_user_id_zeros: true
   mode: best_fit

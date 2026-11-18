@@ -7,14 +7,14 @@ No OCR, language model, fixed pixel columns or reference data enter this module.
 import re
 from collections import defaultdict
 
-from .column_context import geometry, resolve
+from .column_context import geometry, native_table_geometry, resolve
 from .column_headers import ORGANIZATION_ALIASES, field_roles
 from .name_parts import classify_name_pair, infer_column_tiebreaker, split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import source_rows
 
-VERSION = "tableformer-native-v7-row-observation-trace"
+VERSION = "tableformer-native-v8-anchored-image-grid"
 
 
 def _is_combined_name_cell(text: str) -> bool:
@@ -270,21 +270,41 @@ def _normalized_ocr_observations(recognized, size):
     return observations
 
 
-def _field_for_x(cx, intervals, margin=0.015):
-    sig = intervals.get("signature")
-    if sig and sig[0] <= cx <= sig[1]:
-        # Do not pull signature ink into text fields unless it is inside a text field interval.
-        if not any(
-            intervals.get(f) and intervals[f][0] <= cx <= intervals[f][1]
-            for f in TEXT_FIELDS
-        ):
-            return []
-    matched = []
-    for field in TEXT_FIELDS:
-        band = intervals.get(field)
-        if band and (band[0] - margin) <= cx <= (band[1] + margin):
-            matched.append(field)
-    return matched
+def _field_for_x(cx, intervals):
+    # A cell on a separator has no unique side. Combined names are one physical cell.
+    matched = [field for field, (left, right) in intervals.items() if left < cx < right]
+    if len(matched) == 1 and matched[0] in TEXT_FIELDS:
+        return matched
+    if set(matched) == {"first_name", "last_name"} and intervals["first_name"] == intervals["last_name"]:
+        return matched
+    return []
+
+
+def ruled_ocr_rows(recognized, size):
+    """Use current OCR inside measured closed cells when TableFormer returned no table."""
+    boxes = recognized.get("image_row_boxes") or []
+    if not boxes or not recognized.get("image_column_boundaries"):
+        return [], None
+    left, _, right, _ = boxes[0]
+    edges = [left, *(x for x in recognized["image_column_boundaries"] if left+.008 < x < right-.008), right]
+    profile = geometry(len(edges)-1, boundaries=edges)
+    if not profile:
+        return [], None
+    observations = _normalized_ocr_observations(recognized, size)
+    rows = []
+    for index, (_, top, _, bottom) in enumerate(boxes):
+        cells = []
+        for col, (x0, x1) in enumerate(zip(edges, edges[1:])):
+            parts = [o for o in observations if top <= o["bbox"]["y0"] < o["bbox"]["y1"] <= bottom
+                     and x0 <= o["bbox"]["x0"] < o["bbox"]["x1"] <= x1]
+            if parts:
+                parts.sort(key=lambda o: o["bbox"]["x0"])
+                cells.append(dict(column_start=col, colspan=1, rowspan=1,
+                    text=" ".join(o["text"] for o in parts), bbox=union([o["bbox"] for o in parts]),
+                    native_ref=[o["native_ref"] for o in parts]))
+        if cells:
+            rows.append(dict(id=f"grid-r{index}", grid_width=profile["width"], cells=cells, row_index=index))
+    return rows, profile
 
 
 def _apply_stage2_geometry_fallback(
@@ -443,7 +463,12 @@ def _apply_stage2_geometry_fallback(
             ccy = (cbox["y0"] + cbox["y1"]) / 2
             ov_y = min(cbox["y1"], obox["y1"]) - max(cbox["y0"], obox["y0"])
             min_h = max(min(cbox["y1"] - cbox["y0"], obox["y1"] - obox["y0"]), 1e-4)
-            if ov_y / min_h > 0.25 or abs(cy - ccy) <= 0.014:
+            x_conflict = any(
+                min(item["bbox"]["x1"], obox["x1"]) - max(item["bbox"]["x0"], obox["x0"])
+                > 0.1 * min(item["bbox"]["x1"] - item["bbox"]["x0"], obox["x1"] - obox["x0"])
+                for item in cluster
+            )
+            if (ov_y / min_h > 0.25 or abs(cy - ccy) <= 0.014) and not x_conflict:
                 cluster.append(obs)
                 placed = True
                 break
@@ -569,13 +594,18 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
     aliases = recognized.get("organization_header_aliases") or ORGANIZATION_ALIASES
     diagnostics = []
     row_decisions = []
-    for table_index, table in enumerate(recognized.get("tables", [])):
-        rows, source, errors = table_rows(table, table_index, size)
+    tables = recognized.get("tables") or []
+    measured_rows, measured = ([], None) if tables else ruled_ocr_rows(recognized, size)
+    for table_index, table in enumerate(tables or ([None] if measured else [])):
+        rows, source, errors = (table_rows(table, table_index, size) if table is not None
+                                else (measured_rows, "ruled_ocr_cells", []))
         notes.extend(errors)
         mapping, headings = {}, {}
         width = max((row.get("grid_width", max((c["column_start"]+c["colspan"] for c in row["cells"]), default=0))
                      for row in rows), default=0)
-        profile = geometry(width, rows)
+        profile = measured or native_table_geometry(width, rows, recognized.get("image_column_boundaries"))
+        if measured:
+            width = measured["width"]
         inherited, has_header, resolved = False, False, False
         trace = {}
         header_bottom = 0.0
@@ -645,13 +675,14 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                     warnings.append(f"{field}: column_mapping_failed" if len(columns) != 1 else f"{field}: cell_assignment_failed")
                     continue
                 cell = candidates[0]
-                partial = bool(re.search(r"\.\.\.|…", cell["text"]))
-                fields[field] = TextField(value=cell["text"], state="uncertain" if partial else "read" if cell["text"] else "empty",
+                text = "" if field == "personnel_number" and not cell["text"].strip(" |_") else cell["text"]
+                partial = bool(re.search(r"\.\.\.|…", text))
+                fields[field] = TextField(value=text, state="uncertain" if partial else "read" if text else "empty",
                     bbox=Box.model_validate(cell["bbox"]) if cell.get("bbox") else None)
                 evidence[field] = dict(text=cell["text"], column_start=cell["column_start"],
                     native_ref=cell.get("native_ref"), heading=headings.get(field, []),
                     assignment_rule=("inherited_printed_header_cell" if inherited else
-                                     "native_printed_header_cell" if source == "native" else "html_printed_header_cell"),
+                                     f"{source}_printed_header_cell"),
                     mapping_provenance=trace)
                 evidence[field]["observation_state"] = "partial" if partial else "observed"
             combined = (mapping.get("first_name") and mapping.get("first_name") == mapping.get("last_name"))
@@ -717,7 +748,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                             and re.fullmatch(r"[0-9]+", c["text"])), None)
             people.append(Participant(**fields, row_ref=row_ref,
                 bbox=Box.model_validate(union(boxes)) if boxes else None,
-                review_notes=warnings + ["Native TableFormer header mapping; no LLM"] +
+                review_notes=warnings + [f"Header mapping from {source}; no LLM"] +
                              (["Inherited headings of the same PDF; verify continuation layout"] if inherited else [])))
             proofs.append(dict(output_index=len(people)-1, source_row=row["id"], table_index=table_index,
                 source_row_index=row["row_index"], grid_source=source, fields=evidence,
@@ -729,7 +760,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
                 document_id=document_id, page_number=page_number, has_header=has_header, column_count=width)
         fallback_count = 0
         intervals = trace.get("column_intervals") or trace.get("inherited_column_intervals") or {}
-        if intervals:
+        if intervals and not measured:
             fallback_count += _apply_stage2_geometry_fallback(
                 recognized,
                 size,
@@ -766,7 +797,7 @@ def extract_structured(recognized, context=None, *, document_id=None, page_numbe
             organization_mapping="unique" if len(mapping.get("department", [])) == 1 else "ambiguous_or_missing"))
         if not mapping and not fallback_count:
             notes.append(f"column_mapping_failed: table {table_index} has no identifiable printed column headings")
-    if not recognized.get("tables") and context and document_id is not None and isinstance(page_number, int):
+    if not tables and not measured and document_id is not None and isinstance(page_number, int):
         _, context, trace = resolve(
             {},
             {},

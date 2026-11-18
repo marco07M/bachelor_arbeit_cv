@@ -59,9 +59,10 @@ def write_participants_xlsx(path, groups, columns=None, *, references=None):
                                 record.get("page_number"), record.get("output_index"), None])
     if references is not None:
         sheet = book.create_sheet("Referenz")
-        append(sheet, titles.values())
+        reference_titles = dict(titles, schriftart="schriftart")
+        append(sheet, reference_titles.values())
         for number, record in enumerate(references, 2):
-            append(sheet, [getattr(record, field) for field in titles])
+            append(sheet, [getattr(record, field) for field in reference_titles])
             source_rows.append(["Referenz", number, None, None, None, None, record.row_number])
     source = book.create_sheet("Quellen")
     append(source, ["Blatt", "Excel-Zeile", "Datei", "Dokument-ID", "PDF-Seite", "Eintragsindex", "Referenzzeile"])

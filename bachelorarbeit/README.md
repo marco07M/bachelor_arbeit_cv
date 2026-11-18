@@ -1,5 +1,14 @@
 # Schriftliche Bachelorarbeit
 
+Ergänzung vom **17.11.2026**: Grundlagen, Methodik, Umsetzung, Ergebnisse und
+Diskussion behandeln jetzt ANLS als optionale Feldadaption, Dreifeld-Zeilenkonsistenz,
+unabhängige Dokumentverfügbarkeit und Seitenstrata sowie technische Messgrenzen.
+Fünf neue verifizierte Originalquellen (DUE, DocVQA, ST-VQA, OCRBench, PubTabNet)
+ergänzen bestehende Donut-/Docling-/FUNSD-Belege ohne Duplikate. Neue Diagnosewerte
+stammen ausschließlich aus gespeicherten Entwicklungsausgaben; bisherige Scores
+bleiben unverändert. Methodik und Grenzen:
+[wissenschaftliche Zusatzdiagnostik](../software/docs/scientific-validity.md).
+
 Die Arbeit wurde ursprünglich aus `Downloads/studienarbeiten/studienarbeiten/thesis` übernommen.
 Seit dem **16.11.2026** sind sämtliche Kapitel (`chapters/01_einleitung.tex` bis
 `chapters/07_fazit.tex`), die Kurzfassung (`frontmatter/kurzfassung.tex`), das
@@ -11,8 +20,8 @@ Seitenorientierung, verlustfreiem OCR-Beobachtungsregister, dokumentweiter
 Spaltenvererbung v3 mit nativer Anker-Absicherung, zeilenindividueller
 Namensaufteilung, verlustfreier Input-Kompaktierung, fünfstufigem Feldstatus,
 bedingter Levenshtein-Ähnlichkeit erkannter Felder v7, kausaler Fehleranalyse
-und Dashboard A–G) synchronisiert. Geprüfte wissenschaftliche Originalquellen im
-IEEE-Zitierstil stehen in `verified_sources.bib` (35 zitierte Einträge);
+und Dashboard A–H) synchronisiert. Geprüfte wissenschaftliche Originalquellen im
+IEEE-Zitierstil stehen in `verified_sources.bib` (41 zitierte Einträge);
 `references.bib` bleibt das Zotero-Exportziel.
 Die ursprüngliche Vorlagendokumentation liegt in `VORLAGE_README.md`.
 

@@ -138,6 +138,7 @@ def compare_course(predictions: list[dict], references: list[ReferencePerson], c
         sources[source] += 1
         rows.append({
             "class_id": reference.class_id, "excel_row": reference.row_number,
+            "schriftart": reference.schriftart,
             "document_id": prediction["document_id"] if prediction else "",
             "page_number": prediction["page_number"] if prediction else "",
             "prediction_index": prediction["index"] if prediction else "",

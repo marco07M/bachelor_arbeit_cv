@@ -6,6 +6,9 @@ param(
     [string]$EnvFile,
     [switch]$CheckOnly,
     [switch]$Testframework,
+    [Nullable[int]]$Documents,
+    [Nullable[long]]$SampleSeed,
+    [switch]$AllDocuments,
     [switch]$NoPrompt
 )
 
@@ -28,6 +31,19 @@ try {
         $frameworkArguments = @('benchmark', $frameworkCommand, '--config', $frameworkConfig)
         if ($PSBoundParameters.ContainsKey('InputFolder')) {
             $frameworkArguments += @('--input', $InputFolder)
+        }
+        if (-not $CheckOnly) {
+            if ($PSBoundParameters.ContainsKey('Documents')) {
+                if ($AllDocuments) { throw 'Documents und AllDocuments nicht gemeinsam angeben.' }
+                $frameworkArguments += @('--documents', [string]$Documents)
+            } elseif ($AllDocuments) {
+                $frameworkArguments += '--all-documents'
+            } else {
+                $frameworkArguments += '--prompt-documents'
+            }
+            if ($PSBoundParameters.ContainsKey('SampleSeed')) {
+                $frameworkArguments += @('--sample-seed', [string]$SampleSeed)
+            }
         }
         if (-not $CheckOnly) {
             & (Join-Path $PSScriptRoot 'set-api-environment.ps1') -EnvFile $EnvFile -NoPrompt:$NoPrompt

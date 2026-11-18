@@ -1,5 +1,23 @@
 # Technischer Buildstand
 
+## Wissenschaftliche Validität vom 17.11.2026
+
+- Kapitel 2–6, Abkürzungsverzeichnis und verifizierte Literatur gezielt ergänzt:
+  optionale ANLS-Feldadaption, Zeilenkonsistenz, unabhängige Originalprüfung,
+  GT-Seitenstrata, mehrere Ursachenachsen und Messgrenzen.
+- Fünf neue Primärquellen; **41 zitierte Einträge**, keine doppelten Schlüssel.
+  Bestehender IEEE-Stil und Zotero-Export unverändert.
+- Lokaler Build mit vorhandener TinyTeX-Toolchain erfolgreich, **81 Seiten**.
+  0 unaufgelöste Zitate/Verweise, 0 Overfull-/Underfull-Boxen, 0 BibTeX-Warnungen;
+  bekannter epstopdf-Hinweis zu deaktiviertem Shell-Escape. Relevante neue Seiten
+  gerendert und visuell geprüft. Keine neuen Pakete oder Downloads.
+- TinyTeX benötigt erweiterten Dateisystemzugriff für die Windows-Auflösung des
+  übergeordneten Documents-Pfads; derselbe Build scheitert in der Dateisystem-Sandbox
+  bereits vor dem eigentlichen LaTeX-Aufruf. Keine Toolchainänderung.
+- 1.053 lokale Tests und 48 API-Tests erfolgreich; 27 neue Regressionen.
+  Entwicklungsausgaben bleiben explorativ; manuelle Zweitannotation und
+  kontrollierte Studien weiterhin offen. Historische Buildstände unten erhalten.
+
 ## Vollständige wissenschaftliche und technische Überarbeitung vom 16.11.2026
 
 - Vollständige Ausarbeitung und Synchronisierung aller Kapitel (`01_einleitung.tex`

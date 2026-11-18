@@ -15,7 +15,7 @@ if /I "%~1"=="--pruefen" goto :finish
 echo PDFs: testframework\eingabe_pdfs
 echo Excel oder CSV: testframework\referenz
 echo Die Referenz bleibt lokal. PDF-Seiten gehen an die konfigurierte API.
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "scripts\run-private-api.ps1" -Testframework
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File "scripts\run-private-api.ps1" -Testframework %*
 set "FRAMEWORK_EXIT_CODE=%ERRORLEVEL%"
 :finish
 popd

@@ -1,6 +1,7 @@
 """Post-hoc reference comparison across all pages/files of the same training ID."""
 
 import importlib.metadata
+import json
 import platform
 import re
 import time
@@ -19,12 +20,21 @@ from ..excel_columns import field_labels, write_participants_xlsx
 from ..io import file_hash, read_json, read_jsonl, write_csv, write_json
 from ..output_order import document_order, ordered_rows, page_key
 from ..schema import PageResult
-from .matching import Prediction
+from .matching import page_predictions
 from .metrics import aggregate, course_metrics
 from .references import read_reference
 
-VERSION = "roster-levenshtein-v7-detected-similarity"
+VERSION = "roster-levenshtein-v9-signature-exclusions"
 DEFINITIONS = {
+    "unsigned_exclusions": "Opt-in after unchanged matching: unmatched probably unsigned rows with localized blank signature evidence "
+                           "and no similar reference anchors contribute neither P nor participant extras. Reference rows always remain. "
+                           "Uncertain, signed, conflicting and spelling-near outputs retain penalties and manual review. "
+                           "Raw predicted_participants includes exclusions; evaluated_predicted_participants does not. "
+                           "No calibrated signature probability is available; OCR confidence is never used as signature confidence.",
+    "schriftart": "Optional manual participant GT h/m/g; absent means unclassified, never inferred from page or model. "
+                  "Groups slice fixed field/identity decisions after matching. Unpaired outputs have no GT style; "
+                  "their P/FP remain global, separately disclosed. Group precision/F1 is conditional on GT pairs. "
+                  "g is a participant category, not a per-field handwriting label.",
     "output_order": "PDF input order, page number and original output_index. Reference-only rows follow "
                     "the extracted participants separately; reference order never reorders predictions.",
     "score": "Detected-field similarity = detected_similarity_credit / detected_fields; undefined if D=0. "
@@ -191,8 +201,7 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                                        reason="ambiguous_document_course" if class_id is None else "no_reference_course",
                                        participants=len(page.participants)))
                 continue
-            predicted[class_id].extend(Prediction(page.document_id, page.page_number, index, person)
-                                       for index, person in enumerate(page.participants))
+            predicted[class_id].extend(page_predictions(page, source / method))
             workbook_groups[method].extend(dict(
                 class_id=class_id, user_id=person.personnel_number.value,
                 first_name=person.first_name.value, last_name=person.last_name.value,
@@ -293,9 +302,11 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
     write_json(output / "config.json", config.model_dump())
     write_csv(output / "documents.csv", documents)
     write_csv(output / "courses.csv", course_rows, fields=None if course_rows else ["method", "class_id", "score_percent"])
-    write_csv(output / "participants.csv", row_details,
+    write_csv(output / "participants.csv", [{k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+                                            for k, v in row.items()} for row in row_details],
               fields=None if row_details else ["method", "class_id", "reference_row", "document_id", "status"])
-    write_csv(output / "fields.csv", field_details,
+    write_csv(output / "fields.csv", [{k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+                                      for k, v in row.items()} for row in field_details],
               fields=None if field_details else ["method", "class_id", "field", "reference_value", "prediction_value", "similarity"])
     write_csv(output / "matching_candidates.csv", all_candidates,
               fields=None if all_candidates else ["method", "class_id", "prediction_index", "reference_row", "identity_similarity"])
@@ -308,13 +319,17 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
                source_reference_changed=scope["reference_changed_after_snapshot"],
                manifest_sha256=manifest_hash, summary_sha256=summary_hash,
                extraction_sha256=extraction_hashes,
+               signature_evidence_artifacts={m: {r["signature_assessment"]["raw_artifact"]:
+                   r["signature_assessment"]["raw_artifact_sha256"] for r in row_details
+                   if r["method"] == m and r.get("signature_assessment") and "raw_artifact" in r["signature_assessment"]}
+                   for m in metrics},
                source_identity_sha256=file_hash(source / "identity.json") if (source / "identity.json").is_file() else None,
                python=platform.python_version(),
                packages={name: importlib.metadata.version(name) for name in ("numpy", "scipy", "openpyxl", "pydantic", "pyyaml")},
                implementation={path.name: file_hash(path) for path in Path(__file__).parent.glob("*.py")},
                shared_implementation={name: file_hash(Path(__file__).parent.parent / name) for name in
                    ("hybrid_evaluation.py", "evaluation.py", "identifiers.py", "excel_columns.py", "excel_reference.py",
-                    "reference_states.py", "output_order.py")},
+                    "reference_states.py", "output_order.py", "signatures.py")},
                evaluated_at=datetime.now(timezone.utc).isoformat(), duration_seconds=time.perf_counter() - started))
     from .report import render
 
@@ -355,4 +370,7 @@ def evaluate_run(source: Path, reference_file: Path, config, output_root: Path, 
         from .scientific import analyze
 
         analyze(output, **(scientific_options or {}))
+    from ..document_sampling import annotate_report
+
+    annotate_report(output, manifest)
     return output, metrics

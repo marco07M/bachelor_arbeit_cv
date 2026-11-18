@@ -1,0 +1,42 @@
+# Explicit larger-model experiment; the fixed 4B main comparison remains available.
+extends: benchmark.yaml
+main_comparison: false
+# Model mappings replace the inherited mapping, so retain the exact text configuration.
+models:
+  ocr_llm:
+    repo: Qwen/Qwen3-4B-Instruct-2507
+    revision: cdbee75f17c01a7cc42f958dc650907174af0554
+    path: models/qwen3-4b-instruct-2507
+    dtype: bfloat16
+    quantization: none
+    attention: sdpa_repeated_kv
+    device: cuda
+    gpu_memory_gib: 9
+    cpu_memory_gib: 32
+    max_input_tokens: 12000
+    prefill_chunk_size: 1024
+    max_new_tokens: 8192
+    do_sample: false
+    temperature: 0.7
+    warmup: true
+    preserve_partial_fields: true
+    ocr_row_selection: pattern
+  vlm:
+    repo: Qwen/Qwen3-VL-8B-Instruct
+    revision: 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
+    path: models/qwen3-vl-8b
+    dtype: bfloat16
+    quantization: int8
+    attention: sdpa_repeated_kv
+    device: cuda
+    gpu_memory_gib: 11
+    cpu_memory_gib: 32
+    max_input_tokens: 12000
+    max_new_tokens: 8192
+    do_sample: false
+    temperature: 0.7
+    min_pixels: 65536
+    max_pixels: 1048576
+    tile_height: null
+    tile_overlap: 0
+    warmup: true

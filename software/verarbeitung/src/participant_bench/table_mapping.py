@@ -3,13 +3,13 @@
 import re
 from collections import defaultdict
 
-from .column_context import geometry, resolve
+from .column_context import native_table_geometry, resolve
 from .name_parts import classify_name_pair, infer_column_tiebreaker, split_combined_name
 from .schema import TEXT_FIELDS, Box, Participant, TextField
 from .structure_assignment import rectangle, union
 from .unlimited_assignment import header_fields, source_rows, table_headers
 
-VERSION = "tableformer-heading-mapping-v3-document-columns"
+VERSION = "tableformer-heading-mapping-v4-anchored-image-grid"
 
 
 def extract_docling(recognized: dict, context: dict | None = None, *, document_id=None, page_number=None):
@@ -30,7 +30,7 @@ def extract_docling(recognized: dict, context: dict | None = None, *, document_i
         from .structured_mapping import table_rows
 
         native_rows, _, _ = table_rows(table, table_index, size)
-        profile = geometry(width, native_rows)
+        profile = native_table_geometry(width, native_rows, recognized.get("image_column_boundaries"))
         labels = {field: [dict(text=c["text"], column=c["column_start"], row=r["row_index"])
                   for r in headers for c in r["cells"] if c["column_start"] in columns]
                   for field, columns in mapping.items()}

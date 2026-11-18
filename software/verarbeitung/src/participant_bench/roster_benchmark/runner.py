@@ -4,8 +4,10 @@ from pathlib import Path
 
 from ..config import Config
 from ..config import load_config as load_extraction_config
+from ..document_sampling import ask_count, make_sample, selected_inputs
 from ..io import file_hash
 from ..models import require_offline
+from ..pdf import inventory
 from ..runner import run as extract
 from .config import reference_path, resolve
 from .evaluation import evaluate_run, identify_course
@@ -37,7 +39,9 @@ def preflight(config, base, input_override=None, reference_override=None):
 
 
 def run_benchmark(config, base: Path, *, input_override=None, reference_override=None, methods=None, resume=None,
-                  allow_api=False, manifest_path=None):
+                  allow_api=False, manifest_path=None, documents=None, sample_seed=None, prompt_documents=False):
+    if (documents is not None or sample_seed is not None) and (resume or manifest_path):
+        raise ValueError("Bei Resume/Manifest bleibt die gespeicherte Dokumentauswahl erhalten; keine neue Anzahl oder Seed angeben")
     folder, reference, frozen, overview = preflight(config, base, input_override, reference_override)
     extraction = load_extraction_config(resolve(base, config.extraction_config))
     if methods:
@@ -50,10 +54,28 @@ def run_benchmark(config, base: Path, *, input_override=None, reference_override
     if output_root.is_relative_to(folder) or Path(extraction.output_dir).resolve().is_relative_to(folder):
         raise ValueError("Eingabe und Ergebnisordner müssen getrennt liegen")
     require_offline(extraction, not allow_api)
-    print(f"Testframework: {overview['input_pdfs']} PDFs, {overview['courses_compared']} Schulungen im Referenzabgleich", flush=True)
+    document_sample = None
+    if (prompt_documents and not resume and manifest_path is None) or documents is not None:
+        inputs = inventory(folder, True, include_images=False)
+        available = len({r["sha256"] for r in inputs if r["kind"] == "pdf"})
+        if documents is None:
+            documents = ask_count(available)
+        if documents is not None:
+            document_sample = make_sample(inputs, documents, sample_seed)
+            names = ", ".join(Path(r["path"]).name for r in selected_inputs(inputs, document_sample))
+            print(f"Ausgewählt: {documents} von {available} PDFs; Seed {document_sample['seed']}\nPDFs: {names}", flush=True)
+    if sample_seed is not None and documents is None:
+        raise ValueError("--sample-seed benötigt eine Dokumentanzahl (--documents)")
+    if document_sample is not None:
+        print(f"Testframework: {document_sample['count']} zufällig ausgewählte PDFs für alle Verfahren "
+              f"(Eingabepool: {overview['input_pdfs']} PDF-Dateien)", flush=True)
+    else:
+        print(f"Testframework: {overview['input_pdfs']} PDFs, {overview['courses_compared']} Schulungen im Referenzabgleich", flush=True)
     print("Modelle verarbeiten PDFs/Seiten nacheinander. Referenzwerte werden nicht an die Extraktion übergeben.", flush=True)
     # Only model configuration and PDF directory enter the existing inference runner.
     options = dict(resume=resume, offline=not allow_api)
+    if document_sample is not None:
+        options["document_sample"] = document_sample
     if manifest_path is not None:
         options["manifest_path"] = manifest_path.resolve()
     source, _ = extract(extraction, folder, **options)

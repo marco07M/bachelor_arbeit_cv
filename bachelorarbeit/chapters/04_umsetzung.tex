@@ -43,7 +43,7 @@ Das Softwaresystem ist unter \texttt{software/} als reproduzierbares Python-3.12
     $\Downarrow$ \\[4pt]
     \fbox{\parbox{0.92\textwidth}{\centering
       \textbf{4. Evaluation, Audit \& Fehleranalyse (\texttt{roster\_benchmark/}, \texttt{testframework/})}\\[2pt]
-      Schulungs-Matching (\texttt{matching.py}) $\rightarrow$ Feld-/Personenmetriken v7 (\texttt{metrics.py}, \texttt{field\_assessment.py}) $\rightarrow$ Kausale Fehlerdiagnose (\texttt{error\_report.py}) \& Wissenschaftliches Offline-Dashboard A--G (\texttt{dashboard\_report.py})
+      Schulungs-Matching (\texttt{matching.py}) $\rightarrow$ Feld-/Personenmetriken v9 (\texttt{metrics.py}, \texttt{field\_assessment.py}) $\rightarrow$ Kausale Fehlerdiagnose (\texttt{error\_report.py}) \& Wissenschaftliches Offline-Dashboard A--H (\texttt{dashboard\_report.py})
     }}
   \end{tabular}
   \caption{Modulare Systemarchitektur des lokalen Evaluationsframeworks (\texttt{software/}) für die fünf Vergleichsverfahren.}
@@ -135,7 +135,7 @@ Analog implementieren \texttt{selection\_config.py}, \texttt{selection\_sample.p
 
 Für die Auswertung erzeugt \texttt{roster\_benchmark/} vollständig lokal bedienbare, durch \ac{csp}-Skripthashes geschützte Offline-\ac{html}-Berichte sowie maschinenlesbare \ac{json}-, \ac{csv}- und \ac{xlsx}-Exporte. Die Reihenfolge aller ausgegebenen Teilnehmerzeilen folgt über \texttt{output\_order.py} strikt der \ac{pdf}-Eingabereihenfolge, der Seitennummer und dem ursprünglichen Modell-Eintragsindex; die Referenz sortiert die Modellausgabe niemals um.
 
-Das zentrale wissenschaftliche Dashboard (\texttt{dashboard\_report.py}, integriert in \texttt{report.html} neben dem weiterhin erzeugten \texttt{standard\_report.html}) gliedert sich in sieben interaktive Bereiche (\textbf{A--G}):
+Das zentrale wissenschaftliche Dashboard (\texttt{dashboard\_report.py}, integriert in \texttt{report.html} neben dem weiterhin erzeugten \texttt{standard\_report.html}) gliedert sich in acht interaktive Bereiche (\textbf{A--H}):
 \begin{itemize}
   \item \textbf{Bereich~A (Gesamtvergleich):} Sortierbare Haupttabelle unter primärer Originalrollenbewertung (\texttt{original\_roles}) mit exaktem Feld-Recall ($E/R$), exaktem Feld-$F_1$, bedingter mittlerer Levenshtein-Ähnlichkeit erkannter Felder ($S_{\mathrm{detected}} = \Sigma_s / |D|$), Feldabdeckung, Fehl- und Falschraten, vollständigen/partiellen Teilnehmerquotienten, striktem Teilnehmer-Recall sowie aufklappbaren Matching-Sensitivitäten.
   \item \textbf{Bereich~B (Feldanalyse):} Vierfeld-Heatmap ($E/R$, $M$, $W$) für \emph{Vorname}, \emph{Nachname}, \emph{Personalnummer} und \emph{Organisation} sowie getrennte Ausweisung ungepaarter Zusatzfelder und ausgeschlossener Referenzen.
@@ -145,6 +145,10 @@ Das zentrale wissenschaftliche Dashboard (\texttt{dashboard\_report.py}, integri
   \item \textbf{Bereich~F (Statistik \& Gegenvergleiche):} Gepaarte Differenzen und 95-\%-Cluster-Bootstrap-Intervalle (\texttt{scientific\_stats.py}) sowie die kontrollierten Pipeline-Übergänge ($\texttt{vlm} \rightarrow \texttt{ocr\_vlm}$ und $\texttt{ocr\_llm} \rightarrow \texttt{paddle\_llm}$ aus \texttt{hybrid\_evaluation.py}).
   \item \textbf{Bereich~G (Evaluationsaudit \& Einzelbewertungen):} Das in \texttt{metric\_audit.py} und \texttt{metric\_audit\_report.py} implementierte Prüfmodul stellt sämtliche Einzel-Feld- und Teilnehmerentscheidungen mit Original-GT, extrahiertem Originalwert, fünfstufigem Feldstatus, prozentualer Levenshtein-Ähnlichkeit, $R/P/E/\Sigma_s/|D|$-Beiträgen und Original-\ac{pdf}-Links dar und prüft in \texttt{metric\_audit\_checks.json} automatisiert die exakte mathematische Übereinstimmung (Reconciliation) aller Einzelbeiträge mit den Gesamtaggregaten.
 \end{itemize}
+
+Bereich~H ergänzt die teilnehmerbezogenen GT-Schriftarten \texttt{h/m/g} und nicht klassifizierte Teilnehmer mit festen Paarungen, Nennern und Feldtypen. Die verlinkte Seite \texttt{missing\_fields.html} verwendet \texttt{document\_availability.py} für unabhängig annotierte Originalverfügbarkeit, lokale Prüfentwürfe, JSON-Import/-Export und eine getrennte lesbare Referenzteilmenge. Entwürfe verändern keine eingefrorenen Scores. Ihre Übernahme erfolgt ausschließlich in einem neuen Analyseordner.
+
+\texttt{scientific\_validity.py} ergänzt auf denselben gespeicherten Zählern optionale ANLS-Feldähnlichkeit, Dreifeld-Zeilenkonsistenz, unabhängige Seitenstrata und mehrere Ursachenachsen. \texttt{scientific\_validity\_report.py} erzeugt \texttt{validity.html} sowie CSV-/JSON-Beiträge. \texttt{analyze --anls} aktiviert die Zusatzmetrik; \texttt{--page-annotations} liest ein gegen PDF-/Referenzsnapshot validiertes Seitenprotokoll. Unbekannte Referenzpositionen bleiben sichtbar. Die technische Stabilitätsansicht verwendet vorhandene Rohantworten und Seitenversuchshistorien, ohne neue Modellaufrufe. Metrikversion~v9 und wissenschaftliche Analyseversion~v8 unterscheiden zusätzliche Diagnosen von Änderungen der bestehenden Bewertung.
 
 \section{Datenschutzkonzept und architektonische Isolation des Firmen-\texorpdfstring{\ac{api}}{API}-Pakets}
 \label{sec:umsetzung-datenschutz-api}

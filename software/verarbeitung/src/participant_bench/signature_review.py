@@ -74,11 +74,13 @@ def recheck_run(source: Path, config, methods=None, output: Path | None = None, 
             method_dir.mkdir(exist_ok=True)
             raw_records = []
             method_started = time.perf_counter()
+            signature_contexts = {}
             for page in pages:
                 page.run_id = output.name
                 page.calls, page.timings = 0, {}
                 raw_path = source / method / f"raw-{page.page_id}.json"
                 raw = read_json(raw_path) if raw_path.is_file() else {}
+                raw.pop("signature_cell_checks", None)
                 if method == "vlm" and config.signature.use_ocr_positions and not raw.get("signature_ocr"):
                     for baseline in ("ocr_llm", "ocr_rules"):
                         baseline_path = source / baseline / f"raw-{page.page_id}.json"
@@ -91,7 +93,9 @@ def recheck_run(source: Path, config, methods=None, output: Path | None = None, 
                     image_path = output / "pages" / f"{page.page_id}.png"
                     with Image.open(image_path) as source_image:
                         with source_image.convert("RGB") as image:
-                            signature_details(page, raw, image, model, config, method_dir)
+                            signature_details(page, raw, image, model, config, method_dir,
+                                              signature_contexts.get(page.document_id))
+                            signature_contexts[page.document_id] = raw.get("signature_column_context", {})
                 raw.update(status=page.status, signature_recheck_source=str(raw_path.resolve()))
                 write_json(method_dir / f"raw-{page.page_id}.json", raw)
                 raw_records.append(raw)

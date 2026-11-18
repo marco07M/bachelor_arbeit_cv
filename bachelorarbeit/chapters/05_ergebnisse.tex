@@ -140,6 +140,36 @@ Im systematischen Fehleraudit über zehn Entwicklungs-\acp{pdf} mit $20$~Seiten 
 
 \TODO{Vollständiger Fünfer-/Sechser-Benchmarklauf auf allen 10 automatisch ausgerichteten Entwicklungs-PDFs sowie anschließende Ausführung des eingefrorenen Auswahlpiloten ($30$--$50$ unabhängige Listen, mind.\ $5$ Schulungsgruppen) und des gesperrten Abschlusstests über \texttt{participant-bench selection run/compare} bzw.\ \texttt{start\_testframework.cmd}. Sobald mindestens $G \ge 10$ unabhängige geprüfte Abhängigkeitsgruppen vorliegen, werden hier die gepoolten Punkt- und 95-\%-Cluster-Bootstrap-Intervallschätzer aus \texttt{scientific/intervals.csv} und \texttt{scientific/paired.csv} sowie die unabhängigen Seiten-/Handschrift-CER/WER- und Signatur-Präsenzmetriken aus \texttt{ocr-final} (\texttt{configs/calibration.yaml}) eingetragen.}
 
+\section{Zusatzdiagnostik auf eingefrorenen Entwicklungsausgaben}
+\label{sec:ergebnisse-validitaet}
+
+Die Neuanalyse vom 17.11.2026 verwendet unverändert den gespeicherten Zehndokumentlauf mit $20$~Seiten, $155$~Referenzpersonen und $R=620$ Textfeldern je Verfahren. Es fand keine neue Modellinferenz statt. Sämtliche bisherigen Gesamt- und Teilnehmerwerte blieben exakt gleich. Tabelle~\ref{tab:zusatzdiagnostik} zeigt ausschließlich zusätzlich berechnete Diagnosewerte gemäß Abschnitt~\ref{subsec:anls-zeilenkonsistenz}; sie dokumentiert keinen Extraktionsgewinn.
+
+\begin{table}[htbp]
+ \centering
+ \caption{Zusatzdiagnostik auf denselben eingefrorenen Entwicklungsausgaben; $R=620$, $N_3=155$ je Verfahren.}
+ \label{tab:zusatzdiagnostik}
+ \begin{tabular}{@{}lrr@{}}
+  \toprule
+  Verfahren & ANLS-Feldähnlichkeit & Exakte Identitätszeilen $C_3/N_3$ \\
+  \midrule
+  \texttt{ocr\_rules} & $0{,}00\,\%$ & $0/155$ \\
+  \texttt{ocr\_llm} & $64{,}74\,\%$ & $92/155$ \\
+  \texttt{paddle\_llm} & $72{,}34\,\%$ & $94/155$ \\
+  \texttt{vlm} & $62{,}40\,\%$ & $75/155$ \\
+  \texttt{ocr\_vlm} & $69{,}03\,\%$ & $93/155$ \\
+  \bottomrule
+ \end{tabular}
+\end{table}
+
+Eine einzelne assistierte, von den Modellvorhersagen getrennte Sichtprüfung zweier Original-PDFs ergab $99$~lesbare Feldwerte, darunter $13$ Abweichungen zur Kursreferenz, sowie neun leere Personalnummernfelder. Ein weiterer Feldfall blieb unsicher, $511$ ungeprüft. Für die zusätzliche lesbare und referenzgleiche Bewertung verbleiben $R_{\mathrm{doc}}=86$ Felder. Diese selektive Teilmenge ist kein doppelt annotiertes Goldset und kein korrigierter Gesamtnenner. Bei den $208$ fehlenden VLM-Feldbeiträgen sind neun Originalabwesenheiten und $32$ gespeicherte technische Übergangsverluste dokumentiert; ein Zuordnungshinweis und $166$ unbekannte Ursachen bleiben getrennt. Die Übergangsbelege beweisen keine Richtigkeit der verworfenen Inhalte.
+
+Auf vier visuell gesichteten Originalseiten sind $34$ Referenzpersonen unabhängig lokalisiert: $18$ auf ersten Teilnehmerseiten und $16$ auf Folgeseiten ohne Überschriften. Die übrigen $121$ Personen bleiben in der unbekannten Positionsgruppe. Fehlende Personen werden nicht anhand ihrer Modellausgabe aus der Gruppe entfernt. Scanqualität wurde nicht klassifiziert. Eine Gruppenrangfolge oder allgemeine Handschriftleistung ist daraus nicht ableitbar.
+
+Der ältere Docling-Vergleich besitzt einen eigenen Umfang von einem PDF mit $72$ Referenzfeldern. Seine passende Archivkopie wurde über die gespeicherte Prüfsumme verifiziert; $16$ von $18$ Referenzzeilen stehen im neueren Snapshot an anderer Position. Die Dokumentprüfung verwendet deshalb eindeutige Personenanker statt gleicher Zeilennummern. Von $17$ fehlenden Docling-Feldern sind acht dokumentbedingt, acht unbekannt und eines mit einem Referenz-/Matchinghinweis versehen. Diese separate Datenbasis wird nicht mit dem Zehndokumentlauf zu einer Verfahrensrangfolge gepoolt.
+
+Die neuen Berichte enthalten die Referenz-/Vorhersagepaare, einzelne ANLS-Beiträge, Zeilenentscheidungen, Originalbelege und Versionsbindungen. Der reproduzierbare Analyseordner heißt \path{wissenschaftliche-validitaet-20261117-v3}; die zugehörigen lokalen Prüfprotokolle liegen unter \path{software/data/scientific-validity-20261117/}. Die dortigen Falldaten sind vertraulich. Nicht verfügbare technische Messungen bleiben ausdrücklich offen.
+
 \section{Analyse der Laufzeit- und Ressourceneffizienz}
 \label{sec:ergebnisse-effizienz}
 

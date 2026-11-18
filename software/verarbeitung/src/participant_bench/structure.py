@@ -247,9 +247,11 @@ class StructureModel:
             self.progress.log(f"{self.method}: Seitenanalyse aus lokalem Cache übernommen")
         html = "\n".join(table["html"] for table in result["tables"])
         result = dict(result, organization_header_aliases=self.settings.organization_header_aliases)
-        from .column_context import image_boundaries
+        from .column_context import image_boundaries, ruled_row_boxes
 
         result["image_column_boundaries"] = image_boundaries(image)
+        if self.method == "docling" and not result["tables"]:
+            result["image_row_boxes"] = ruled_row_boxes(image)
         # This mapping uses explicit printed headers only; it never calls an LLM or splits guessed names.
         if self.method == "docling" and self.settings.extraction == "table":
             from .table_mapping import VERSION, extract_docling

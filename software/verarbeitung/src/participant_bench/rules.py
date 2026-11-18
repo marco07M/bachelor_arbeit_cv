@@ -230,3 +230,115 @@ def attach_signatures(participants, image, data, config):
         participant.signature_method = "opencv_conservative"
         participant.review_notes.append(note)
     return time.perf_counter() - start
+
+
+def signature_columns(image, raw, config, previous=None, *, document_id, page_number):
+    """Locate the assumed signature column using existing scoped heading/geometry checks."""
+    from .column_context import compatible, mapping_diagnostics
+    from .ocr_layout import with_table_columns
+
+    traces = mapping_diagnostics(raw)
+    data = raw.get("ocr") or raw.get("signature_ocr") or {}
+    context = previous or {}
+    if data.get("words"):
+        layout_data = with_table_columns(data, image, dict(column_mapping_context=context),
+                                        document_id=document_id, page_number=page_number)
+        context = layout_data["column_mapping_context"]
+        traces = [*traces, layout_data["mapping_provenance"]]
+    intervals, accepted = [], []
+    for trace in traces:
+        if trace.get("document_id") != document_id or trace.get("page_number") != page_number:
+            continue
+        profile = trace.get("geometry") or {}
+        columns = trace.get("column_mapping", {}).get("signature", [])
+        text_columns = {c for f in TEXT_FIELDS for c in trace.get("column_mapping", {}).get(f, [])}
+        if set(columns) & text_columns:
+            return [], context, dict(assumed_present=True, status="ambiguous_column_position", intervals=[])
+        edges = profile.get("edges", [])
+        inherited = trace.get("status") == "inherited_from_previous_page"
+        if inherited and not compatible((trace.get("geometry_check") or {}).get("source_geometry"), profile)[0]:
+            continue  # Text-prefix compatibility does not prove a trailing signature cell.
+        if trace.get("status") not in ("detected_on_current_page", "updated_on_current_page", "inherited_from_previous_page"):
+            continue
+        if columns and all(isinstance(c, int) and 0 <= c < len(edges) - 1 for c in columns):
+            current = [(edges[c], edges[c+1]) for c in sorted(set(columns))]
+            if intervals and current != intervals:
+                return [], context, dict(assumed_present=True, status="ambiguous_column_position")
+            intervals, accepted = current, [*accepted, trace]
+    if not intervals and "signature" in config.rules.columns:
+        intervals = [config.rules.columns["signature"]]
+        return intervals, context, dict(assumed_present=True, status="configured_column_position", intervals=intervals)
+    return intervals, context, dict(assumed_present=True, status="localized" if intervals else "column_position_unknown",
+                                   intervals=intervals, mapping_provenance=accepted)
+
+
+def inspect_signature_cells(participants, image, raw, config, previous=None, *, document_id, page_number):
+    """Image-only presence checks on actual cells; never consume signature OCR as text."""
+    columns, context, trace = signature_columns(image, raw, config, previous,
+                                               document_id=document_id, page_number=page_number)
+    regions = row_regions(participants, config)
+    _, horizontal, _ = grid_masks(image)
+    boundaries = line_positions(horizontal, 1)
+    records = []
+    for index, (person, region) in enumerate(zip(participants, regions, strict=True)):
+        box = person.bbox
+        basis = "unknown"
+        if box and region:
+            text_anchors = set()
+            for mapping_trace in trace.get("mapping_provenance", []):
+                edges = (mapping_trace.get("geometry") or {}).get("edges", [])
+                text_anchors.update((edges[c]+edges[c+1])/2 for field in TEXT_FIELDS
+                    for c in mapping_trace.get("column_mapping", {}).get(field, []) if 0 <= c < len(edges)-1)
+            text_anchors.update((left+right)/2 for field, (left, right) in config.rules.columns.items() if field in TEXT_FIELDS)
+            if not text_anchors and box.x0 != 0 and box.x1 != 1:
+                text_anchors.add((box.x0+box.x1)/2)
+            text_anchors = {x for x in text_anchors if not any(left <= x <= right for left, right in columns)}
+            anchors = [*text_anchors, *((left+right)/2 for left, right in columns)]
+            # A signature stroke alone must never shorten its own cell and then be erased as a border.
+            height, width = horizontal.shape
+            verified = [y for y in boundaries if text_anchors and all(np.any(horizontal[
+                max(0, int(y*height)-2):min(height, int(y*height)+3),
+                max(0, int(x*width)-2):min(width, int(x*width)+3)]) for x in anchors)]
+            center = (box.y0 + box.y1) / 2
+            before, after = [y for y in verified if y < box.y0], [y for y in verified if y > box.y1]
+            if before and after and max(before) <= center <= min(after) and min(after)-max(before) <= config.signature.max_row_height:
+                region = Box(x0=0, x1=1, y0=max(before), y1=min(after))
+                basis = "measured_grid_lines"
+            elif box.x0 == 0 and box.x1 == 1:
+                region, basis = box, "explicit_row_box"
+            else:
+                basis = "interpolated_text_band"
+            if any(other is not person and other.bbox and
+                   min(region.y1, other.bbox.y1) > max(region.y0, other.bbox.y0) for other in participants):
+                region, basis = None, "overlapping_participant_rows"
+            if any(r.get("output_index") == index and r.get("location_source") == "local_vlm"
+                   for r in raw.get("signature_checks", [])):
+                basis = "estimated_row_position"
+        cells = []
+        if region:
+            for left, right in columns:
+                cell = Box(x0=left, x1=right, y0=region.y0, y1=region.y1)
+                present, _, note = signature(image, cell, {}, config)
+                cells.append(dict(bbox=cell.model_dump(), blank=present is False, reason=note))
+        reliable = bool(cells and basis in ("measured_grid_lines", "explicit_row_box"))
+        blank = reliable and all(cell["blank"] for cell in cells)
+        prior = person.signature_present
+        conflict = bool(blank and prior is True)
+        present = False if blank and not conflict else True if prior is True and cells and not conflict else None
+        person.signature_present = present
+        person.signature_state = "empty" if present is False else "read" if present else "uncertain"
+        person.signature_method = "opencv_cells"
+        person.signature_bbox = (Box(x0=min(c["bbox"]["x0"] for c in cells), x1=max(c["bbox"]["x1"] for c in cells),
+                                     y0=region.y0, y1=region.y1) if cells else None)
+        reason = ("Bildbefund: alle lokalisierten Signaturzellen wahrscheinlich leer; nicht manuell bestätigt." if present is False else
+                  "Widerspruch zwischen erkannter Signatur und leerer Bildzelle; manuell prüfen." if conflict else
+                  "Signatur als vorhanden erkannt; keine Transkription." if present is True else
+                  "Signaturpräsenz unklar: Zellposition, Zeilengrenzen oder Bildinhalt nicht hinreichend sicher.")
+        person.review_notes.append(reason)
+        records.append(dict(output_index=index, participant_row=box.model_dump() if box else None,
+                            region=region.model_dump() if region else None, row_basis=basis, cells=cells,
+                            reliable_blank=blank and not conflict, signature_present=present,
+                            prior_signature_present=prior, conflict=conflict, reason=reason))
+    raw["signature_column_mapping"], raw["signature_cell_checks"] = trace, records
+    raw["signature_column_context"] = context
+    return context

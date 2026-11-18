@@ -90,15 +90,22 @@ const cards=[
  {dataset:{method:'paddle_llm',document:'d',page:'d:2',field:'short_code',category:'validation',certainty:'proven',stage:'validation',result:'missing'},textContent:'value two'},
  {dataset:{method:'paddle_llm',document:'other',page:'unknown',field:'short_code',category:'unknown',certainty:'unknown',stage:'unknown',result:'missing'},textContent:'no page'}];
 const sections=[{dataset:{method:'paddle_llm',page:'d:2'}},{dataset:{method:'ocr_llm',page:'d:1'}}];
-global.document={getElementById:id=>controls[id],querySelectorAll:selector=>selector==='article.field-case'?cards:sections};
+const participants=[
+ {dataset:{method:'paddle_llm',document:'d',page:'d:2'},textContent:'value two'},
+ {dataset:{method:'ocr_llm',document:'d',page:'d:1'},textContent:'value one'}];
+global.document={getElementById:id=>controls[id],querySelectorAll:selector=>
+ selector==='article.field-case'?cards:selector==='section.page-analysis'?sections:
+ selector==='tr.participant-review'?participants:[]};
 """ + SCRIPT + """
 const visible=()=>cards.filter(c=>!c.hidden).length;
 assert.equal(visible(),3);
 controls.method.value='paddle_llm';controls.method.apply();assert.equal(visible(),2);
 controls.page.value='d:2';controls.page.apply();assert.equal(visible(),1);assert.equal(sections[1].hidden,true);
+assert.equal(participants[0].hidden,false);assert.equal(participants[1].hidden,true);
 controls.field.value='user_id';controls.field.apply();assert.equal(visible(),0);
 controls.field.value='short_code';controls.category.value='validation';controls.certainty.value='proven';
 controls.search.value='TWO';controls.search.apply();assert.equal(visible(),1);
+assert.equal(participants[0].hidden,false);
 controls.category.value='unknown';controls.category.apply();assert.equal(visible(),0);
 for(const id of ids)controls[id].value='';controls.search.apply();assert.equal(visible(),3);
 controls.document.value='d';controls.document.apply();assert.equal(visible(),2);

@@ -55,15 +55,34 @@ def grouped_cells(data, indices):
     return result
 
 
+def table_line_groups(data, boxes):
+    """Join OCR blocks only inside the same enclosed row. Preserve stable word IDs."""
+    groups = line_groups(data)
+    if not boxes:
+        return groups
+    rows = {}
+    for line, indices in enumerate(groups):
+        wboxes = [data["words"][i]["bbox"] for i in indices]
+        x0, y0 = min(b["x0"] for b in wboxes), min(b["y0"] for b in wboxes)
+        x1, y1 = max(b["x1"] for b in wboxes), max(b["y1"] for b in wboxes)
+        slots = [r for r, (left, top, right, bottom) in enumerate(boxes)
+                 if left - .004 <= x0 <= x1 <= right + .004
+                 and top - .004 <= y0 <= y1 <= bottom + .004]
+        key = ("row", slots[0]) if len(slots) == 1 else ("line", line)
+        rows.setdefault(key, []).extend(indices)
+    return sorted(rows.values(), key=lambda ids: min(data["words"][i]["bbox"]["y0"] for i in ids))
+
+
 def with_table_columns(data, image, previous=None, *, document_id=None, page_number=None, row_policy="pattern"):
     """Add geometry only; retain every original word and its ID for independent grounding."""
-    from .column_context import geometry, image_boundaries, resolve
+    from .column_context import geometry, image_boundaries, resolve, ruled_row_boxes
     from .column_headers import field_roles
 
     boundaries = image_boundaries(image)
     enriched = dict(data, physical_columns=boundaries)
     source_rows = []
-    for indices in line_groups(data):
+    boxes = ruled_row_boxes(image) if boundaries else []
+    for indices in table_line_groups(data, boxes):
         groups = grouped_cells(enriched, indices) if enriched["physical_columns"] else [
             dict(column=0, word_ids=indices, text=" ".join(data["words"][i]["text"] for i in indices))]
         cells = []
@@ -108,6 +127,7 @@ def with_table_columns(data, image, previous=None, *, document_id=None, page_num
         (previous or {}).get("column_mapping_context"), document_id=document_id, page_number=page_number,
         has_header=bool(header_rows))
     inherited = trace["status"] == "inherited_from_previous_page"
+    trace["current_ruled_rows"] = len(boxes)
     chosen, hint = select_person_rows(source_rows) if enriched["physical_columns"] else (source_rows, None)
     name_columns = set(mapping.get("first_name", ())) | set(mapping.get("last_name", ()))
     if len(name_columns) == 1:

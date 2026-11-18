@@ -10,7 +10,7 @@ import yaml
 from .config import Config
 from .io import digest, file_hash, read_json, read_jsonl, write_csv, write_json
 from .roster_benchmark.evaluation import evaluate_run, identify_course
-from .roster_benchmark.matching import Prediction
+from .roster_benchmark.matching import page_predictions
 from .roster_benchmark.metrics import aggregate, course_metrics
 from .roster_benchmark.references import read_reference, saved_reference
 from .schema import PageResult
@@ -254,9 +254,7 @@ def compare(plan_path, output, sources=None, comparisons=None, *, scope="pilot",
         document_courses = {d["document_id"]: d["class_id"] for d in documents}
         for record in pages:
             page = PageResult.model_validate(record)
-            grouped[document_courses[page.document_id]].extend(
-                Prediction(page.document_id, page.page_number, index, person)
-                for index, person in enumerate(page.participants))
+            grouped[document_courses[page.document_id]].extend(page_predictions(page, source / candidate.method))
         for person in frozen.people:
             references[person.class_id].append(person)
         paired_config = benchmark.matching.model_copy(update={"compare_name_orientations": True})

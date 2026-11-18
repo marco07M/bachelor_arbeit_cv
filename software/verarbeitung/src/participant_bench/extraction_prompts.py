@@ -5,9 +5,9 @@ prompt candidates. Rule IDs and evidence limits are documented in
 docs/prompt-design.md. This module has no model, reference-data or I/O imports.
 """
 
-VERSION = "participant-json-v26-roster-header-scope"
-ASSIGNMENT_VERSION = "ocr-cell-assignment-v23-literature-guidelines"
-POSITIONED_ASSIGNMENT_VERSION = "ocr-cell-assignment-v24-literature-guidelines-positioned"
+VERSION = "participant-json-v27-ruled-continuation"
+ASSIGNMENT_VERSION = "ocr-cell-assignment-v25-verified-continuation"
+POSITIONED_ASSIGNMENT_VERSION = "ocr-cell-assignment-v26-verified-continuation-positioned"
 NAME_VERSION = "document-name-order-v4-literature-guidelines"
 ROLE_VERSION = "participant-roles-v2-literature-guidelines"
 

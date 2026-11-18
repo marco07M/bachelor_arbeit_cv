@@ -13,7 +13,7 @@ from ..column_context import mapping_reason
 from ..config import METHODS
 from ..io import digest, file_hash, read_json, read_jsonl, write_csv, write_json
 from ..ocr_observations import audit
-from ..schema import PageResult
+from ..schema import TEXT_FIELDS, PageResult
 from .detail_report import document, esc, read_csv, table, truth
 from .field_assessment import LABELS as FIELD_LABELS
 from .field_assessment import assess
@@ -21,9 +21,10 @@ from .field_assessment import counts as assessment_counts
 from .field_assessment import percent as similarity_percent
 from .field_assessment import scoring_status as field_status
 from .matching import FIELDS
+from .metrics import scores
 from .pipeline_trace import field_trace, page_trace
 
-VERSION = "extraction-error-analysis-v7-field-states"
+VERSION = "extraction-error-analysis-v9-page-column-outcomes"
 CATEGORIES = {
     "none": "Kein bewerteter Feldfehler", "unknown": "Ursache unbekannt",
     "name_swap": "Vor-/Nachname-Vertauschung (Swap)",
@@ -50,6 +51,10 @@ const method=document.getElementById('method')?.value,page=document.getElementBy
 const doc=document.getElementById('document')?.value;
 section.hidden=!!((method&&section.dataset.method!==method)||(page&&section.dataset.page!==page)||
 (doc&&section.dataset.document!==doc));}
+for(const row of document.querySelectorAll('tr.participant-review')){
+row.hidden=ids.filter(id=>['method','document','class','page'].includes(id)).some(id=>{
+const c=document.getElementById(id);return c.value&&row.dataset[id]!==c.value;})||
+!row.textContent.toLocaleLowerCase().includes(search.value.toLocaleLowerCase());}
 document.getElementById('visible-count').textContent=String(count);};
 if(typeof location!=='undefined'){
  const query=new URLSearchParams(location.search);
@@ -83,6 +88,28 @@ def row_proof(raw, index):
         index = indices[0]
     matches = [p for p in proofs if p.get("output_index") == index]
     return matches[0] if len(matches) == 1 else {}
+
+
+def page_column_outcomes(page, traces, ledger):
+    """Compare saved column decisions with final outputs, without grading them."""
+    rows = []
+    reliable = {"inherited_from_previous_page", "updated_on_current_page", "detected_on_current_page"}
+    for field in TEXT_FIELDS:
+        locations = []
+        for trace in traces:
+            cols = (trace.get("column_mapping") or {}).get(field, [])
+            if cols and trace.get("status") in reliable:
+                locations.append(f"Tabelle {trace.get('table_index', 0)}, Spalte {', '.join(map(str, cols))}")
+        values = [getattr(person, field).value for person in page.participants]
+        present = sum(bool(v and v.strip()) for v in values)
+        reasons = Counter(w["reason"] for w in ledger.get("field_warnings", [])
+                          if w.get("reason") and (w.get("field") == field or str(w.get("reason", "")).startswith(field + ":")))
+        for decision in ledger.get("mapper_row_decisions", []):
+            reasons.update(w for w in decision.get("field_warnings", []) if w.startswith(field + ":"))
+        rows.append([field, " / ".join(locations) or "Keine gesicherte Spaltenposition",
+                     present, len(values)-present, " · ".join(f"{r} ({n})" for r, n in reasons.items())
+                     or "Kein feldbezogener Ablehnungsgrund protokolliert"])
+    return rows
 
 
 def diagnose_field(row, page=None, raw=None, ledger=None):
@@ -217,6 +244,91 @@ def select(name, title, values):
         f'<option value="{esc(key)}">{esc(label)}</option>' for key, label in values) + '</select></label>'
 
 
+def signature_label(evidence):
+    if not evidence:
+        return "Unbekannt; kein Signaturbeleg vorhanden."
+    present = evidence.get("signature_present")
+    status = "vorhanden" if present is True else "als fehlend erkannt" if present is False else "unklar"
+    return (f"{status} · Zustand: {evidence.get('signature_state')} · Methode: {evidence.get('signature_method') or 'unbekannt'}\n"
+            f"Zeilenbeleg: {evidence.get('row_evidence')} · Lokalisierung: {evidence.get('location_source') or 'unbekannt'}\n"
+            f"Unterschriftenspalte vorausgesetzt; Zeilengrenzen: {evidence.get('row_basis') or 'unbekannt'}; "
+            f"geprüfte Zellen: {len(evidence.get('cells') or [])}. Keine Signaturtranskription.\n"
+            + str(evidence.get("uncertainty") or "Unsicherheit unbekannt."))
+
+
+def participant_reviews(output, participants, fields, pages, specs):
+    """Display persisted decisions; no new matching, signature inference or metric calculation."""
+    for row in participants:
+        for name in ("signature_assessment", "reference_candidates"):
+            if isinstance(row.get(name), str):
+                try:
+                    row[name] = json.loads(row[name])
+                except ValueError:
+                    row[name] = None
+    reviewed = [r for r in participants if truth(r.get("excluded_from_quality")) or truth(r.get("manual_review_required"))]
+    write_json(output / "error_analysis/participants.json", reviewed)
+    text = '<h2>Signatur und Referenzzuordnung</h2><p>Referenzpersonen bleiben unabhängig von der Signatur im Nenner. '
+    text += 'Ausgeschlossen werden ausschließlich ungepaarte Zusatzpersonen mit lokalisiertem Leerfeldbefund und ohne ähnliche Referenzanker. '
+    text += 'Dies ist eine wahrscheinliche fehlende Unterschrift, keine visuell bestätigte Tatsache. OCR-Scores sind keine Signaturwahrscheinlichkeit. '
+    text += 'Unsichere Fälle bleiben regulär in den Qualitätsmetriken. Die folgenden Listen verwenden die Verfahrens-, Dokument-, Seiten- und Suchfilter der Feldanalyse. '
+    text += '<a href="error_analysis/participants.json">Entscheidungen als JSON</a>.</p>'
+    text += table(["Verfahren", "Automatisch ausgeschlossen", "Ungepaart, manuell prüfen", "Gepaarte / fehlende Referenzfälle mit Prüfhinweisen"], [
+        [m, sum(r["method"] == m and truth(r.get("excluded_from_quality")) for r in reviewed),
+         sum(r["method"] == m and r.get("reference_row") in (None, "") and truth(r.get("manual_review_required")) for r in reviewed),
+         sum(r["method"] == m and r.get("reference_row") not in (None, "") for r in reviewed)] for m in specs])
+    for excluded, title in ((True, "Automatisch ausgeschlossen – wahrscheinlich ohne Unterschrift"),
+                             (False, "Manuelle Prüfung erforderlich")):
+        selected = [r for r in reviewed if truth(r.get("excluded_from_quality")) == excluded]
+        text += f'<h3>{title} ({len(selected)})</h3><div class="scroll"><table><thead><tr>'
+        text += ''.join('<th>' + h + '</th>' for h in ("Verfahren / Dokument / Seite", "Teilnehmer / Referenz / Ausgabe", "Matching / Referenzkandidaten", "Signatur / Unsicherheit", "Grund / Originalbelege"))
+        text += '</tr></thead><tbody>'
+        for r in selected:
+            key = r["method"], r.get("document_id"), str(r.get("page_number") or "")
+            siblings = [f for f in fields if f["method"] == r["method"] and str(f.get("class_id")) == str(r["class_id"])
+                        and str(f.get("reference_row") or "") == str(r.get("reference_row") or "")
+                        and str(f.get("document_id") or "") == str(r.get("document_id") or "")
+                        and str(f.get("page_number") or "") == str(r.get("page_number") or "")
+                        and str(f.get("output_index") if f.get("output_index") is not None else "") == str(r.get("output_index") if r.get("output_index") is not None else "")]
+            name = ' '.join(str(f.get("reference_value") or f.get("prediction_value") or "") for f in siblings if f["field"] in ("first_name", "last_name"))
+            page = pages.get(key)
+            links = ''
+            if page:
+                source = Path(specs[r["method"]]["source"])
+                image = source / "pages" / (page.page_id + ".png")
+                if image.resolve().is_relative_to((source / "pages").resolve()) and image.is_file():
+                    links += f'<br><a href="{esc(relative_link(image, output))}">Originales Seitenbild</a>'
+            evidence = r.get("signature_assessment") or {}
+            if page:
+                for n, cell in enumerate(evidence.get("cells") or [], 1):
+                    cell_crop = crop(Path(specs[r["method"]]["source"]), output, page, cell.get("bbox"),
+                                     ("signature", key, r.get("output_index"), n))
+                    if cell_crop:
+                        links += f'<br><a href="{esc(cell_crop)}">Originale Signaturzelle {n}</a>'
+            crop_path = evidence.get("crop")
+            if crop_path:
+                root = (Path(specs[r["method"]]["source"]) / specs[r["method"]]["method"]).resolve()
+                path = (root / crop_path).resolve()
+                if path.is_relative_to(root) and path.is_file():
+                    links += f'<br><a href="{esc(relative_link(path, output))}">Geprüfter Zeilenausschnitt</a>'
+            attrs = dict(method=r["method"], document=r.get("document_id") or "unknown", **{"class": r["class_id"]},
+                         page=f"{r['document_id']}:{r['page_number']}" if r.get("page_number") else "unknown")
+            text += '<tr class="participant-review" ' + ' '.join(f'data-{k}="{esc(v)}"' for k, v in attrs.items()) + '>'
+            candidates = json.dumps(r.get("reference_candidates") or [], ensure_ascii=False)
+            values = [f"{r['method']} · {r.get('document_id') or 'Dokument unbekannt'} · {r.get('page_number') or 'Seite unbekannt'}",
+                      f"{name}\nGT {r.get('reference_row')} · Ausgabe {r.get('output_index')}",
+                      f"{r.get('status')} / {r.get('matching_source')}\n{r.get('matching_review_reasons')}\nKandidaten: {candidates}",
+                      signature_label(evidence)]
+            text += ''.join('<td>' + esc(v) + '</td>' for v in values)
+            reason = str(r.get("exclusion_reason_participant") or "")
+            if not excluded:
+                reason += " Prüfhinweise: " + str(r.get("matching_review_reasons") or r.get("status"))
+                if r.get("field_review_reasons"):
+                    reason += " · " + r["field_review_reasons"]
+            text += '<td>' + esc(reason) + links + '</td></tr>'
+        text += '</tbody></table></div>'
+    return text
+
+
 CAUSES = {
     "recognition_or_assignment": "OCR-/Texterkennung oder Zuordnung (Hypothese)",
     "table_or_row": "Tabellen-/Zeilenbeobachtung ohne Zuordnung",
@@ -306,6 +418,8 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
     if grading:
         fields=grading["fields"]
         metrics=dict(metrics,methods={m:dict(status="scientific_grading") for m in specs})
+    participant_path = output / "participants.csv"
+    participants = grading.get("participants") or (read_csv(participant_path) if participant_path.is_file() else [])
     from ..output_order import document_order, ordered_rows
 
     manifest = read_json(source / "manifest.json") if (source / "manifest.json").is_file() else {}
@@ -434,6 +548,12 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
             [[t.get('source_page'), t.get('status'), t.get('column_mapping', t.get('columns')),
               t.get('headings'), mapping_reason(t), t.get('geometry_check')]
              for t in chain.get('column_mappings', [])])
+        if page.output_kind != 'ocr_text':
+            body += table(['Feld', 'Gesicherte Position', 'Ausgaben mit Wert', 'Ausgaben ohne Wert',
+                           'Protokollierte Feldhinweise'], page_column_outcomes(page, chain['column_mappings'], ledger))
+            body += '<p>Die Anzahlen beziehen sich auf die ausgegebenen Personen dieser Seite. Eine geprüfte Spalte allein belegt weder einen gelesenen Wert noch dessen Richtigkeit.</p>'
+            if not page.participants:
+                body += '<p>Keine Teilnehmerzeile ausgegeben. Eine einzelne Feldursache lässt sich daraus nicht ableiten.</p>'
         body += f'<p>Extrahierte Personen: {len(page.participants)} · Status: {esc(page.status)} · Format: {esc(page.parse_status)}. '
         body += 'Reine OCR-Ausgaben werden nicht als Teilnehmerextraktion bewertet.</p>' if page.output_kind == 'ocr_text' else '</p>'
         if not raw:
@@ -483,6 +603,15 @@ def render_errors(output: Path, *, source_run: Path | None = None) -> Path:
         [method, *assessment_counts([r for r in records if r["method"] == method]).values()]
         for method in metrics["methods"]])
     content += '<p>Die fünf Anzeigestatus partitionieren alle Feldfälle einschließlich ungepaarter Ausgaben und unbekannter Referenzen. Die getrennten R/P/E-Beiträge bleiben unverändert. „Zuordnung unklar“ kann deshalb auch einen fehlenden finalen Referenzfeldbeitrag erklären; die Zahlen werden nicht addiert. Ohne zugeordneten nutzbaren Vergleichswert bleibt die Textähnlichkeit offen.</p>'
+    content += participant_reviews(output, participants, fields, pages, specs)
+    impact = grading.get("exclusion_metrics", metrics["methods"])
+    content += '<h3>Einfluss des Ausschlusses bei unveränderten Referenzpaaren</h3>'
+    content += table(["Verfahren", "Ausgeschlossene P-/FP-Feldbeiträge", "Exact F1 vor Ausschluss", "Exact F1 nach Ausschluss"], [
+        [m, s["unsigned_exclusion"]["excluded_field_values"],
+         similarity_percent(s["unsigned_exclusion"]["before_exclusion"]["exact_f1"] * 100 if s["unsigned_exclusion"]["before_exclusion"]["exact_f1"] is not None else None),
+         similarity_percent(scores(s["overall"])["exact_f1"] * 100 if scores(s["overall"])["exact_f1"] is not None else None)]
+        for m, s in impact.items() if "unsigned_exclusion" in s])
+    content += '<p>Dieser Vergleich entfernt nur die dokumentierten Zusatzbeiträge. Erwartete Felder, Exact-Treffer, Recall, Coverage, bedingte Textähnlichkeit und Referenzteilnehmer bleiben unverändert. Die Ausschlüsse erhalten keine Trefferpunkte.</p>'
     unique_pages = {(k[1], k[2], v.get("image_sha256")):v for k,v in pipeline_pages.items()}
     content += '<details><summary>PDF-Ausrichtung und Laufbilder je Seite</summary>'
     content += '<p>Diese Messwerte bestätigen die verarbeitete Datei, nicht deren visuell richtige Ausrichtung. Fehlende historische OSD-Vorschläge bleiben unbekannt.</p>'

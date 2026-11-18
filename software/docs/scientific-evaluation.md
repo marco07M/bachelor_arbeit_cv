@@ -1,6 +1,6 @@
 # Wissenschaftliche Analyse gespeicherter Vergleiche
 
-Stand: 11.11.2026. Implementiert in `roster_benchmark/scientific*.py`,
+Stand: 18.11.2026. Implementiert in `roster_benchmark/scientific*.py`,
 `metrics.py`, `error_report.py` und `dashboard_report.py`, integriert in den
 vorhandenen `report.html`. Keine neue Extraktion, Modell- oder Profiländerung.
 Die bisherige Feldbewertung bleibt erhalten. Die neue Hauptansicht verwendet
@@ -9,6 +9,28 @@ Ausgaben zusätzlich als `standard_report.html` erreichbar. Dieser Wechsel der
 sichtbaren Primäransicht ist keine Änderung historischer Extraktionen.
 
 ## Start aus `software/`
+
+[Handschrift vs. Maschinenschrift](schriftart.md#analyseseite-handschrift-vs-maschinenschrift)
+ergänzt eine separate filterbare Seite mit methodenunabhängiger Feldverteilung,
+bestehenden Qualitätswerten und der Trennung absoluter Fehler, gruppeninterner
+Fehlerraten und Fehleranteile. Kennzeichnungen bleiben teilnehmerbezogen; g und
+fehlende Labels werden separat ausgewiesen. Referenz- und unabhängig geprüfte
+Dokumentbasis stehen getrennt nebeneinander.
+
+[Wissenschaftliche Zusatzdiagnostik](scientific-validity.md) ergänzt optional
+ANLS (`analyze --anls`), Dreifeld-Zeilenkonsistenz, unabhängige Seitenstrata
+(`--page-annotations`), mehrere Ursachenachsen und technische Validitäts-/
+Versuchszähler in `validity.html`. Bestehende Scores bleiben erhalten.
+
+[Dokumentverfügbarkeit und Ursachen fehlender Felder](document-availability.md)
+ergänzt eine unabhängig annotierte Originalprüfung und eine klar getrennte,
+bedingte Qualitätsauswertung. Bestehende globale Scores und Matchingentscheidungen
+bleiben erhalten; ungeprüfte Fälle werden nicht automatisch ausgeschlossen.
+
+[Teilnehmerbezogene GT-Schriftart](schriftart.md) ergänzt h/m/g und Nicht
+klassifiziert auf unveränderten Paarungen. Bereich H zeigt die sechs
+Qualitätsdimensionen und Feldtypen; unzugeordnete Zusätze bleiben global.
+Dokumentmerkmale und Teilnehmerannotation sind getrennte Dimensionen.
 
 Aktuelle [Levenshtein-Bewertung](detected-similarity.md): Mittel der normalisierten
 Ähnlichkeiten nichtleerer bewertbarer Referenzpaare, getrennt von Coverage und
@@ -367,3 +389,11 @@ Referenzpersonen erhalten einen Match. Diese Beobachtungen gelten nur für diese
 Entwicklungsliste. Keine unabhängige Pilot-/Finalstudie, keine belastbaren CIs,
 keine allgemeine Rangfolge oder kausale Überlegenheit. Druck-/Handschrift-
 Unterschiede sind erst mit mehreren unabhängig klassifizierten Gruppen prüfbar.
+
+## Ergänzung: Referenzzuordnung und Signaturausschlüsse (16.11.2026)
+
+Die nachgelagerte Regel für wahrscheinlich nicht unterschriebene Zusatzpersonen,
+ihre Beleganforderungen, unveränderte Referenznenner und der Vorher-/Nachher-
+Nachweis sind in [Signatur und Referenzbewertung](signatur-referenzbewertung.md)
+beschrieben. Neue Standardvergleiche aktivieren die Regel explizit; eingefrorene
+ältere Konfigurationen behalten ihre frühere Fehlerzählung.

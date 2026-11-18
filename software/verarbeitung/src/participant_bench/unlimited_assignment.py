@@ -102,7 +102,8 @@ def parse_assignment_response(raw: str, rejected_rows: list, source_rows=None) -
 def header_fields(text):
     words = re.sub(r"[^\w]", "", text.casefold())
     title = re.sub(r"[^\w]", "", re.split(r"[\n(]", text.casefold(), maxsplit=1)[0])
-    if title in {"benutzername", "benutzemame", "username", "fullname", "namevorname", "nachnamevorname", "teilnehmername", "teilnehmemame"}:
+    if (title in {"benutzername", "benutzemame", "username", "fullname", "namevorname", "nachnamevorname", "teilnehmername", "teilnehmemame"}
+            or re.search(r"\b(?:user|benutzer|teilnehmer|full)[\s_-]*name\b", text, re.IGNORECASE)):
         return {"first_name", "last_name"}
     for name in ("first_name", "last_name"):
         if title in HEADERS[name]:
@@ -443,6 +444,12 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
             name_hint, omitted_rows, name_bounds, inherited_column = None, [], None, False
             if structure:
                 selected, name_hint = select_person_rows(rows)
+                if mapping_trace["status"] == "inherited_from_previous_page":
+                    # Sparse handwritten rows need not match the repeated-name pattern.
+                    selected = rows
+                    names = set(mapping_trace["column_mapping"].get("first_name", []))
+                    names.update(mapping_trace["column_mapping"].get("last_name", []))
+                    name_hint = next(iter(names)) if len(names) == 1 and method == "docling" else None
                 omitted_rows = [row["id"] for row in rows if row not in selected]
                 if name_hint is not None:
                     rows = [dict(row, id=f"r{index+1}", original_source_row=row["id"])
@@ -455,7 +462,7 @@ def assign_pages(pages, method_dir, config, progress, factory, persist=lambda: N
                             name_bounds = boundaries[name_hint:name_hint + 2]
                             name_columns[page.document_id] = dict(boundaries=boundaries, aspect=aspect,
                                                                   bounds=name_bounds, hint=name_hint)
-                elif method == "docling":
+                elif method == "docling" and mapping_trace["status"] == "no_reliable_mapping":
                     from .structure_assignment import continue_name_column, docling_columns
 
                     rows, name_hint, name_bounds = continue_name_column(

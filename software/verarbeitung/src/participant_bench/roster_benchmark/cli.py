@@ -17,12 +17,15 @@ def main(argv=None, *, default_config=DEFAULT_CONFIG, allow_api=False):
     description = "API-Testframework" if allow_api else "Lokales Testframework"
     parser = argparse.ArgumentParser(description=description + ": PDFs gegen Excel/CSV vergleichen")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("analyze", "metadata-template"):
+    for name in ("analyze", "metadata-template", "reference-template"):
         analysis=commands.add_parser(name,help="Wissenschaftliche Analyse in neuem Bericht / manuelle Metadatenvorlage")
         analysis.add_argument("--report",type=Path,required=True)
         analysis.add_argument("--output",type=Path,required=True)
         analysis.add_argument("--source-run",type=Path)
         if name=="analyze":
+            analysis.add_argument("--document-annotations",type=Path,help="Unabhängige Originalprüfung als JSON; neue bedingte Auswertung")
+            analysis.add_argument("--anls", action="store_true", help="Zusätzliche ANLS-Feldähnlichkeit mit Distanzschwelle 0,5; bestehende Scores bleiben erhalten")
+            analysis.add_argument("--page-annotations", type=Path, help="Unabhängige Seiten-/Referenzlokalisierung als JSON für Seitenstrata")
             analysis.add_argument("--metadata",type=Path)
             analysis.add_argument("--phase",choices=["all","development","pilot","test"],default="all")
             analysis.add_argument("--resamples",type=int,default=2000)
@@ -43,6 +46,11 @@ def main(argv=None, *, default_config=DEFAULT_CONFIG, allow_api=False):
             sub.add_argument("--method", choices=list(ALL_METHODS), action="append")
             sub.add_argument("--matching-mode", choices=["conservative", "best_fit"], help="Zuordnungsmodus für diesen Vergleich")
         if name == "run":
+            count = sub.add_mutually_exclusive_group()
+            count.add_argument("--documents", type=int, help="Anzahl zufällig gewählter vollständiger PDFs; alle Verfahren verwenden dieselbe Auswahl")
+            count.add_argument("--all-documents", action="store_true", help="Alle PDFs ohne Auswahlfrage verwenden")
+            sub.add_argument("--sample-seed", type=int, help="Zufalls-Seed für eine wiederholbare PDF-Auswahl")
+            sub.add_argument("--prompt-documents", action="store_true", help="Vor dem Lauf interaktiv nach der PDF-Anzahl fragen")
             sub.add_argument("--resume", type=Path, help="Abgebrochenen unveränderten Extraktionslauf fortsetzen")
             sub.add_argument("--extraction-config", type=Path, help="Anderes Profil für die Modellverarbeitung")
             sub.add_argument("--manifest", type=Path, help="Vorhandenes geprüftes Seitenmanifest mit manuellen Rotationen")
@@ -51,15 +59,22 @@ def main(argv=None, *, default_config=DEFAULT_CONFIG, allow_api=False):
             sub.add_argument("--output", type=Path, help="Neuer, noch nicht vorhandener Ausgabeordner")
     args = parser.parse_args(argv)
     try:
-        if args.command in ("analyze","metadata-template"):
+        if args.command in ("analyze","metadata-template", "reference-template"):
             from ..selection import bindings
             from .scientific import metadata_template, reanalyze
 
-            if args.command=="metadata-template":
+            if args.command == "reference-template":
+                from .references import export_reference, saved_reference
+
+                _, data, *_ = saved_reference(args.report, args.source_run)
+                print(export_reference(args.output, data.people, data.columns).resolve())
+            elif args.command=="metadata-template":
                 print(metadata_template(args.report,args.output,args.source_run))
             else:
                 result=reanalyze(args.report,args.output,metadata=args.metadata,phase=args.phase,
                     source_run=args.source_run,resamples=args.resamples,seed=args.seed,minimum_groups=args.minimum_groups,
+                    document_annotations=args.document_annotations,
+                    anls=args.anls, page_annotations=args.page_annotations,
                     additional_reports=bindings(args.additional_report))
                 print(f"Wissenschaftlicher Bericht: {(args.output/'report.html').resolve()}")
                 print(f"{result['courses']} Schulungen, {result['groups']} Gruppen; keine neue Inferenz.")
@@ -84,6 +99,12 @@ def main(argv=None, *, default_config=DEFAULT_CONFIG, allow_api=False):
         if args.command == "run":
             options = dict(input_override=args.input, reference_override=args.reference,
                            methods=args.method, resume=args.resume)
+            if args.documents is not None:
+                options["documents"] = args.documents
+            if args.sample_seed is not None:
+                options["sample_seed"] = args.sample_seed
+            if args.prompt_documents and not args.all_documents:
+                options["prompt_documents"] = True
             if args.manifest is not None:
                 options["manifest_path"] = args.manifest
             if allow_api:

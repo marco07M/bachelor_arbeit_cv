@@ -11,6 +11,7 @@ from openpyxl import load_workbook
 from ..excel_columns import resolve_columns
 from ..excel_reference import ReferencePerson, cell_text
 from ..io import file_hash, read_json
+from ..writing_style import schriftart_column
 from .config import ReferenceConfig
 
 
@@ -36,6 +37,12 @@ def saved_reference(report: Path, source_run=None):
     for method, expected in identity["extraction_sha256"].items():
         if expected and file_hash(source / method / "extractions.jsonl") != expected:
             raise ValueError("Historische Extraktionen wurden verändert")
+    for method, artifacts in identity.get("signature_evidence_artifacts", {}).items():
+        root = (source / method).resolve()
+        for name, expected in artifacts.items():
+            path = (root / name).resolve()
+            if not path.is_relative_to(root) or (file_hash(path) if path.is_file() else None) != expected:
+                raise ValueError("Gespeicherte Signaturbelege wurden verändert")
     for path,key in ((report/"config.json","comparison_config_sha256"),(source/"config.yaml","source_config_sha256")):
         if identity.get(key) and file_hash(path) != identity[key]:
             raise ValueError("Eingefrorene Konfiguration wurde verändert")
@@ -84,13 +91,15 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
                 headers = next(reader, [])
                 indices, labels = resolve_columns(headers, config.columns.model_dump(), optional=("user_id",))
                 states = status_indices(headers, config)
+                style_index = schriftart_column(headers)
                 for number, row in enumerate(reader, config.header_row + 1):
                     if not any(value.strip() for value in row):
                         continue
                     if max(indices.values()) >= len(row):
                         raise ValueError(f"CSV-Zeile {number} enthält zu wenige Spalten")
                     values = {field: row[index].strip() for field, index in indices.items()}
-                    records.append(person(number, values, {field: row[i] if i < len(row) else "" for field, i in states.items()}))
+                    records.append(person(number, values, {field: row[i] if i < len(row) else "" for field, i in states.items()},
+                                          row[style_index] if style_index is not None and style_index < len(row) else None))
         except UnicodeError:
             raise ValueError("CSV-Zeichenkodierung ungültig; UTF-8 exportieren oder reference.encoding angeben") from None
         except csv.Error:
@@ -105,11 +114,13 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
             header = next(sheet.iter_rows(min_row=config.header_row, max_row=config.header_row), [])
             indices, labels = resolve_columns([cell.value for cell in header], config.columns.model_dump(), optional=("user_id",))
             states = status_indices([cell.value for cell in header], config)
+            style_index = schriftart_column([cell.value for cell in header])
             for number, row in enumerate(sheet.iter_rows(min_row=config.header_row + 1), config.header_row + 1):
                 values = {field: cell_text(row[index], identifier=field in ("class_id", "user_id"))
                           for field, index in indices.items()}
                 if any(values.values()):
-                    records.append(person(number, values, {field: cell_text(row[i]) for field, i in states.items()}))
+                    records.append(person(number, values, {field: cell_text(row[i]) for field, i in states.items()},
+                                          cell_text(row[style_index]) if style_index is not None and style_index < len(row) else None))
         finally:
             book.close()
     else:
@@ -122,10 +133,12 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
     groups = defaultdict(list)
     for record in records:
         key = tuple(tuple(sorted(value.items())) if isinstance(value, dict) else value
-                    for name, value in asdict(record).items() if name != "row_number")
+                    for name, value in asdict(record).items() if name not in ("row_number", "schriftart"))
         groups[key].append(record)
     duplicates = [{"source_rows": [record.row_number for record in group], "copies": len(group)}
                   for group in groups.values() if len(group) > 1]
+    if config.merge_identical_duplicates and any(len({r.schriftart for r in group}) > 1 for group in groups.values()):
+        raise ValueError("Doppelte Referenzzeilen haben unterschiedliche Schriftart; manuell bereinigen")
     if duplicates and not config.merge_identical_duplicates:
         raise ValueError("Identische Referenzzeilen vorhanden; bereinigen oder reference.merge_identical_duplicates aktivieren. "
                          "Erste betroffene Zeilen: " + ", ".join(map(str, duplicates[0]["source_rows"])))
@@ -133,7 +146,7 @@ def read_reference(path: Path, config: ReferenceConfig) -> ReferenceData:
     return ReferenceData(selected, sheet_title, duplicates, "user_id" in indices, labels)
 
 
-def person(number, values, states=None):
+def person(number, values, states=None, schriftart=None):
     values.setdefault("user_id", "")
     if not values["class_id"]:
         raise ValueError(f"Schulungs-ID fehlt in Referenzzeile {number}")
@@ -145,4 +158,49 @@ def person(number, values, states=None):
     if any((state == "read" and not values.get(field)) or (state == "empty" and values.get(field))
            for field, state in states.items()):
         raise ValueError(f"Widersprüchlicher Referenzstatus in Zeile {number}")
-    return ReferencePerson(row_number=number, field_states=states, **values)
+    return ReferencePerson(row_number=number, field_states=states, schriftart=schriftart, **values)
+
+
+def export_reference(path, people, columns=None):
+    """Editable GT copy, never an extraction export or an overwrite of a source workbook."""
+    from ..excel_columns import write_participants_xlsx
+    from ..excel_reference import ExcelColumns
+    from ..io import write_csv
+
+    path = Path(path)
+    if path.exists():
+        raise ValueError("Neue Referenzdatei angeben; vorhandene Ground Truth wird nicht überschrieben")
+    if path.suffix.lower() not in (".xlsx", ".csv"):
+        raise ValueError("Referenzexport benötigt .xlsx oder .csv")
+    people = list(people)
+    labels = dict(columns or ExcelColumns().model_dump())
+    states = [f for f in labels if f != "class_id"]
+    if path.suffix.lower() == ".csv":
+        rows = [{**{title: getattr(p, f) for f, title in labels.items()},
+                 "schriftart": p.schriftart,
+                 **{f + "__state": p.field_states.get(f, "") for f in states}} for p in people]
+        write_csv(path, rows, fields=[*labels.values(), "schriftart", *(f + "__state" for f in states)])
+    else:
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
+
+        write_participants_xlsx(path, {}, labels, references=people)
+        book = load_workbook(path)
+        try:
+            sheet = book["Referenz"]
+            for column, field in enumerate(states, len(labels) + 2):
+                sheet.cell(1, column, field + "__state")
+                for row, person in enumerate(people, 2):
+                    sheet.cell(row, column, person.field_states.get(field, ""))
+            validation = DataValidation(type="list", formula1='"h,m,g"', allow_blank=True)
+            validation.showErrorMessage = True
+            validation.errorTitle, validation.error = "Schriftart", "Nur h, m, g oder leer zulässig."
+            validation.errorStyle = "stop"
+            sheet.add_data_validation(validation)
+            letter = get_column_letter(len(labels) + 1)
+            validation.add(f"{letter}2:{letter}{max(2, len(people) + 1)}")
+            sheet.freeze_panes = "A2"
+            book.save(path)
+        finally:
+            book.close()
+    return path
